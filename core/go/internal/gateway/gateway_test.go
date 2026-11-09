@@ -209,3 +209,19 @@ func TestVerifyRoutes(t *testing.T) {
 		t.Fatal(n)
 	}
 }
+
+// A definite HTTP error (e.g. 402 insufficient credits) is not billed; the
+// provider message reaches the caller.
+func TestHTTPErrorIsNotCharged(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Err: &gateway.ProviderError{Status: 402, Msg: "Insufficient credits"}}, {Err: &gateway.ProviderError{Status: 402, Msg: "Insufficient credits"}}}}
+	g, s, id := setup(t, f)
+	_, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req())
+	if err == nil || !strings.Contains(err.Error(), "Insufficient credits") {
+		t.Fatalf("message lost: %v", err)
+	}
+	var spent float64
+	s.R.QueryRow("select coalesce(sum(cost_actual_usd),0) from usage_records").Scan(&spent)
+	if spent != 0 {
+		t.Fatalf("charged %v for rejected calls", spent)
+	}
+}

@@ -215,6 +215,7 @@ func (e *Engine) finish(ctx context.Context, id string, err error) {
 	case ctx.Err() != nil:
 		return // Core shutting down: leave the task for recovery
 	}
+	cause := err // the closure below shadows err
 	werr := e.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
 		cur, err := task.Get(ctx, tx, id)
 		if err != nil || cur.State.Terminal() || cur.State == to {
@@ -224,6 +225,10 @@ func (e *Engine) finish(ctx context.Context, id string, err error) {
 			return nil
 		}
 		if _, err := task.Transition(ctx, tx, id, to, reason, wait, "core"); err != nil {
+			return err
+		}
+		if _, err := task.AppendEvent(ctx, tx, id, nil, "TASK_ERROR", "core", map[string]any{
+			"reason": reason, "detail": truncate(cause.Error(), 500)}); err != nil {
 			return err
 		}
 		if to.Terminal() {

@@ -200,6 +200,14 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			if ctx.Err() != nil {
 				act.Outcome = "cancelled"
 			}
+			// A definite HTTP error response means the provider did not run the
+			// request, so nothing was spent. Transport failures and timeouts stay
+			// uncertain and keep the reservation as spend (fail closed).
+			var pe *ProviderError
+			if errors.As(err, &pe) && pe.Status >= 400 && act.CostUSD == nil {
+				zero := 0.0
+				act.CostUSD = &zero
+			}
 		}
 		if rerr := g.gov.Reconcile(ctx, res, b.TaskID, act); rerr != nil {
 			return nil, rerr
