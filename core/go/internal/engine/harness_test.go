@@ -147,6 +147,15 @@ func (h *harness) submit(objective string, budgetOverride *task.Budget) *task.Ta
 	return t
 }
 
+func (h *harness) submitTools(objective string, tools ...string) *task.Task {
+	h.t.Helper()
+	t, _, err := h.eng.Submit(context.Background(), CreateInput{Objective: objective, AllowDomains: []string{h.host}, Tools: tools})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return t
+}
+
 func (h *harness) wait(id string, states ...task.State) *task.Task {
 	h.t.Helper()
 	deadline := time.Now().Add(30 * time.Second)

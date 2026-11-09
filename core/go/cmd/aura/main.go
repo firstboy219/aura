@@ -49,6 +49,8 @@ func usage(w io.Writer) {
   approve <approval-id> [--yes] show the full action and approve its exact hash
   reject <approval-id>
   answer <task-id> "<answer>"   answer a task's clarification question
+  event <key> [--dedup ID] [--payload JSON]   signal an external dependency (wakes waiting tasks)
+  task priority <id> <n>        reprioritize (-100..100, higher runs first)
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
@@ -72,7 +74,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = serve(args[1:])
 	case "doctor":
 		return doctor(stdout)
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer":
+	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -419,6 +421,20 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 				fmt.Fprintf(stdout, "%s  %-16s $%.4f  %s\n", t.ID, t.State, t.CostUSD, obj)
 			}
 			return nil
+		case "priority":
+			if len(rest) != 2 {
+				return usageErr("task priority <id> <-100..100>")
+			}
+			var p int
+			if _, err := fmt.Sscan(rest[1], &p); err != nil {
+				return usageErr("priority must be an integer")
+			}
+			var out map[string]any
+			if err := c.do("POST", "/tasks/"+rest[0]+"/priority", map[string]int{"priority": p}, nil, &out); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "%s priority=%v\n", out["id"], out["priority"])
+			return nil
 		case "show", "cancel", "pause", "resume":
 			if len(rest) != 1 {
 				return usageErr("task " + sub + " <id>")
@@ -547,6 +563,27 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "stopped; %v task(s) paused\n", out["stopped_tasks"])
+		return nil
+	case "event":
+		fs := flag.NewFlagSet("event", flag.ContinueOnError)
+		dedup := fs.String("dedup", "", "dedup id (repeated sends with the same id count once)")
+		payload := fs.String("payload", "", "JSON payload")
+		pos, err := parse(fs, rest)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr("event <key> [--dedup ID] [--payload JSON]")
+		}
+		body := map[string]any{"key": pos[0], "dedup_id": *dedup}
+		if *payload != "" {
+			body["payload"] = json.RawMessage(*payload)
+		}
+		var out map[string]any
+		if err := c.do("POST", "/events", body, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s duplicate=%v\n", out["id"], out["duplicate"])
 		return nil
 	case "answer":
 		if len(rest) != 2 {

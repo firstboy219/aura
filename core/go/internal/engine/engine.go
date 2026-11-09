@@ -108,6 +108,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		case <-tick.C:
 			e.ExpireApprovals(ctx)
 		}
+		e.Supervise(ctx)
 	}
 }
 
@@ -286,6 +287,7 @@ type session struct {
 	invoked    bool   // a tool call was accepted for this step
 	executed   bool   // the accepted tool call succeeded
 	approvalID string // set when the call was queued for approval
+	waitID     string // set when the step parked the task on a supervisor wait
 	fatal      error  // a Core-side error (budget, halt) that ends the task
 	denied     bool   // a request in this call was denied by policy: no replanning around it
 }

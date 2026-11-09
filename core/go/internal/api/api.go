@@ -74,6 +74,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/tasks/{id}", auth(s.getTask))
 	mux.Handle("GET /api/v1/tasks/{id}/events", auth(s.taskEvents))
 	mux.Handle("POST /api/v1/tasks/{id}/input", auth(s.answer))
+	mux.Handle("POST /api/v1/tasks/{id}/priority", auth(s.priority))
+	mux.Handle("POST /api/v1/events", auth(s.event))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
 	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
 	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
@@ -295,6 +297,44 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		out.Question = s.Engine.PendingQuestion(r.Context(), t.ID)
 	}
 	writeJSON(w, 200, out)
+}
+
+func (s *Server) priority(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Priority int `json:"priority"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	t, err := s.Engine.SetPriority(r.Context(), r.PathValue("id"), in.Priority)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, toAPI(t))
+}
+
+func (s *Server) event(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Key     string          `json:"key"`
+		DedupID string          `json:"dedup_id"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	id, dup, err := s.Engine.ExternalEvent(r.Context(), in.Key, in.DedupID, in.Payload)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	status := http.StatusAccepted
+	if dup {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, map[string]any{"id": id, "duplicate": dup})
 }
 
 func (s *Server) answer(w http.ResponseWriter, r *http.Request) {

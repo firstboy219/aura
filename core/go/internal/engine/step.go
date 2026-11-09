@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/gateway"
@@ -147,6 +148,11 @@ func (e *Engine) workerStep(ctx context.Context, t *task.Task, st *task.Step, ps
 			return err
 		}
 		return errStop
+	case "waiting":
+		if s.waitID == "" {
+			return errors.New("invalid_step_result: waiting without a supervisor wait")
+		}
+		return errStop // the task is parked in WAITING; the supervisor resumes it
 	case "fail":
 		if s.denied {
 			// A policy denial is not a recoverable step failure: never replan around it.
@@ -400,6 +406,14 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 		s.approvalID = ap.ID
 		return map[string]any{"status": "waiting_approval", "approval_id": ap.ID}, nil
 	}
+	if spec.ID == "wait.event" || spec.ID == "wait.until" {
+		id, err := e.createWait(ctx, s.t, s.step, spec.ID, args)
+		if err != nil {
+			return map[string]any{"status": "error", "reason_code": reasonCode(err)}, nil
+		}
+		s.waitID = id
+		return map[string]any{"status": "waiting", "reason_code": "supervisor_wait"}, nil
+	}
 	out, err := e.execute0(ctx, s.t, s.step, spec, args)
 	if err != nil {
 		return map[string]any{"status": "error", "reason_code": reasonCode(err)}, nil
@@ -458,6 +472,32 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			return nil, "", "bad_path"
 		}
 		return map[string]any{"path": p}, p, ""
+	case "wait.event":
+		var a struct {
+			Key string `json:"key"`
+		}
+		if strictDecode(c.Arguments, &a) != nil || !eventKeyRe.MatchString(a.Key) {
+			return nil, "", "invalid_arguments"
+		}
+		if s.plan == nil || s.plan.Key == nil || *s.plan.Key != a.Key {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		return map[string]any{"key": a.Key}, a.Key, ""
+	case "wait.until":
+		var a struct {
+			Until string `json:"until"`
+		}
+		if strictDecode(c.Arguments, &a) != nil {
+			return nil, "", "invalid_arguments"
+		}
+		if s.plan == nil || s.plan.Until == nil || *s.plan.Until != a.Until {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		at, err := time.Parse(time.RFC3339, a.Until)
+		if err != nil || at.After(time.Now().Add(maxWait)) {
+			return nil, "", "invalid_wait_time"
+		}
+		return map[string]any{"until": a.Until, "until_ms": at.UnixMilli()}, a.Until, ""
 	case "calc":
 		var a struct {
 			Expression string `json:"expression"`
@@ -529,6 +569,8 @@ func (e *Engine) hasProvenance(taskID, u string) bool {
 // outcome on the step. Writes are preceded by a durable intent (§8.1).
 func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
 	switch spec.ID {
+	case "wait.event", "wait.until":
+		return nil, errWaitTool // handled in serveTool before execution
 	case "web.search", "data.read", "calc":
 		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":
