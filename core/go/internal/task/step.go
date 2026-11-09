@@ -91,8 +91,9 @@ func GetStep(ctx context.Context, q store.Querier, id string) (*Step, error) {
 }
 
 // UpdateStep sets a step's state and outcome and appends the matching event.
+// A STEP_STARTED event counts one attempt.
 func UpdateStep(ctx context.Context, tx *sql.Tx, s *Step, state StepState, outcomeRef, outcomeHash, reason string, event string, data map[string]any) error {
-	if state == StepStarted {
+	if event == "STEP_STARTED" {
 		s.Attempts++
 	}
 	s.State = state

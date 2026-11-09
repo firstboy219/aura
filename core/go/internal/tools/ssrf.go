@@ -161,3 +161,12 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 	}
 	return nil, lastErr
 }
+
+// SetTestPort makes a test guard dial every connection to a fixture port.
+// It refuses guards that were not created with NewTestGuard.
+func SetTestPort(g *Guard, port string) {
+	if !g.allowLoopback {
+		panic("tools: SetTestPort on a production guard")
+	}
+	g.portOverride = port
+}
