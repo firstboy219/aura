@@ -107,11 +107,16 @@ func (e *Engine) workerStep(ctx context.Context, t *task.Task, st *task.Step, ps
 		return err
 	}
 	s.step, s.plan = st, ps
-	obs, err := e.observations(ctx, t.ID, st.StepNo)
+	obs, err := e.observations(ctx, t, st.StepNo)
 	if err != nil {
 		return err
 	}
-	raw, err := e.callWorker(ctx, s, "task.step", map[string]any{"objective": t.Objective, "step": ps, "observations": obs})
+	octx, err := e.ownerContext(ctx, t)
+	if err != nil {
+		return err
+	}
+	raw, err := e.callWorker(ctx, s, "task.step", map[string]any{"objective": t.Objective, "step": ps, "observations": obs,
+		"owner_context": octx, "tier": tierFor(t)})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -143,6 +148,10 @@ func (e *Engine) workerStep(ctx context.Context, t *task.Task, st *task.Step, ps
 		}
 		return errStop
 	case "fail":
+		if s.denied {
+			// A policy denial is not a recoverable step failure: never replan around it.
+			return fmt.Errorf("capability_denied: step %d attempted an action outside its grant or policy", st.StepNo)
+		}
 		return fmt.Errorf("step_failed: %s", truncate(r.Reason, 200))
 	}
 	return fmt.Errorf("invalid_step_result: decision %q", r.Decision)
@@ -169,8 +178,8 @@ type obsRecord struct {
 }
 
 // observations are earlier steps' outputs, labelled untrusted.
-func (e *Engine) observations(ctx context.Context, taskID string, before int) ([]observation, error) {
-	steps, err := task.Steps(ctx, e.st.R, taskID)
+func (e *Engine) observations(ctx context.Context, t *task.Task, before int) ([]observation, error) {
+	steps, err := task.Steps(ctx, e.st.R, t.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +259,7 @@ func strictDecode(raw json.RawMessage, v any) error {
 }
 
 func (e *Engine) deny(ctx context.Context, s *session, method, reason string, extra map[string]any) *rpc.Error {
+	s.denied = true
 	data := map[string]any{"method": method, "reason": reason, "worker_generation": s.gen}
 	for k, v := range extra {
 		data[k] = v
@@ -297,13 +307,13 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 			s.fatal = err
 			return nil, rpc.Errf(rpc.CodeHalted, "halted", "kill switch active")
 		case errors.Is(err, gateway.ErrInvalidOutput):
-			s.fatal = err
+			// Not fatal here: the worker's cascade may retry on a stronger tier.
 			return nil, rpc.Errf(rpc.CodeProvider, "invalid_model_output", "model output failed schema validation")
 		case ctx.Err() != nil:
 			return nil, rpc.Errf(rpc.CodeInternal, "cancelled", "cancelled")
 		}
-		s.fatal = err
-		return nil, rpc.Errf(rpc.CodeProvider, reasonCode(err), "provider failed")
+		// No route / all routes failed for this tier: the worker may escalate to another tier.
+		return nil, rpc.Errf(rpc.CodeProvider, reasonCode(err), "provider failed: %s", truncate(err.Error(), 300))
 	}
 	e.st.Write(ctx, func(tx *sql.Tx) error {
 		_, err := task.AppendEvent(ctx, tx, s.t.ID, ptr(stepID(s)), "MODEL_CALLED", "core", map[string]any{
@@ -463,6 +473,10 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 		var hash string
 		if spec.ID == "web.fetch" {
 			res, err := e.fetch.Fetch(ctx, args["url"].(string), t.Scope.AllowDomains)
+			if err == nil && res.Status >= 400 {
+				// An error page is not the requested content: never summarize it as such.
+				err = fmt.Errorf("tool_failed: HTTP %d from %s", res.Status, res.FinalURL)
+			}
 			if err != nil {
 				e.toolFailed(ctx, t, st, spec.ID, err)
 				return nil, err

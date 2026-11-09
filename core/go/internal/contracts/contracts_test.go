@@ -29,8 +29,19 @@ func load(t *testing.T, name string) map[string]any {
 func compile(t *testing.T, name, pointer string) *jsonschema.Schema {
 	t.Helper()
 	c := jsonschema.NewCompiler()
-	abs, _ := filepath.Abs(filepath.Join(schemaDir, name+".json"))
-	s, err := c.Compile("file://" + abs + pointer)
+	// Register every schema under its $id so relative $refs between them resolve offline.
+	files, _ := filepath.Glob(filepath.Join(schemaDir, "*.json"))
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(string(b)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.AddResource("https://aura.local/contracts/schemas/"+filepath.Base(f), doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := c.Compile("https://aura.local/contracts/schemas/" + name + ".json" + pointer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +122,24 @@ func TestPlanAndStepResultSchemas(t *testing.T) {
 	}
 	step := compile(t, "task.step", "#/properties/result")
 	if err := validate(t, step, map[string]any{"decision": "step_done", "reason": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestP2MethodSchemas(t *testing.T) {
+	verify := compile(t, "task.verify", "#/properties/result")
+	if err := validate(t, verify, map[string]any{"criteria": []any{map[string]any{"criterion": "c", "met": true, "evidence_quote": "q"}}}); err != nil {
+		t.Fatal(err)
+	}
+	replan := compile(t, "task.replan", "#/properties/result")
+	q := map[string]any{"steps": []any{}, "completion_criteria": []any{}, "question": "Which file?"}
+	if err := validate(t, replan, q); err != nil {
+		t.Fatal(err)
+	}
+	step := compile(t, "task.step", "#/properties/params")
+	params := map[string]any{"objective": "o", "observations": []any{},
+		"step": map[string]any{"step_no": 1, "description": "d", "tool_id": "calc", "expression": "1+1"}}
+	if err := validate(t, step, params); err != nil {
 		t.Fatal(err)
 	}
 }

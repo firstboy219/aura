@@ -43,7 +43,7 @@ while True:
         plan = {"steps": [
             {"step_no": 1, "description": "f", "tool_id": "web.fetch", "url": "http://fixture.test/one", "path": None},
             {"step_no": 2, "description": "w", "tool_id": "workspace.write", "url": None, "path": path}],
-            "completion_criteria": ["done"]}
+            "completion_criteria": []}
         ch.write({"id": m["id"], "result": plan})
     elif m["method"] == "task.step":
         s = p["step"]

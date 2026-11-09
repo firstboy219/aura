@@ -10,11 +10,8 @@
       "additionalProperties": false,
       "properties": {
         "tool_id": {
-          "enum": [
-            "web.fetch",
-            "workspace.read",
-            "workspace.write"
-          ]
+          "type": "string",
+          "description": "Built-in tool or mcp.<server>.<tool>; validated against the Core manifest"
         },
         "tool_version": {
           "type": "string"
@@ -37,6 +34,7 @@
             "ok",
             "denied",
             "waiting_approval",
+            "waiting",
             "error"
           ]
         },

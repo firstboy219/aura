@@ -17,6 +17,7 @@ const (
 	StepStarted         StepState = "STARTED"
 	StepSucceeded       StepState = "SUCCEEDED"
 	StepFailed          StepState = "FAILED"
+	StepSkipped         StepState = "SKIPPED" // superseded by a replan
 	StepWaitingApproval StepState = "WAITING_APPROVAL"
 )
 
@@ -33,6 +34,7 @@ type Step struct {
 	OutcomeHash    *string   `json:"outcome_hash"`
 	Reason         *string   `json:"reason"`
 	Attempts       int       `json:"attempts"`
+	PlanJSON       *string   `json:"plan,omitempty"` // planned arguments (P2)
 }
 
 // StepKey is the stable idempotency key of a step (Blueprint §8.1).
@@ -46,20 +48,20 @@ func InsertSteps(ctx context.Context, tx *sql.Tx, taskID string, steps []Step) e
 		s.ID, s.TaskID, s.State = ids.New(), taskID, StepPending
 		s.IdempotencyKey = StepKey(taskID, s.StepNo)
 		if _, err := tx.ExecContext(ctx, `insert into task_steps(id, task_id, step_no, description, tool_id, side_effect,
-			state, idempotency_key, created_at, updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
-			s.ID, taskID, s.StepNo, s.Description, s.ToolID, s.SideEffect, s.State, s.IdempotencyKey, now, now); err != nil {
+			state, idempotency_key, plan_json, created_at, updated_at) values(?,?,?,?,?,?,?,?,?,?,?)`,
+			s.ID, taskID, s.StepNo, s.Description, s.ToolID, s.SideEffect, s.State, s.IdempotencyKey, s.PlanJSON, now, now); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-const stepCols = "id, task_id, step_no, description, tool_id, side_effect, state, idempotency_key, outcome_ref, outcome_hash, reason, attempts"
+const stepCols = "id, task_id, step_no, description, tool_id, side_effect, state, idempotency_key, outcome_ref, outcome_hash, reason, attempts, plan_json"
 
 func scanStep(sc interface{ Scan(...any) error }) (*Step, error) {
 	var s Step
 	err := sc.Scan(&s.ID, &s.TaskID, &s.StepNo, &s.Description, &s.ToolID, &s.SideEffect, &s.State,
-		&s.IdempotencyKey, &s.OutcomeRef, &s.OutcomeHash, &s.Reason, &s.Attempts)
+		&s.IdempotencyKey, &s.OutcomeRef, &s.OutcomeHash, &s.Reason, &s.Attempts, &s.PlanJSON)
 	return &s, err
 }
 

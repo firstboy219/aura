@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.replan.json",
+  "title": "task.replan (Core \u2192 Worker)",
+  "description": "Plan the remaining work after a failed step or failed verification. Steps are numbered from next_step_no.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array"
+        },
+        "cause": {
+          "type": "object"
+        },
+        "next_step_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "completion_criteria": {
+          "type": "array"
+        },
+        "observations": {
+          "type": "array"
+        },
+        "granted_tools": {
+          "type": "array"
+        },
+        "tier": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective",
+        "steps",
+        "cause",
+        "next_step_no"
+      ]
+    },
+    "result": {
+      "$ref": "task.plan.json#/properties/result"
+    }
+  }
+}

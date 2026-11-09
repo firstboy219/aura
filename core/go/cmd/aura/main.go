@@ -43,11 +43,12 @@ func usage(w io.Writer) {
   serve                         run the Core
   doctor                        check config, secrets, database, worker and provider
   version                       print version
-  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public]
+  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public] [--tier T]
   task list [--state S] | show <id> | cancel <id> | pause <id> | resume <id>
   trace <id> [--follow]         print a task's event log
   approve <approval-id> [--yes] show the full action and approve its exact hash
   reject <approval-id>
+  answer <task-id> "<answer>"   answer a task's clarification question
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
@@ -71,7 +72,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = serve(args[1:])
 	case "doctor":
 		return doctor(stdout)
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources":
+	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -346,6 +347,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			maxCost := fs.Float64("max-cost", 0, "max cost in USD")
 			idem := fs.String("idempotency-key", "", "Idempotency-Key header")
 			public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
+			tier := fs.String("tier", "", "force a model tier for the whole task: fast | standard | deep")
 			pos, err := parse(fs, rest)
 			if err != nil {
 				return err
@@ -356,6 +358,9 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			body := map[string]any{"objective": pos[0], "tools": []string(toolsF), "allow_domains": []string(domains)}
 			if *public {
 				body["data_class"] = "public"
+			}
+			if *tier != "" {
+				body["tier"] = *tier
 			}
 			if *maxCost > 0 {
 				body["budget"] = map[string]any{"max_cost_usd": *maxCost}
@@ -525,6 +530,16 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "stopped; %v task(s) paused\n", out["stopped_tasks"])
+		return nil
+	case "answer":
+		if len(rest) != 2 {
+			return usageErr(`answer <task-id> "<answer>"`)
+		}
+		var out map[string]any
+		if err := c.do("POST", "/tasks/"+rest[0]+"/input", map[string]string{"answer": rest[1]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s %s\n", out["id"], out["state"])
 		return nil
 	case "resources":
 		var out map[string]any

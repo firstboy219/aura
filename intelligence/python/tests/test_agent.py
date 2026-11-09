@@ -124,3 +124,56 @@ def test_plan_still_missing_write_fails():
                                       "granted_tools": ["web.fetch", "workspace.write"], "allow_domains": []}),
                     [{"result": {"structured": no_write}}, {"result": {"structured": no_write}}])
     assert core.run()["error"]["data"]["reason_code"] == "invalid_plan"
+
+
+def test_verify_escalates_from_fast_to_standard_when_unusable():
+    crit = ["file has a summary"]
+    weak = {"result": {"structured": {"criteria": [{"criterion": crit[0], "met": True, "evidence_quote": "ok"}]}}}  # quote too short
+    strong = {"result": {"structured": {"criteria": [{"criterion": crit[0], "met": True, "evidence_quote": "a summary of the page"}]}}}
+    core = FakeCore(req("task.verify", {"objective": "o", "completion_criteria": crit,
+                                        "evidence": [{"source": "r.md", "kind": "file", "content": "a summary of the page"}]}),
+                    [weak, strong])
+    resp = core.run()
+    assert [c["params"]["tier"] for c in core.seen] == ["fast", "standard"]
+    assert resp["result"]["criteria"][0]["evidence_quote"] == "a summary of the page"
+
+
+def test_verify_respects_tier_override():
+    core = FakeCore(req("task.verify", {"objective": "o", "completion_criteria": ["c"], "evidence": [], "tier": "deep"}),
+                    [{"result": {"structured": {"criteria": [{"criterion": "c", "met": False, "evidence_quote": ""}]}}}])
+    core.run()
+    assert [c["params"]["tier"] for c in core.seen] == ["deep"]
+
+
+def test_replan_numbers_from_next_step_and_keeps_written_outputs():
+    new = {"steps": [{"step_no": 4, "description": "fetch other", "tool_id": "web.fetch", "url": "https://a.test/2",
+                      "path": None, "query": None, "expression": None, "key": None, "until": None, "brief": None, "tools": None}],
+           "completion_criteria": [], "question": None}
+    params = {"objective": "Fetch and write reports/summary.md", "granted_tools": ["web.fetch", "workspace.write"],
+              "steps": [{"step_no": 3, "tool_id": "workspace.write", "state": "SUCCEEDED", "description": "w"}],
+              "cause": {"kind": "verification_failed"}, "next_step_no": 4}
+    # reports/summary.md was already written successfully, so a replan without a new write is acceptable.
+    params["steps"][0]["path"] = "reports/summary.md"
+    resp = FakeCore(req("task.replan", params), [{"result": {"structured": new}}]).run()
+    assert resp["result"]["steps"][0]["step_no"] == 4
+
+
+def test_review_returns_validated_revision():
+    bad = [dict(PLAN["steps"][1], step_no=1), dict(PLAN["steps"][0], step_no=2)]
+    fixed = [dict(s, query=None, expression=None, key=None, until=None, brief=None, tools=None) for s in PLAN["steps"]]
+    core = FakeCore(req("task.review", {"objective": "o", "plan": {"steps": bad, "completion_criteria": ["x"]},
+                                        "granted_tools": ["web.fetch", "workspace.write"]}),
+                    [{"result": {"structured": {"ok": False, "issues": ["write before fetch"], "revised_steps": fixed}}}])
+    resp = core.run()["result"]
+    assert resp["ok"] is False and resp["revised"]["steps"][0]["tool_id"] == "web.fetch"
+    assert resp["revised"]["completion_criteria"] == ["x"]
+
+
+def test_planner_question_only_when_allowed():
+    q = {"result": {"structured": {"steps": [], "completion_criteria": [], "question": "Which page?"}}}
+    resp = FakeCore(req("task.plan", {"objective": "Summarize it", "granted_tools": ["web.fetch"], "allow_domains": []}), [q]).run()
+    assert resp["result"]["question"] == "Which page?"
+    # When asking is no longer allowed, a question with no steps is an invalid plan (after one repair).
+    resp = FakeCore(req("task.plan", {"objective": "Summarize it", "granted_tools": ["web.fetch"], "allow_domains": [], "may_ask": False}),
+                    [q, q]).run()
+    assert resp["error"]["data"]["reason_code"] == "invalid_plan"

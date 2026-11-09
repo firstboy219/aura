@@ -33,6 +33,12 @@ def serve(ch: Channel) -> None:
                 result = agent.plan(ch, msg.get("params") or {})
             elif method == "task.step":
                 result = agent.step(ch, msg.get("params") or {})
+            elif method == "task.review":
+                result = agent.review(ch, msg.get("params") or {})
+            elif method == "task.replan":
+                result = agent.replan(ch, msg.get("params") or {})
+            elif method == "task.verify":
+                result = agent.verify(ch, msg.get("params") or {})
             else:
                 ch.write({"id": rid, "error": {"code": -32601, "message": f"unknown method {method}"}})
                 continue

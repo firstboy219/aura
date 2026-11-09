@@ -17,7 +17,10 @@
     "method": {
       "enum": [
         "task.plan",
+        "task.review",
         "task.step",
+        "task.replan",
+        "task.verify",
         "worker.health",
         "worker.shutdown",
         "llm.complete",

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.review.json",
+  "title": "task.review (Core \u2192 Worker)",
+  "description": "Critique a complex plan; optionally return a revised plan (validated again by Core).",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "object"
+        },
+        "granted_tools": {
+          "type": "array"
+        },
+        "tier": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective",
+        "plan"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "revised": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ok",
+        "issues"
+      ]
+    }
+  }
+}

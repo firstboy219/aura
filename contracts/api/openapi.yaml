@@ -65,6 +65,14 @@ paths:
                 required: [events]
                 properties:
                   events: { type: array, items: { $ref: '#/components/schemas/TaskEvent' } }
+  /tasks/{id}/input:
+    post:
+      operationId: answerQuestion
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [answer], properties: { answer: { type: string, minLength: 1, maxLength: 4000 } } } } }
+      responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } }
   /tasks/{id}/cancel:
     post: { operationId: cancelTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
   /tasks/{id}/pause:
@@ -160,6 +168,7 @@ components:
         tools: { type: array, items: { enum: [web.fetch, workspace.read, workspace.write] } }
         allow_domains: { type: array, items: { type: string }, maxItems: 50 }
         data_class: { enum: [private, public], default: private, description: Only public tasks may use model routes that may log prompts (free endpoints) }
+        tier: { enum: [fast, standard, deep], description: Owner override of the cascade policy for the whole task }
         budget:
           type: object
           additionalProperties: false
@@ -184,6 +193,10 @@ components:
         tools: { type: array, items: { type: string } }
         allow_domains: { type: array, items: { type: string } }
         data_class: { enum: [private, public] }
+        priority: { type: integer }
+        replans: { type: integer }
+        tier: { type: [string, 'null'] }
+        question: { type: string, description: Pending clarification question (WAITING_INPUT only) }
         wait_reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

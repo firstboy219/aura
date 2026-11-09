@@ -266,39 +266,6 @@ func reasonCode(err error) string {
 	return "error"
 }
 
-// plannedStep is the plan entry stored in the "plan" checkpoint.
-type plannedStep struct {
-	StepNo      int     `json:"step_no"`
-	Description string  `json:"description"`
-	ToolID      *string `json:"tool_id"`
-	URL         *string `json:"url"`
-	Path        *string `json:"path"`
-}
-
-type planDoc struct {
-	Steps              []plannedStep `json:"steps"`
-	CompletionCriteria []string      `json:"completion_criteria"`
-}
-
-func (e *Engine) runTask(ctx context.Context, t *task.Task) error {
-	cur, err := task.Get(ctx, e.st.R, t.ID)
-	if err != nil {
-		return err
-	}
-	if cur.State == task.Created {
-		if err := e.transition(ctx, t.ID, task.Planning, "", ""); err != nil {
-			return err
-		}
-		cur.State = task.Planning
-	}
-	if cur.State == task.Planning {
-		if err := e.plan(ctx, cur); err != nil {
-			return err
-		}
-	}
-	return e.execute(ctx, cur)
-}
-
 func (e *Engine) transition(ctx context.Context, id string, to task.State, reason, wait string) error {
 	return e.st.Write(ctx, func(tx *sql.Tx) error {
 		_, err := task.Transition(ctx, tx, id, to, reason, wait, "core")
@@ -317,7 +284,8 @@ type session struct {
 	invoked    bool   // a tool call was accepted for this step
 	executed   bool   // the accepted tool call succeeded
 	approvalID string // set when the call was queued for approval
-	fatal      error  // a Core-side error (budget, halt, invalid output) that ends the task
+	fatal      error  // a Core-side error (budget, halt) that ends the task
+	denied     bool   // a request in this call was denied by policy: no replanning around it
 }
 
 func (e *Engine) newSession(ctx context.Context, t *task.Task) (*session, error) {
@@ -367,99 +335,6 @@ func (e *Engine) callWorker(ctx context.Context, s *session, method string, para
 	return raw, err
 }
 
-func (e *Engine) plan(ctx context.Context, t *task.Task) error {
-	s, err := e.newSession(ctx, t)
-	if err != nil {
-		return err
-	}
-	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
-		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
-		"budget": t.Budget})
-	if s.fatal != nil {
-		return s.fatal
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return err
-	}
-	var p planDoc
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&p); err != nil {
-		return fmt.Errorf("invalid_plan: %v", err)
-	}
-	steps, err := e.validatePlan(t, &p)
-	if err != nil {
-		return err
-	}
-	return e.st.Write(ctx, func(tx *sql.Tx) error {
-		cur, err := task.Get(ctx, tx, t.ID)
-		if err != nil {
-			return err
-		}
-		if cur.State != task.Planning {
-			return errStop // paused or cancelled meanwhile
-		}
-		if err := task.InsertSteps(ctx, tx, t.ID, steps); err != nil {
-			return err
-		}
-		ck, err := putCheckpoint(ctx, tx, t.ID, "", "plan", p)
-		if err != nil {
-			return err
-		}
-		if _, err := task.AppendEvent(ctx, tx, t.ID, nil, "PLAN_CREATED", "worker", map[string]any{
-			"steps": len(steps), "checkpoint": ck, "completion_criteria": p.CompletionCriteria}); err != nil {
-			return err
-		}
-		_, err = task.Transition(ctx, tx, t.ID, task.Running, "", "", "core")
-		return err
-	})
-}
-
-// validatePlan re-checks the worker's plan in Core: numbering, granted tools,
-// arguments present. Side-effect class comes from the trusted manifest.
-func (e *Engine) validatePlan(t *task.Task, p *planDoc) ([]task.Step, error) {
-	if len(p.Steps) == 0 || len(p.Steps) > 20 {
-		return nil, fmt.Errorf("invalid_plan: %d steps", len(p.Steps))
-	}
-	allowed := policy.Scopes{Tools: t.Scope.Tools}
-	var out []task.Step
-	for i, ps := range p.Steps {
-		if ps.StepNo != i+1 {
-			return nil, errors.New("invalid_plan: steps must be numbered 1..n")
-		}
-		if ps.ToolID == nil {
-			return nil, fmt.Errorf("invalid_plan: step %d has no tool", ps.StepNo)
-		}
-		spec, ok := policy.Manifest[*ps.ToolID]
-		if !ok || !allowed.HasTool(spec.ID) {
-			return nil, fmt.Errorf("invalid_plan: step %d tool %q not granted", ps.StepNo, *ps.ToolID)
-		}
-		desc := ps.Description
-		if len(desc) > 500 {
-			desc = desc[:500]
-		}
-		tool := spec.ID
-		out = append(out, task.Step{StepNo: ps.StepNo, Description: desc, ToolID: &tool, SideEffect: spec.SideEffect})
-	}
-	if allowed.HasTool("workspace.write") {
-		written := map[string]bool{}
-		for _, ps := range p.Steps {
-			if ps.ToolID != nil && *ps.ToolID == "workspace.write" && ps.Path != nil {
-				written[*ps.Path] = true
-			}
-		}
-		for _, want := range ExpectedOutputs(t.Objective) {
-			if !written[want] {
-				return nil, fmt.Errorf("invalid_plan: the plan never writes %s, which the objective asks for", want)
-			}
-		}
-	}
-	return out, nil
-}
-
 // outputRe finds workspace files named in an objective (e.g. reports/summary.md).
 // A path inside a URL never matches: it must start after whitespace, a quote
 // or "(". Keep in sync with OUTPUT_RE in the Python worker.
@@ -477,107 +352,6 @@ func ExpectedOutputs(objective string) []string {
 		}
 	}
 	return out
-}
-
-func (e *Engine) loadPlan(ctx context.Context, taskID string) (*planDoc, error) {
-	var raw string
-	err := e.st.R.QueryRowContext(ctx, "select state_json from checkpoints where task_id=? and label='plan' order by created_at desc limit 1", taskID).Scan(&raw)
-	if err != nil {
-		return nil, fmt.Errorf("plan checkpoint: %w", err)
-	}
-	var p planDoc
-	return &p, json.Unmarshal([]byte(raw), &p)
-}
-
-// execute runs remaining steps in order and then the deterministic completion check.
-func (e *Engine) execute(ctx context.Context, t *task.Task) error {
-	p, err := e.loadPlan(ctx, t.ID)
-	if err != nil {
-		return err
-	}
-	steps, err := task.Steps(ctx, e.st.R, t.ID)
-	if err != nil {
-		return err
-	}
-	for _, st := range steps {
-		if st.State == task.StepSucceeded {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		cur, err := task.Get(ctx, e.st.R, t.ID)
-		if err != nil {
-			return err
-		}
-		if cur.State != task.Running {
-			return errStop
-		}
-		if err := e.runStep(ctx, cur, st, &p.Steps[st.StepNo-1]); err != nil {
-			return err
-		}
-	}
-	return e.complete(ctx, t.ID)
-}
-
-// complete is the deterministic completion check (E.2 item 8): every step
-// succeeded and every recorded write is present with its recorded hash.
-func (e *Engine) complete(ctx context.Context, taskID string) error {
-	steps, err := task.Steps(ctx, e.st.R, taskID)
-	if err != nil {
-		return err
-	}
-	var problems []string
-	t, err := task.Get(ctx, e.st.R, taskID)
-	if err != nil {
-		return err
-	}
-	if (policy.Scopes{Tools: t.Scope.Tools}).HasTool("workspace.write") {
-		for _, want := range ExpectedOutputs(t.Objective) {
-			if h, err := e.ws.FileHash(taskID, want); err != nil || h == "" {
-				problems = append(problems, fmt.Sprintf("%s named in the objective was not produced", want))
-			}
-		}
-	}
-	for _, s := range steps {
-		if s.State != task.StepSucceeded {
-			problems = append(problems, fmt.Sprintf("step %d is %s", s.StepNo, s.State))
-			continue
-		}
-		if s.ToolID != nil && *s.ToolID == "workspace.write" {
-			var in writeIntent
-			if err := e.checkpointJSON(ctx, s.OutcomeRef, &in); err != nil {
-				problems = append(problems, fmt.Sprintf("step %d: no recorded write", s.StepNo))
-				continue
-			}
-			h, err := e.ws.FileHash(taskID, in.Path)
-			if err != nil || h != in.SHA256 {
-				problems = append(problems, fmt.Sprintf("step %d: %s missing or changed", s.StepNo, in.Path))
-			}
-		}
-	}
-	return e.st.Write(ctx, func(tx *sql.Tx) error {
-		if len(problems) > 0 {
-			if _, err := task.Transition(ctx, tx, taskID, task.Failed, "completion_check_failed", "", "core"); err != nil {
-				return err
-			}
-			_, err := task.AppendEvent(ctx, tx, taskID, nil, "COMPLETION_CHECK", "core", map[string]any{"ok": false, "problems": problems})
-			if err != nil {
-				return err
-			}
-			if err := policy.RevokeTask(ctx, tx, taskID); err != nil {
-				return err
-			}
-			return errStop
-		}
-		if _, err := task.AppendEvent(ctx, tx, taskID, nil, "COMPLETION_CHECK", "core", map[string]any{"ok": true, "steps": len(steps)}); err != nil {
-			return err
-		}
-		if _, err := task.Transition(ctx, tx, taskID, task.Succeeded, "", "", "core"); err != nil {
-			return err
-		}
-		return policy.RevokeTask(ctx, tx, taskID)
-	})
 }
 
 // writeIntent is the write-ahead record of a workspace.write (Blueprint §8.1).

@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/tasks", auth(s.listTasks))
 	mux.Handle("GET /api/v1/tasks/{id}", auth(s.getTask))
 	mux.Handle("GET /api/v1/tasks/{id}/events", auth(s.taskEvents))
+	mux.Handle("POST /api/v1/tasks/{id}/input", auth(s.answer))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
 	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
 	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
@@ -192,6 +193,10 @@ type Task struct {
 	Tools        []string    `json:"tools"`
 	AllowDomains []string    `json:"allow_domains"`
 	DataClass    string      `json:"data_class"`
+	Priority     int         `json:"priority"`
+	Replans      int         `json:"replans"`
+	Tier         *string     `json:"tier"`
+	Question     *string     `json:"question,omitempty"`
 	CreatedAt    string      `json:"created_at"`
 	UpdatedAt    string      `json:"updated_at"`
 }
@@ -202,6 +207,7 @@ func toAPI(t *task.Task) Task {
 	return Task{ID: t.ID, State: t.State, Reason: t.Reason, WaitReason: t.WaitReason, Objective: t.Objective,
 		ParentTaskID: t.ParentTaskID, RootTaskID: t.RootTaskID, AgentRole: t.AgentRole, Depth: t.Depth,
 		CostUSD: t.CostUSD + t.CostReservedUSD, Budget: t.Budget, Tools: t.Scope.Tools, AllowDomains: t.Scope.AllowDomains, DataClass: t.Scope.DataClass,
+		Priority: t.Priority, Replans: t.Replans, Tier: t.TierOverride,
 		CreatedAt: ts(t.CreatedAt), UpdatedAt: ts(t.UpdatedAt)}
 }
 
@@ -210,6 +216,7 @@ type createReq struct {
 	Tools        []string `json:"tools"`
 	AllowDomains []string `json:"allow_domains"`
 	DataClass    string   `json:"data_class"`
+	Tier         string   `json:"tier"`
 	Budget       *struct {
 		MaxCostUSD     float64 `json:"max_cost_usd"`
 		MaxIterations  int     `json:"max_iterations"`
@@ -229,7 +236,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		s.mapErr(w, r, err)
 		return
 	}
-	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass,
+	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier,
 		IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}
@@ -277,6 +284,26 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	t, err := task.Get(r.Context(), s.Store.R, r.PathValue("id"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	out := toAPI(t)
+	if t.State == task.WaitingInput {
+		out.Question = s.Engine.PendingQuestion(r.Context(), t.ID)
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) answer(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Answer string `json:"answer"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	t, err := s.Engine.Answer(r.Context(), r.PathValue("id"), in.Answer)
 	if err != nil {
 		s.mapErr(w, r, err)
 		return

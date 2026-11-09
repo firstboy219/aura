@@ -45,6 +45,18 @@
             "max_iterations",
             "max_wall_seconds"
           ]
+        },
+        "owner_context": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "may_ask": {
+          "type": "boolean"
+        },
+        "tier": {
+          "type": "string"
         }
       },
       "required": [
@@ -60,7 +72,7 @@
       "properties": {
         "steps": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 20,
           "items": {
             "type": "object",
@@ -79,8 +91,14 @@
               "tool_id": {
                 "enum": [
                   "web.fetch",
+                  "web.search",
                   "workspace.read",
                   "workspace.write",
+                  "data.read",
+                  "calc",
+                  "wait.event",
+                  "wait.until",
+                  "agent.delegate",
                   null
                 ]
               },
@@ -97,25 +115,68 @@
                   "null"
                 ],
                 "maxLength": 256
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expression": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "until": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "brief": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tools": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
               "step_no",
               "description",
-              "tool_id",
-              "url",
-              "path"
+              "tool_id"
             ]
           }
         },
         "completion_criteria": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 10,
           "items": {
             "type": "string",
             "maxLength": 300
           }
+        },
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

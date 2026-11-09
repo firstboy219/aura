@@ -25,6 +25,7 @@ type CreateInput struct {
 	Budget         task.Budget
 	IdempotencyKey string
 	DataClass      string // "private" (default) or "public"
+	Tier           string // optional owner override: fast | standard | deep
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -105,6 +106,14 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 		return nil, bad("data_class must be private or public")
 	}
 	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: tools, AllowDomains: domains, DataClass: dc}, ConfigHash: e.cfg.Hash()}
+	switch in.Tier {
+	case "":
+	case "fast", "standard", "deep":
+		tier := in.Tier
+		t.TierOverride = &tier
+	default:
+		return nil, bad("tier must be fast, standard or deep")
+	}
 	if in.IdempotencyKey != "" {
 		if len(in.IdempotencyKey) > 128 {
 			return nil, bad("Idempotency-Key too long")
@@ -199,10 +208,16 @@ func (e *Engine) Resume(ctx context.Context, id string) (*task.Task, error) {
 		}
 		var steps, waiting int
 		tx.QueryRowContext(ctx, "select count(*), coalesce(sum(state='WAITING_APPROVAL'),0) from task_steps where task_id=?", id).Scan(&steps, &waiting)
-		var pending int
+		var pending, inputs, waits int
 		tx.QueryRowContext(ctx, "select count(*) from approvals where task_id=? and status='pending'", id).Scan(&pending)
+		tx.QueryRowContext(ctx, "select count(*) from task_inputs where task_id=? and status='pending'", id).Scan(&inputs)
+		tx.QueryRowContext(ctx, "select count(*) from task_waits where task_id=? and satisfied_at is null", id).Scan(&waits)
 		to := task.Created
 		switch {
+		case inputs > 0:
+			to = task.WaitingInput
+		case waits > 0:
+			to = task.Waiting
 		case waiting > 0 && pending > 0:
 			to = task.WaitingApproval
 		case steps > 0:
@@ -215,6 +230,53 @@ func (e *Engine) Resume(ctx context.Context, id string) (*task.Task, error) {
 		e.Wake()
 	}
 	return t, err
+}
+
+// Answer records the owner's answer to the task's pending question and resumes
+// planning (or the step that asked).
+func (e *Engine) Answer(ctx context.Context, taskID, answer string) (*task.Task, error) {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || len(answer) > 4000 {
+		return nil, fmt.Errorf("%w: answer must be 1..4000 characters", ErrInvalid)
+	}
+	t, err := e.owner(ctx, taskID, func(tx *sql.Tx, t *task.Task) error {
+		if t.State != task.WaitingInput {
+			return fmt.Errorf("%w: task is %s, not waiting for input", task.ErrInvalidTransition, t.State)
+		}
+		var id string
+		var stepID sql.NullString
+		if err := tx.QueryRowContext(ctx, "select id, step_id from task_inputs where task_id=? and status='pending' order by created_at limit 1",
+			taskID).Scan(&id, &stepID); err != nil {
+			return fmt.Errorf("%w: no pending question", task.ErrInvalidTransition)
+		}
+		if _, err := tx.ExecContext(ctx, "update task_inputs set status='answered', answer=?, answered_at=? where id=?", answer, ids.NowMs(), id); err != nil {
+			return err
+		}
+		if _, err := task.AppendEvent(ctx, tx, taskID, nil, "INPUT_ANSWERED", "owner", map[string]any{"input_id": id, "answer_chars": len(answer)}); err != nil {
+			return err
+		}
+		var steps int
+		tx.QueryRowContext(ctx, "select count(*) from task_steps where task_id=?", taskID).Scan(&steps)
+		to := task.Planning
+		if steps > 0 {
+			to = task.Running
+		}
+		_, err := task.Transition(ctx, tx, taskID, to, "answered", "", "owner")
+		return err
+	})
+	if err == nil {
+		e.Wake()
+	}
+	return t, err
+}
+
+// PendingQuestion returns the task's open clarification question, if any.
+func (e *Engine) PendingQuestion(ctx context.Context, taskID string) *string {
+	var q string
+	if err := e.st.R.QueryRowContext(ctx, "select question from task_inputs where task_id=? and status='pending' order by created_at limit 1", taskID).Scan(&q); err != nil {
+		return nil
+	}
+	return &q
 }
 
 // Approve records the owner's approval of the exact action hash and resumes the task.
