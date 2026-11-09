@@ -260,6 +260,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			if errors.As(err, &pe) && pe.Status >= 400 && act.CostUSD == nil {
 				zero := 0.0
 				act.CostUSD = &zero
+				act.Outcome = "rejected" // does not count against max_iterations
 			}
 		}
 		// OL-01: a reasoning model may answer with empty content. Retry once with

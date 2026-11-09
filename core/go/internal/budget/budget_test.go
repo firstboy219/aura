@@ -96,6 +96,12 @@ func TestIterationLimitAndHalt(t *testing.T) {
 	g, _, id := setup(t, 10)
 	c := call(id, 0.01, 1)
 	c.MaxCalls = 2
+	// Calls the provider rejected outright (429, 402) are not iterations.
+	for i := 0; i < 5; i++ {
+		r, _ := g.Reserve(context.Background(), c)
+		zero := 0.0
+		g.Reconcile(context.Background(), r, id, Actual{CostUSD: &zero, Outcome: "rejected"})
+	}
 	g.Reserve(context.Background(), c)
 	g.Reserve(context.Background(), c)
 	if _, err := g.Reserve(context.Background(), c); !errors.Is(err, ErrIterations) {
