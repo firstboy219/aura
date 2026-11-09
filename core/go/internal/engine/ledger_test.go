@@ -464,3 +464,26 @@ func TestBackfillGivesOldTasksCodesAndClasses(t *testing.T) {
 		t.Fatalf("%v %v", got.ReasonCode, got.TaskClass)
 	}
 }
+
+// Monitoring closes a limitation with evidence once recent runs no longer show it.
+func TestLimitationClosedByEvidenceWhenRecovered(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	const class = "web.fetch+workspace.write"
+	seedTasks(t, h, class, 4, task.Failed, taxonomy.ToolFailed, false)
+	h.eng.Detect(ctx)
+	if len(limByKey(t, h, "open")) == 0 {
+		t.Fatal("not detected")
+	}
+	if n := h.eng.CloseRecovered(ctx); n != 0 {
+		t.Fatal("closed without recovery evidence")
+	}
+	seedTasks(t, h, class, 10, task.Succeeded, "", true) // the 10 most recent runs are all good
+	if n := h.eng.CloseRecovered(ctx); n == 0 {
+		t.Fatal("recovered limitation was not closed")
+	}
+	ls := limByKey(t, h, "resolved")
+	if len(ls) == 0 || ls[0].Result["closed_as"] != "recovered" || ls[0].ClosedAt == nil {
+		t.Fatalf("%+v", ls)
+	}
+}

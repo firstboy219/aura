@@ -34,3 +34,15 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 
 Not created in P1 (scope rule): memory, identity, connectors, workspaces/tenants, subscriptions, billing,
 Shared Task Context (P2).
+
+### Phase 3 additions and checkpoint v1.3.11 (migration `0003_p3_memory_learning.sql`)
+| Change | Purpose |
+|---|---|
+| tasks rebuilt | state names per Blueprint §8.2 (`COMPLETED`, `WAITING_EXTERNAL`, `SCHEDULED`, `WAITING_INPUT`); `reason_code` (canonical taxonomy), `task_class` |
+| task_steps.reason_code | canonical failure code on every failed step |
+| memories (+ memories_fts) | memory with provenance, privacy, status, versions; FTS5 kept in sync by triggers |
+| skills, skill_versions (+ skills_fts) | versioned L1 skills |
+| profile_items | Owner Working Profile (explicit/inferred, confirmed/tentative, versions) |
+| usage_records.purpose, routing_shadow | call purpose; shadow routing decisions (never applied) |
+| triggers, watch_state, notifications | schedules, read-only watches (content hash + last content), owner notifications |
+| limitations, limitation_remedies | Limitation Ledger (Blueprint §8A.5) |

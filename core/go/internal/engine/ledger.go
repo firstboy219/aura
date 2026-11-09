@@ -697,3 +697,103 @@ func (e *Engine) Backfill(ctx context.Context) {
 	})
 	e.log.Info("backfilled reason codes and task classes", "tasks", len(todo))
 }
+
+// CloseRecovered is the monitoring half of the loop ("close with evidence"): an open
+// statistical limitation is closed when the most recent MinClassRuns finished runs of its
+// class no longer show the problem (success rate back at target, or the failure code gone).
+// Entries whose class no longer exists (evidence re-attributed by a backfill) are closed as
+// superseded. Owner, safety and in-test entries are never closed this way.
+func (e *Engine) CloseRecovered(ctx context.Context) int {
+	rows, err := e.st.R.QueryContext(ctx, "select "+limCols+", dedupe_key from limitations where status in ('open','diagnosing','remedy_proposed','escalated') and detected_by in ('self_model','runtime_monitor') and category != 'safety'")
+	if err != nil {
+		return 0
+	}
+	type item struct {
+		l   *Limitation
+		key string
+	}
+	var open []item
+	for rows.Next() {
+		var l Limitation
+		var ev, im, di, ba, re, key string
+		if err := rows.Scan(&l.ID, &l.Version, &l.Status, &l.Category, &l.TaskClass, &l.Title, &l.DetectedBy, &ev, &im, &di, &ba, &re,
+			&l.OwnerNote, &l.CreatedAt, &l.UpdatedAt, &l.ClosedAt, &key); err == nil {
+			json.Unmarshal([]byte(ba), &l.Baseline)
+			json.Unmarshal([]byte(ev), &l.Evidence)
+			open = append(open, item{&l, key})
+		}
+	}
+	rows.Close()
+	n := 0
+	for _, it := range open {
+		l := it.l
+		var total int
+		e.st.R.QueryRowContext(ctx, "select count(*) from tasks where coalesce(task_class,'') = ? and parent_task_id is null and agent_role='main'", l.TaskClass).Scan(&total)
+		var result map[string]any
+		if total == 0 {
+			result = map[string]any{"closed_as": "superseded", "note": "no finished tasks carry this task class any more (evidence was re-attributed)"}
+		} else {
+			recent, err := e.recentRuns(ctx, l.TaskClass, e.ledgerCfg.MinClassRuns)
+			if err != nil || len(recent) < e.ledgerCfg.MinClassRuns {
+				continue
+			}
+			ok, bad := 0, 0
+			code, _ := l.Evidence["reason_code"].(string)
+			for _, r := range recent {
+				if r.success {
+					ok++
+				}
+				if code != "" && r.code == code {
+					bad++
+				}
+			}
+			rate := float64(ok) / float64(len(recent))
+			switch {
+			case strings.HasPrefix(it.key, "rate:") && rate >= e.ledgerCfg.SuccessRateTarget:
+				result = map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "verified_success_rate": rate, "target": e.ledgerCfg.SuccessRateTarget}
+			case strings.HasPrefix(it.key, "code:") && bad == 0:
+				result = map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "occurrences_of_code": 0, "reason_code": code}
+			default:
+				continue
+			}
+		}
+		err := e.st.Write(ctx, func(tx *sql.Tx) error {
+			now := ids.NowMs()
+			if _, err := tx.ExecContext(ctx, "update limitations set status='resolved', result_json=?, closed_at=?, version=version+1, updated_at=? where id=? and status in ('open','diagnosing','remedy_proposed','escalated')",
+				js(result), now, now, l.ID); err != nil {
+				return err
+			}
+			return policy.Audit(ctx, tx, "LIMITATION_CLOSED_BY_EVIDENCE", "core", "", "", map[string]any{"id": l.ID, "result": result})
+		})
+		if err == nil {
+			n++
+		}
+	}
+	return n
+}
+
+type runOutcome struct {
+	success bool
+	code    string
+}
+
+// recentRuns returns the latest finished main tasks of a class (newest first).
+func (e *Engine) recentRuns(ctx context.Context, class string, limit int) ([]runOutcome, error) {
+	rows, err := e.st.R.QueryContext(ctx, `select t.state, coalesce(t.reason_code,''),
+		(select count(*) > 0 from task_events v where v.task_id = t.id and v.type='VERIFIED')
+		or not exists (select 1 from task_events v where v.task_id = t.id and v.type in ('VERIFIED','VERIFICATION_FAILED','VERIFICATION_SKIPPED'))
+		from tasks t where coalesce(t.task_class,'') = ? and t.parent_task_id is null and t.agent_role='main'
+		and t.state in ('COMPLETED','FAILED','BUDGET_EXCEEDED') order by t.created_at desc limit ?`, class, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []runOutcome
+	for rows.Next() {
+		var state, code string
+		var verified bool
+		rows.Scan(&state, &code, &verified)
+		out = append(out, runOutcome{success: state == "COMPLETED" && verified, code: code})
+	}
+	return out, rows.Err()
+}

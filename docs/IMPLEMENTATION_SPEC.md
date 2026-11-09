@@ -58,3 +58,8 @@ Charter text and an approved Quran/hadith source and stay **pending** (never inv
 | P3-M6 | **Scheduled triggers** (interval/daily) creating tasks under normal budget/permission checks; **Proactive Intelligence v1**: read-only watches on configured public sources with deterministic change detection (no model call when unchanged), findings with source, timestamp, observed change, confidence, relevance, suggested next step; owner notifications | RS-12: change reported, malicious instruction in the source not followed, no writes/messages possible; unchanged source costs 0 model calls |
 | P3-M7 | **Console v2** panels (memory with provenance + correct/delete, skills diff/disable/rollback, self-model, profile, notifications); API/OpenAPI | console model tests |
 | P3-M8 | Deploy, eval re-run, P3 evidence pack | — |
+
+
+---
+**Status 2026-11-09 (checkpoint v1.3.11):** P2 milestones M1–M8 and P3 milestones M1–M6 are implemented and tested; M9 (P2 eval) and
+P3-M7 (Console v2 panels) are partial — see `docs/CONFORMANCE_v1.3.11.md` for the exact gaps and for the Ledger milestone added by the v1.3.11 package.

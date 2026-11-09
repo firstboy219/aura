@@ -35,6 +35,7 @@ func (e *Engine) improveTick(ctx context.Context) {
 
 // RunImprovementCycle is one pass: Detect → Diagnose → Act → Evaluate.
 func (e *Engine) RunImprovementCycle(ctx context.Context) {
+	e.CloseRecovered(ctx) // close with evidence first, so recovered problems are not re-diagnosed
 	if _, err := e.Detect(ctx); err != nil {
 		e.log.Warn("limitation detection", "err", err)
 		return
