@@ -68,7 +68,13 @@ type Budget struct {
 type Scope struct {
 	Tools        []string `json:"tools"`
 	AllowDomains []string `json:"allow_domains"`
+	// DataClass is "private" (default) or "public". Only public tasks may use
+	// model routes that may log prompts (e.g. free endpoints).
+	DataClass string `json:"data_class"`
 }
+
+// IsPublic reports whether the task's content may go to prompt-logging routes.
+func (s Scope) IsPublic() bool { return s.DataClass == "public" }
 
 type Task struct {
 	ID              string  `json:"id"`
@@ -123,7 +129,7 @@ func Insert(ctx context.Context, tx *sql.Tx, t *Task) error {
 		return err
 	}
 	_, err = AppendEvent(ctx, tx, t.ID, nil, "TASK_CREATED", "owner", map[string]any{
-		"budget": t.Budget, "tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
+		"budget": t.Budget, "tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains, "data_class": t.Scope.DataClass,
 		"config_hash": t.ConfigHash, "objective_chars": len(t.Objective)})
 	return err
 }

@@ -282,6 +282,10 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 	if size > maxPromptChars {
 		return nil, rpc.Errf(rpc.CodeInvalidParams, "prompt_too_large", "llm.complete: prompt too large")
 	}
+	p.DataClass = "private"
+	if s.t.Scope.IsPublic() {
+		p.DataClass = "public"
+	}
 	res, err := e.gw.Complete(ctx, gateway.Budget{TaskID: s.t.ID, StepID: stepID(s), TaskLimitUSD: s.t.Budget.MaxCostUSD,
 		MaxCalls: s.t.Budget.MaxIterations}, p)
 	if err != nil {

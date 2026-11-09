@@ -30,7 +30,7 @@ func VerifyRoutes(models map[string][]config.ModelRoute, catalog map[string]Mode
 				c.Health, c.Detail = "unknown", "catalog unavailable"
 			case !ok:
 				c.Health, c.Detail = "missing", "route not in provider catalog"
-			case !mi.StructuredOutput:
+			case !mi.StructuredOutput && r.StructuredOutput != "prompt":
 				c.Health, c.Detail = "no_structured_output", "route does not advertise structured_outputs"
 			case mi.PriceInPerMTok > r.PriceInPerMTok*1.0001 || mi.PriceOutPerMTok > r.PriceOutPerMTok*1.0001:
 				c.Health = "price_changed"

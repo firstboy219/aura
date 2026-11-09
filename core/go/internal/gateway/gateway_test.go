@@ -225,3 +225,91 @@ func TestHTTPErrorIsNotCharged(t *testing.T) {
 		t.Fatalf("charged %v for rejected calls", spent)
 	}
 }
+
+func freeSetup(t *testing.T, f *gatewaytest.Fake) (*gateway.Gateway, *store.Store, string) {
+	g, s, id := setup(t, f)
+	free := map[string][]config.ModelRoute{"standard": {
+		{DisplayName: "Free", APIModelID: "free", RouteID: "free/model:free", Free: true, PromptLogging: "may_log", StructuredOutput: "prompt", MaxOutputTokens: 500},
+		{DisplayName: "Paid", APIModelID: "paid", RouteID: "paid/model", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 500},
+	}}
+	g = gateway.New(f, free, budget.New(s, 10))
+	g.SetBackoff(func(int) time.Duration { return time.Millisecond })
+	return g, s, id
+}
+
+// Private task content never reaches a route that may log prompts.
+func TestPrivateTasksSkipPromptLoggingRoutes(t *testing.T) {
+	f := &gatewaytest.Fake{Respond: func(config.ModelRoute, gateway.Request) gatewaytest.Reply {
+		return gatewaytest.Reply{Content: `{"answer":"x"}`}
+	}}
+	g, _, id := freeSetup(t, f)
+	r := req()
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.Routes, ",") != "paid/model" {
+		t.Fatalf("private task used %v", f.Routes)
+	}
+	r.DataClass = "public"
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, r)
+	if err != nil || res.RouteID != "free/model:free" {
+		t.Fatalf("public task: %v %+v", err, res)
+	}
+	// Prompt mode: the schema travels in a system message (no native response_format needed).
+	last := f.Calls[len(f.Calls)-1].Messages
+	if !strings.Contains(last[len(last)-1].Content, `"required":["answer"]`) {
+		t.Fatal("schema not in prompt")
+	}
+	onlyFree := map[string][]config.ModelRoute{"standard": {{DisplayName: "F", APIModelID: "f", RouteID: "f:free", Free: true, PromptLogging: "may_log"}}}
+	g2 := gateway.New(f, onlyFree, nil)
+	if _, err := g2.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req()); !errors.Is(err, gateway.ErrNoRoute) {
+		t.Fatalf("private task with only may_log routes: %v", err)
+	}
+}
+
+func TestFreeRouteReservesZeroAndCounts(t *testing.T) {
+	zero := 0.0
+	f := &gatewaytest.Fake{Respond: func(config.ModelRoute, gateway.Request) gatewaytest.Reply {
+		return gatewaytest.Reply{Content: `{"answer":"x"}`, CostUSD: &zero}
+	}}
+	g, s, id := freeSetup(t, f)
+	r := req()
+	r.DataClass = "public"
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 0.0001, MaxCalls: 1}, r); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	var spent float64
+	s.R.QueryRow("select count(*), sum(cost_actual_usd) from usage_records").Scan(&n, &spent)
+	if n != 1 || spent != 0 {
+		t.Fatalf("n=%d spent=%v", n, spent)
+	}
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1, MaxCalls: 1}, r); !errors.Is(err, budget.ErrIterations) {
+		t.Fatalf("free calls must still count against max_iterations: %v", err)
+	}
+}
+
+func TestRetryAfterHonoured(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(429)
+			w.Write([]byte(`{"error":{"code":429,"message":"rate limited"}}`))
+			return
+		}
+		w.Write([]byte(`{"id":"g","choices":[{"message":{"content":"{\"answer\":\"ok\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0}}`))
+	}))
+	defer srv.Close()
+	_, s, id := setup(t, &gatewaytest.Fake{})
+	g := gateway.New(gateway.NewOpenRouter(srv.URL, "k", 5*time.Second), routes, budget.New(s, 10))
+	g.SetBackoff(func(int) time.Duration { return time.Millisecond })
+	start := time.Now()
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req()); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) < 900*time.Millisecond {
+		t.Fatal("Retry-After ignored")
+	}
+}

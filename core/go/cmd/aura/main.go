@@ -43,7 +43,7 @@ func usage(w io.Writer) {
   serve                         run the Core
   doctor                        check config, secrets, database, worker and provider
   version                       print version
-  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD]
+  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public]
   task list [--state S] | show <id> | cancel <id> | pause <id> | resume <id>
   trace <id> [--follow]         print a task's event log
   approve <approval-id> [--yes] show the full action and approve its exact hash
@@ -345,6 +345,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			fs.Var(&domains, "allow-domain", "allowlisted domain (repeatable)")
 			maxCost := fs.Float64("max-cost", 0, "max cost in USD")
 			idem := fs.String("idempotency-key", "", "Idempotency-Key header")
+			public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
 			pos, err := parse(fs, rest)
 			if err != nil {
 				return err
@@ -353,6 +354,9 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 				return usageErr(`task create "<objective>"`)
 			}
 			body := map[string]any{"objective": pos[0], "tools": []string(toolsF), "allow_domains": []string(domains)}
+			if *public {
+				body["data_class"] = "public"
+			}
 			if *maxCost > 0 {
 				body["budget"] = map[string]any{"max_cost_usd": *maxCost}
 			}

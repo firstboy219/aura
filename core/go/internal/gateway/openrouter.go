@@ -67,7 +67,7 @@ type orResponse struct {
 func (o *OpenRouter) Complete(ctx context.Context, route config.ModelRoute, req Request) (*Attempt, error) {
 	body := orRequest{Model: route.RouteID, Messages: req.Messages, MaxTokens: req.MaxOutputTokens,
 		Usage: map[string]any{"include": true}}
-	if len(req.ResponseSchema) > 0 {
+	if len(req.ResponseSchema) > 0 && route.StructuredOutput != "prompt" {
 		body.ResponseFormat = map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "aura_response", "strict": true, "schema": json.RawMessage(req.ResponseSchema)}}
 		body.Provider = map[string]any{"require_parameters": true}
@@ -102,7 +102,11 @@ func (o *OpenRouter) Complete(ctx context.Context, route config.ModelRoute, req 
 		if out.Error != nil {
 			msg = out.Error.Message
 		}
-		return nil, &ProviderError{Status: resp.StatusCode, Transient: transient(resp.StatusCode), Msg: truncate(msg, 300)}
+		pe := &ProviderError{Status: resp.StatusCode, Transient: transient(resp.StatusCode), Msg: truncate(msg, 300)}
+		if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
+			pe.RetryAfter = time.Duration(s) * time.Second
+		}
+		return nil, pe
 	}
 	if jerr != nil || len(out.Choices) == 0 {
 		return nil, &ProviderError{Status: resp.StatusCode, Transient: true, Msg: "malformed provider response"}

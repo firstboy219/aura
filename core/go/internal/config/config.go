@@ -36,7 +36,19 @@ type ModelRoute struct {
 	PriceInPerMTok  float64 `yaml:"price_in_per_mtok" json:"price_in_per_mtok"`
 	PriceOutPerMTok float64 `yaml:"price_out_per_mtok" json:"price_out_per_mtok"`
 	MaxOutputTokens int     `yaml:"max_output_tokens" json:"max_output_tokens"`
+	// Free marks a zero-price route. Only then may prices be 0; otherwise an
+	// unknown price fails closed.
+	Free bool `yaml:"free" json:"free"`
+	// StructuredOutput is "native" (provider JSON-schema response format, the
+	// default) or "prompt" (schema in the prompt; still validated in Core).
+	StructuredOutput string `yaml:"structured_output" json:"structured_output"`
+	// PromptLogging is "none" (default) or "may_log" when the endpoint may store
+	// or train on prompts. may_log routes only serve tasks marked public.
+	PromptLogging string `yaml:"prompt_logging" json:"prompt_logging"`
 }
+
+// MayLog reports whether the route may log prompts.
+func (r ModelRoute) MayLog() bool { return r.PromptLogging == "may_log" }
 
 type Config struct {
 	ConfigVersion int `yaml:"config_version" json:"config_version"`
@@ -203,8 +215,23 @@ func (c *Config) Validate() error {
 			if r.RouteID == "" || r.APIModelID == "" || r.DisplayName == "" {
 				add("models.%s[%d]: display_name, api_model_id and route_id are required", tier, i)
 			}
-			if r.PriceInPerMTok <= 0 || r.PriceOutPerMTok <= 0 {
+			switch {
+			case r.Free && (r.PriceInPerMTok != 0 || r.PriceOutPerMTok != 0):
+				add("models.%s[%d]: free routes must have price 0", tier, i)
+			case r.Free && !r.MayLog():
+				add("models.%s[%d]: free routes must declare prompt_logging: may_log", tier, i)
+			case !r.Free && (r.PriceInPerMTok <= 0 || r.PriceOutPerMTok <= 0):
 				add("models.%s[%d]: prices must be set (unknown cost fails closed)", tier, i)
+			}
+			switch r.StructuredOutput {
+			case "", "native", "prompt":
+			default:
+				add("models.%s[%d]: structured_output must be native|prompt", tier, i)
+			}
+			switch r.PromptLogging {
+			case "", "none", "may_log":
+			default:
+				add("models.%s[%d]: prompt_logging must be none|may_log", tier, i)
 			}
 			switch r.ReasoningEffort {
 			case "", "low", "medium", "high":

@@ -55,7 +55,8 @@ type Call struct {
 	APIModelID              string
 	EstimateUSD             float64
 	TaskLimitUSD            float64
-	MaxCalls                int // per-task provider-call limit (max_iterations); 0 = none
+	MaxCalls                int  // per-task provider-call limit (max_iterations); 0 = none
+	Free                    bool // zero-price route: a 0 estimate is allowed
 }
 
 // dayStart is the start of the current UTC day in unix ms (daily budget window).
@@ -71,7 +72,7 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 	if g.Halted() {
 		return nil, ErrHalted
 	}
-	if c.EstimateUSD <= 0 {
+	if c.EstimateUSD < 0 || (c.EstimateUSD == 0 && !c.Free) {
 		return nil, fmt.Errorf("budget: estimate must be positive (unknown cost fails closed)")
 	}
 	r := &Reservation{UsageID: ids.New(), Amount: c.EstimateUSD}

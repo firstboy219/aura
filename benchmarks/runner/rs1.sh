@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# RS-1 real-provider acceptance runner (opt-in: spends OpenRouter credit, ~USD 0.03–0.08 per run).
+# RS-1 real-provider acceptance runner (opt-in). Pages are public, so the task is marked --public and may use
+# free model routes (cost USD 0); with paid routes a run costs ~USD 0.03–0.08.
 # Runs N times against the deployed aura-core container and checks each result.
 # Usage: sudo benchmarks/runner/rs1.sh [runs=10]
 set -euo pipefail
@@ -9,7 +10,7 @@ OBJ="Fetch ${URLS[0]}, ${URLS[1]} and ${URLS[2]}. Summarize each page in at most
 OUT=$(mktemp -d)
 pass=0
 for i in $(seq 1 "$RUNS"); do
-  id=$(docker exec aura-core aura task create "$OBJ" --tool web.fetch --tool workspace.write \
+  id=$(docker exec aura-core aura task create "$OBJ" --public --tool web.fetch --tool workspace.write \
        --allow-domain example.com --allow-domain www.iana.org --allow-domain www.rfc-editor.org | awk '{print $1}')
   for _ in $(seq 1 300); do
     state=$(docker exec aura-core aura task show "$id" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["state"])')

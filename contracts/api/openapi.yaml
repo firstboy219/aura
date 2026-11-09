@@ -159,6 +159,7 @@ components:
         objective: { type: string, minLength: 1, maxLength: 8000 }
         tools: { type: array, items: { enum: [web.fetch, workspace.read, workspace.write] } }
         allow_domains: { type: array, items: { type: string }, maxItems: 50 }
+        data_class: { enum: [private, public], default: private, description: Only public tasks may use model routes that may log prompts (free endpoints) }
         budget:
           type: object
           additionalProperties: false
@@ -182,6 +183,7 @@ components:
         budget: { type: object, properties: { max_cost_usd: { type: number }, max_iterations: { type: integer }, max_wall_seconds: { type: integer } } }
         tools: { type: array, items: { type: string } }
         allow_domains: { type: array, items: { type: string } }
+        data_class: { enum: [private, public] }
         wait_reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

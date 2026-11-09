@@ -24,6 +24,7 @@ type CreateInput struct {
 	AllowDomains   []string
 	Budget         task.Budget
 	IdempotencyKey string
+	DataClass      string // "private" (default) or "public"
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -95,7 +96,15 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	if b.MaxCostUSD > def.MaxCostUSD || b.MaxIterations > def.MaxIterations || b.MaxWallSeconds > def.MaxWallSeconds {
 		return nil, bad("budget exceeds configured task_default caps")
 	}
-	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: tools, AllowDomains: domains}, ConfigHash: e.cfg.Hash()}
+	dc := in.DataClass
+	switch dc {
+	case "":
+		dc = "private"
+	case "private", "public":
+	default:
+		return nil, bad("data_class must be private or public")
+	}
+	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: tools, AllowDomains: domains, DataClass: dc}, ConfigHash: e.cfg.Hash()}
 	if in.IdempotencyKey != "" {
 		if len(in.IdempotencyKey) > 128 {
 			return nil, bad("Idempotency-Key too long")

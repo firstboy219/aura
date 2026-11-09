@@ -29,6 +29,9 @@ type Request struct {
 	Messages        []Message       `json:"messages"`
 	ResponseSchema  json.RawMessage `json:"response_schema,omitempty"`
 	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+	// DataClass is set by the Core from the task ("public" or "private"); the
+	// worker cannot set it. Routes that may log prompts serve public tasks only.
+	DataClass string `json:"-"`
 }
 
 // Result of one completion (after any repair).
@@ -61,9 +64,10 @@ type Provider interface {
 
 // ProviderError classifies adapter failures.
 type ProviderError struct {
-	Status    int
-	Transient bool
-	Msg       string
+	Status     int
+	Transient  bool
+	Msg        string
+	RetryAfter time.Duration // from the provider's Retry-After header, if any
 }
 
 func (e *ProviderError) Error() string { return fmt.Sprintf("provider error %d: %s", e.Status, e.Msg) }
@@ -104,8 +108,17 @@ type Budget struct {
 // Complete runs a request: per route, reserve → attempt (with bounded retry) →
 // reconcile; structured output is validated and repaired at most once.
 func (g *Gateway) Complete(ctx context.Context, b Budget, req Request) (*Result, error) {
-	routes := g.routes[req.Tier]
+	var routes []config.ModelRoute
+	for _, r := range g.routes[req.Tier] {
+		if r.MayLog() && req.DataClass != "public" {
+			continue // never send private task content to an endpoint that may log prompts
+		}
+		routes = append(routes, r)
+	}
 	if len(routes) == 0 {
+		if len(g.routes[req.Tier]) > 0 {
+			return nil, fmt.Errorf("%w: %s has only routes that may log prompts; mark the task public to use them", ErrNoRoute, req.Tier)
+		}
 		return nil, fmt.Errorf("%w: %s", ErrNoRoute, req.Tier)
 	}
 	var schema *jsonschema.Schema
@@ -138,6 +151,10 @@ func fallbackable(err error) bool {
 
 func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute, req Request, schema *jsonschema.Schema) (*Result, error) {
 	msgs := append([]Message(nil), req.Messages...)
+	if schema != nil && route.StructuredOutput == "prompt" {
+		msgs = append(msgs, Message{Role: "system", Content: "Reply with only one JSON object, no prose and no code fence, " +
+			"that validates against this JSON Schema:\n" + string(req.ResponseSchema)})
+	}
 	for repair := 0; repair <= 1; repair++ {
 		r := req
 		r.Messages = msgs
@@ -179,7 +196,8 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 	est := Estimate(route, req)
 	for try := 0; ; try++ {
 		res, err := g.gov.Reserve(ctx, budget.Call{TaskID: b.TaskID, StepID: b.StepID, Tier: req.Tier, ProviderID: g.prov.ID(),
-			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, MaxCalls: b.MaxCalls})
+			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, MaxCalls: b.MaxCalls,
+			Free: route.Free})
 		if err != nil {
 			return nil, err
 		}
@@ -225,8 +243,12 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 		if !pe.Transient || try >= g.maxRetries {
 			return nil, pe
 		}
+		wait := g.backoff(try)
+		if pe.RetryAfter > wait {
+			wait = min(pe.RetryAfter, 20*time.Second)
+		}
 		select {
-		case <-time.After(g.backoff(try)):
+		case <-time.After(wait):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}

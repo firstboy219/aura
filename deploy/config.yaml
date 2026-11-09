@@ -25,20 +25,36 @@ providers:
     base_url: https://openrouter.ai/api/v1
     key_file: /run/aura-secrets/openrouter_key
     timeout_seconds: 120
-# Provisional default profile (MODEL_ASSIGNMENT.md is MISSING; ASSUMPTIONS A-13).
-# Route IDs and prices (USD per million tokens) verified against the OpenRouter catalog on 2026-11-09.
+# Model profile (ASSUMPTIONS A-13, A-20). MODEL_ASSIGNMENT.md is MISSING, so this is provisional.
+# Free routes come first but serve ONLY tasks created with data_class "public" (CLI: --public), because free
+# endpoints may log or train on prompts. Private tasks skip them and use the paid routes (need OpenRouter credit).
+# Route IDs, structured-output support and prices verified against the OpenRouter catalog on 2026-11-09.
 models:
   fast:
+    - { display_name: "Nemotron 3.5 Super VL (free)", api_model_id: "nvidia/nemotron-3.5-super-vl", route_id: "nvidia/nemotron-3.5-super-vl:free",
+        free: true, prompt_logging: may_log, structured_output: native, max_output_tokens: 6000 }
+    - { display_name: "OpenRouter free router", api_model_id: "openrouter/free", route_id: "openrouter/free",
+        free: true, prompt_logging: may_log, structured_output: native, max_output_tokens: 6000 }
     - { display_name: "Claude Haiku 5.5", api_model_id: "claude-haiku-5-5", route_id: "anthropic/claude-haiku-5.5",
         reasoning_effort: low, price_in_per_mtok: 0.10, price_out_per_mtok: 0.50, max_output_tokens: 4000 }
     - { display_name: "Claude Haiku 4.5", api_model_id: "claude-haiku-4-5", route_id: "anthropic/claude-haiku-4.5",
         reasoning_effort: low, price_in_per_mtok: 1.00, price_out_per_mtok: 5.00, max_output_tokens: 4000 }
   standard:
+    - { display_name: "Nemotron 3.5 Super VL (free)", api_model_id: "nvidia/nemotron-3.5-super-vl", route_id: "nvidia/nemotron-3.5-super-vl:free",
+        free: true, prompt_logging: may_log, structured_output: native, max_output_tokens: 6000 }
+    - { display_name: "Nemotron 3 Ultra 550B (free)", api_model_id: "nvidia/nemotron-3-ultra-550b-a55b", route_id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        free: true, prompt_logging: may_log, structured_output: prompt, max_output_tokens: 6000 }
+    - { display_name: "OpenRouter free router", api_model_id: "openrouter/free", route_id: "openrouter/free",
+        free: true, prompt_logging: may_log, structured_output: native, max_output_tokens: 6000 }
     - { display_name: "Claude Sonnet 5.5", api_model_id: "claude-sonnet-5-5", route_id: "anthropic/claude-sonnet-5.5",
         reasoning_effort: medium, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, max_output_tokens: 6000 }
     - { display_name: "Claude Sonnet 5", api_model_id: "claude-sonnet-5", route_id: "anthropic/claude-sonnet-5",
         reasoning_effort: medium, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, max_output_tokens: 6000 }
   deep:
+    - { display_name: "Nemotron 3 Ultra 550B (free)", api_model_id: "nvidia/nemotron-3-ultra-550b-a55b", route_id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        free: true, prompt_logging: may_log, structured_output: prompt, max_output_tokens: 6000 }
+    - { display_name: "Nemotron 3.5 Super VL (free)", api_model_id: "nvidia/nemotron-3.5-super-vl", route_id: "nvidia/nemotron-3.5-super-vl:free",
+        free: true, prompt_logging: may_log, structured_output: native, max_output_tokens: 6000 }
     - { display_name: "Claude Opus 5.5", api_model_id: "claude-opus-5-5", route_id: "anthropic/claude-opus-5.5",
         reasoning_effort: high, price_in_per_mtok: 4.00, price_out_per_mtok: 20.00, max_output_tokens: 8000 }
     - { display_name: "Claude Opus 5", api_model_id: "claude-opus-5", route_id: "anthropic/claude-opus-5",

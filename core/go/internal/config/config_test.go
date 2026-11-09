@@ -89,3 +89,20 @@ func TestShippedConfigIsValid(t *testing.T) {
 		t.Fatalf("%+v", c.Models)
 	}
 }
+
+func TestFreeRouteRules(t *testing.T) {
+	bad := []string{
+		"models:\n  fast: [{display_name: a, api_model_id: b, route_id: c, free: true}]\n", // no prompt_logging
+		"models:\n  fast: [{display_name: a, api_model_id: b, route_id: c, free: true, prompt_logging: may_log, price_in_per_mtok: 1}]\n",
+		"models:\n  fast: [{display_name: a, api_model_id: b, route_id: c, price_in_per_mtok: 1, price_out_per_mtok: 1, structured_output: xml}]\n",
+	}
+	for _, c := range bad {
+		if _, err := Parse([]byte(c), noenv); err == nil {
+			t.Errorf("accepted %q", c)
+		}
+	}
+	ok := "models:\n  fast: [{display_name: a, api_model_id: b, route_id: c, free: true, prompt_logging: may_log, structured_output: prompt}]\n"
+	if _, err := Parse([]byte(ok), noenv); err != nil {
+		t.Fatal(err)
+	}
+}
