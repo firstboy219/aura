@@ -4,7 +4,7 @@ Scope: Blueprint E.2 only. One milestone = one commit/PR with a completion repor
 must pass with `./dev test` before the next starts. Deterministic tests use a fake provider and a local fixture HTTP
 server; real-provider runs are opt-in (`AURA_REAL_PROVIDER=1`).
 
-Status 2026-11-09: M1–M8 done; M9 done except the opt-in real-provider RS-1 runs (need the deployed Core + key).
+Status 2026-11-09: M1–M9 done; real-provider RS-1 10/10 on the deployed Core (free routes, A-20).
 Evidence: `benchmarks/reports/P1-2026-11-09.md`.
 
 | M | Deliverable | Acceptance (tests) |
