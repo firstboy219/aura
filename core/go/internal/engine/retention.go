@@ -17,7 +17,7 @@ func (e *Engine) PurgeContent(ctx context.Context) (int, error) {
 	err := e.st.Write(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `select c.task_id, count(*) from checkpoints c join tasks t on t.id = c.task_id
 			where c.purge_after is not null and c.purge_after < ?
-			and t.state in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED') group by c.task_id`, ids.NowMs())
+			and t.state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED') group by c.task_id`, ids.NowMs())
 		if err != nil {
 			return err
 		}

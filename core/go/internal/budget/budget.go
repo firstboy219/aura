@@ -30,10 +30,11 @@ type Governor struct {
 	dailyLimit float64
 	halted     atomic.Bool
 	now        func() time.Time
+	loc        *time.Location // workspace time zone: the daily budget window
 }
 
 func New(st *store.Store, dailyLimitUSD float64) *Governor {
-	return &Governor{st: st, dailyLimit: dailyLimitUSD, now: time.Now}
+	return &Governor{st: st, dailyLimit: dailyLimitUSD, now: time.Now, loc: time.UTC}
 }
 
 // Halt blocks every new reservation until Resume (kill switch).
@@ -64,10 +65,20 @@ type Call struct {
 	Free         bool   // zero-price route: a 0 estimate is allowed
 }
 
-// dayStart is the start of the current UTC day in unix ms (daily budget window).
+// SetLocation sets the workspace time zone for the daily budget window (OL-08).
+func (g *Governor) SetLocation(loc *time.Location) {
+	if loc != nil {
+		g.loc = loc
+	}
+}
+
+// SetClockForTest replaces the clock (tests only).
+func (g *Governor) SetClockForTest(now func() time.Time) { g.now = now }
+
+// dayStart is the start of the current workspace-local day in unix ms.
 func (g *Governor) dayStart() int64 {
-	n := g.now().UTC()
-	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
+	n := g.now().In(g.loc)
+	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, g.loc).UnixMilli()
 }
 
 const spent = "coalesce(cost_actual_usd, cost_reserved_usd)"
@@ -114,7 +125,7 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 		if _, err := tx.ExecContext(ctx, `insert into usage_records(id, task_id, step_id, tier, provider_id, api_model_id, route_id,
 			cost_estimated_usd, cost_reserved_usd, outcome, purpose, created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)`,
 			r.UsageID, c.TaskID, nullable(c.StepID), c.Tier, c.ProviderID, c.APIModelID, c.Route, c.EstimateUSD, c.EstimateUSD,
-			"reserved", nullable(c.Purpose), ids.NowMs()); err != nil {
+			"reserved", nullable(c.Purpose), g.now().UnixMilli()); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, "update tasks set cost_reserved_usd = cost_reserved_usd + ? where id=?", c.EstimateUSD, c.TaskID)

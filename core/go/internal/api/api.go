@@ -89,6 +89,16 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
 	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
 	mux.Handle("GET /api/v1/self-model", auth(s.selfModel))
+	mux.Handle("GET /api/v1/self", auth(s.self))
+	mux.Handle("GET /api/v1/triggers", auth(s.listTriggers))
+	mux.Handle("POST /api/v1/triggers", auth(s.createTrigger))
+	mux.Handle("POST /api/v1/triggers/{id}/{action}", auth(s.triggerAction))
+	mux.Handle("GET /api/v1/notifications", auth(s.notifications))
+	mux.Handle("POST /api/v1/notifications/{id}/read", auth(s.markRead))
+	mux.Handle("GET /api/v1/limitations", auth(s.listLimitations))
+	mux.Handle("POST /api/v1/limitations", auth(s.addLimitation))
+	mux.Handle("POST /api/v1/limitations/{id}/{action}", auth(s.limitationAction))
+	mux.Handle("POST /api/v1/improvement/run", auth(s.improvementRun))
 	mux.Handle("GET /api/v1/scorecard", auth(s.scorecard))
 	mux.Handle("GET /api/v1/routing/shadow", auth(s.shadow))
 	mux.Handle("GET /api/v1/profile", auth(s.listProfile))
@@ -205,6 +215,8 @@ type Task struct {
 	ID           string      `json:"id"`
 	State        task.State  `json:"state"`
 	Reason       *string     `json:"reason"`
+	ReasonCode   *string     `json:"reason_code"`
+	TaskClass    *string     `json:"task_class"`
 	WaitReason   *string     `json:"wait_reason"`
 	Objective    string      `json:"objective"`
 	ParentTaskID *string     `json:"parent_task_id"`
@@ -228,7 +240,7 @@ type Task struct {
 func ts(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.RFC3339Nano) }
 
 func toAPI(t *task.Task) Task {
-	return Task{ID: t.ID, State: t.State, Reason: t.Reason, WaitReason: t.WaitReason, Objective: t.Objective,
+	return Task{ID: t.ID, State: t.State, Reason: t.Reason, ReasonCode: t.ReasonCode, TaskClass: t.TaskClass, WaitReason: t.WaitReason, Objective: t.Objective,
 		ParentTaskID: t.ParentTaskID, RootTaskID: t.RootTaskID, AgentRole: t.AgentRole, Depth: t.Depth,
 		CostUSD: t.CostUSD + t.CostReservedUSD, Budget: t.Budget, Tools: t.Scope.Tools, AllowDomains: t.Scope.AllowDomains, DataClass: t.Scope.DataClass, Attachments: t.Scope.Attachments,
 		Priority: t.Priority, Replans: t.Replans, Tier: t.TierOverride,

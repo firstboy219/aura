@@ -50,7 +50,11 @@ func (e *Engine) createWait(ctx context.Context, t *task.Task, st *task.Step, to
 		if _, err := task.AppendEvent(ctx, tx, t.ID, &st.ID, "WAIT_STARTED", "core", map[string]any{"wait_id": id, "kind": kind, "reason": reason}); err != nil {
 			return err
 		}
-		_, err := task.Transition(ctx, tx, t.ID, task.Waiting, "", reason, "core")
+		to := task.Waiting
+		if kind == "time" {
+			to = task.Scheduled // waiting for a future time (Blueprint §8.2)
+		}
+		_, err := task.Transition(ctx, tx, t.ID, to, "", reason, "core")
 		return err
 	})
 	return id, err
@@ -75,7 +79,7 @@ func (e *Engine) Supervise(ctx context.Context) int {
 		union all
 		select w.id, w.kind, '', '' from task_waits w where w.satisfied_at is null and w.kind='tasks'
 		  and not exists (select 1 from tasks c where c.parent_task_id = w.task_id
-		    and c.state not in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED'))`, now)
+		    and c.state not in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED'))`, now)
 	if err != nil {
 		e.log.Error("supervisor", "err", err)
 		return 0
@@ -180,7 +184,7 @@ func (e *Engine) wakeWait(ctx context.Context, waitID, eventID string) (bool, er
 		if err != nil {
 			return err
 		}
-		if cur.State == task.Waiting {
+		if cur.State == task.Waiting || cur.State == task.Scheduled {
 			_, err = task.Transition(ctx, tx, taskID, task.Running, "woke", "", "core")
 		}
 		return err

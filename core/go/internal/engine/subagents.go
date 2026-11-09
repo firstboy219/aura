@@ -220,7 +220,7 @@ func (e *Engine) Tree(ctx context.Context, id string) (*TreeNode, error) {
 func descendants(ctx context.Context, tx *sql.Tx, id string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, `with recursive d(id) as (select id from tasks where parent_task_id=?
 		union all select t.id from tasks t join d on t.parent_task_id = d.id)
-		select d.id from d join tasks t on t.id = d.id where t.state not in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED')`, id)
+		select d.id from d join tasks t on t.id = d.id where t.state not in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED')`, id)
 	if err != nil {
 		return nil, err
 	}

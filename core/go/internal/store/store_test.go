@@ -186,7 +186,8 @@ func TestUpgradeFrom0001KeepsData(t *testing.T) {
 	var prio, steps int
 	s.R.QueryRow("select state, priority from tasks where id='T1'").Scan(&state, &prio)
 	s.R.QueryRow("select count(*) from task_steps where task_id='T1'").Scan(&steps)
-	if state != "SUCCEEDED" || prio != 0 || steps != 1 {
+	// The 0003 rebuild renamed the terminal state to the Blueprint §8.2 name; the row itself is preserved.
+	if state != "COMPLETED" || prio != 0 || steps != 1 {
 		t.Fatalf("state=%s prio=%d steps=%d", state, prio, steps)
 	}
 	var fk int

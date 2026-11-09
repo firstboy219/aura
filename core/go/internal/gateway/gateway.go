@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -89,7 +90,20 @@ type Gateway struct {
 	gov        *budget.Governor
 	maxRetries int
 	backoff    func(attempt int) time.Duration
+	brk        *breakers
+	// Notify receives R0 self-healing events: R0_CIRCUIT_OPEN, R0_CIRCUIT_CLOSED,
+	// R0_EMPTY_ANSWER_RETRY, R0_TOOL_CALL_MARKUP (may be nil).
+	Notify func(event string, data map[string]any)
 }
+
+func (g *Gateway) notify(event string, data map[string]any) {
+	if g.Notify != nil {
+		g.Notify(event, data)
+	}
+}
+
+// OpenRoutes lists routes whose circuit breaker is open.
+func (g *Gateway) OpenRoutes() []string { return g.brk.open() }
 
 // New creates a gateway whose routes use one provider (the default "openrouter" id).
 func New(p Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
@@ -99,7 +113,7 @@ func New(p Provider, routes map[string][]config.ModelRoute, gov *budget.Governor
 // NewMulti creates a gateway over several providers; each route names its
 // provider (default "openrouter"), so tier fallback can cross providers.
 func NewMulti(provs map[string]Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
-	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2,
+	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2, brk: newBreakers(),
 		backoff: func(a int) time.Duration { return time.Duration(500*(1<<a)) * time.Millisecond }}
 }
 
@@ -162,7 +176,14 @@ func fallbackable(err error) bool {
 	return errors.As(err, &pe)
 }
 
+var errCircuitOpen = &ProviderError{Status: 0, Transient: false, Msg: "route circuit is open (recent repeated failures)"}
+
+func routeKey(route config.ModelRoute) string { return route.Provider + "|" + route.RouteID }
+
 func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute, req Request, schema *jsonschema.Schema) (*Result, error) {
+	if !g.brk.allow(routeKey(route)) {
+		return nil, errCircuitOpen
+	}
 	msgs := append([]Message(nil), req.Messages...)
 	if schema != nil && route.StructuredOutput == "prompt" {
 		msgs = append(msgs, Message{Role: "system", Content: "Reply with only one JSON object, no prose and no code fence, " +
@@ -241,10 +262,36 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 				act.CostUSD = &zero
 			}
 		}
+		// OL-01: a reasoning model may answer with empty content. Retry once with
+		// reasoning disabled (explicit setting, recorded); OL-02: raw tool-call
+		// markup is a failed attempt, never an answer.
+		var contentErr *ProviderError
+		if err == nil {
+			switch {
+			case strings.TrimSpace(at.Content) == "":
+				act.Outcome = "empty_output"
+				contentErr = &ProviderError{Status: 0, Transient: false, Msg: "empty_output"}
+			case rawToolMarkup(at.Content):
+				act.Outcome = "tool_call_markup"
+				contentErr = &ProviderError{Status: 0, Transient: false, Msg: "raw_tool_call_markup"}
+				g.notify("R0_TOOL_CALL_MARKUP", map[string]any{"route": route.RouteID, "provider": route.Provider})
+			}
+		}
 		if rerr := g.gov.Reconcile(ctx, res, b.TaskID, act); rerr != nil {
 			return nil, rerr
 		}
+		if contentErr != nil {
+			if contentErr.Msg == "empty_output" && route.ReasoningEffort != "" && !emptyRetried(ctx) {
+				g.notify("R0_EMPTY_ANSWER_RETRY", map[string]any{"route": route.RouteID, "reason": "retrying once with reasoning disabled"})
+				route.ReasoningEffort = ""
+				ctx = context.WithValue(ctx, emptyRetryKey{}, true)
+				continue
+			}
+			g.failRoute(route, contentErr)
+			return nil, contentErr
+		}
 		if err == nil {
+			g.okRoute(route)
 			at.usageID = res.UsageID
 			return at, nil
 		}
@@ -256,6 +303,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			pe = &ProviderError{Status: 0, Transient: true, Msg: err.Error()}
 		}
 		if !pe.Transient || try >= g.maxRetries {
+			g.failRoute(route, pe)
 			return nil, pe
 		}
 		wait := g.backoff(try)
@@ -338,3 +386,28 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+type emptyRetryKey struct{}
+
+func emptyRetried(ctx context.Context) bool { v, _ := ctx.Value(emptyRetryKey{}).(bool); return v }
+
+var markupRe = regexp.MustCompile(`(?i)<\s*(tool_call|function_call|function_calls|tool_use)\b|<\|(tool|python_tag)|\[TOOL_CALLS?\]`)
+
+// rawToolMarkup detects tool calls returned as raw text markup (OL-02).
+func rawToolMarkup(s string) bool { return markupRe.MatchString(s) }
+
+func (g *Gateway) failRoute(route config.ModelRoute, pe *ProviderError) {
+	if opened, cool := g.brk.failure(routeKey(route)); opened {
+		g.notify("R0_CIRCUIT_OPEN", map[string]any{"route": route.RouteID, "provider": route.Provider, "cooldown_s": int(cool.Seconds()),
+			"last_error": pe.Msg, "status": pe.Status})
+	}
+}
+
+func (g *Gateway) okRoute(route config.ModelRoute) {
+	if g.brk.success(routeKey(route)) {
+		g.notify("R0_CIRCUIT_CLOSED", map[string]any{"route": route.RouteID, "provider": route.Provider})
+	}
+}
+
+// SetClockForTest replaces the circuit breaker clock (tests only).
+func (g *Gateway) SetClockForTest(now func() time.Time) { g.brk.now = now }

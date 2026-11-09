@@ -60,6 +60,10 @@ func usage(w io.Writer) {
   correct <id> "<text>"         owner correction; reaches every task in the tree
   memory list [--q TEXT] | add "<fact>" [--private] | correct <id> "<text>" | delete <id>
   skill list | show <id> [--diff FROM TO] | disable <id> | enable <id> | rollback <id> <version>
+  trigger list | add-task|add-watch … | enable|disable|run|delete <id>   scheduled tasks and read-only watches
+  notifications [--unread]      findings from watches
+  self                          who I am, what I can do, my measured weaknesses and how I improve (no model writes this)
+  limitations [--all]           the Limitation Ledger; limitation add|accept|dismiss|reopen
   profile list [--all] | add "<preference>" | confirm|disable|enable|delete <id> | edit <id> "<text>"
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
@@ -86,7 +90,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return doctor(stdout)
 	case "console":
 		err = runConsole()
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile":
+	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
+		"self", "limitations", "limitation", "trigger", "notifications":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -507,7 +512,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 				return err
 			}
 			switch t.State {
-			case "SUCCEEDED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED", "PAUSED", "WAITING_APPROVAL":
+			case "COMPLETED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED", "PAUSED", "WAITING_APPROVAL", "WAITING_INPUT", "WAITING_EXTERNAL", "SCHEDULED":
 				if len(out.Events) == 0 {
 					return nil
 				}
@@ -588,6 +593,82 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return nil
 	case "memory", "skill", "profile":
 		return ownerData(c, cmd, rest, stdout)
+	case "trigger":
+		return triggerCmd(c, rest, stdout)
+	case "notifications":
+		var out any
+		path := "/notifications"
+		if len(rest) > 0 && rest[0] == "--unread" {
+			path += "?unread=true"
+		}
+		if err := c.do("GET", path, nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+		return nil
+	case "self":
+		var out struct {
+			Summary string `json:"summary"`
+		}
+		if err := c.do("GET", "/self", nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, out.Summary)
+		return nil
+	case "limitations":
+		var out struct {
+			Limitations []struct {
+				ID, Status, Category, Title string
+				TaskClass                   string `json:"task_class"`
+				Remedies                    []struct{ Class, Status string }
+			}
+		}
+		path := "/limitations"
+		if len(rest) == 0 || rest[0] != "--all" {
+			path += "?status=open"
+		}
+		if err := c.do("GET", path, nil, nil, &out); err != nil {
+			return err
+		}
+		for _, l := range out.Limitations {
+			rem := ""
+			for _, r := range l.Remedies {
+				rem += fmt.Sprintf(" [%s:%s]", r.Class, r.Status)
+			}
+			fmt.Fprintf(stdout, "%s  %-15s %-18s%s  %s\n", l.ID, l.Status, l.Category, rem, l.Title)
+		}
+		return nil
+	case "limitation":
+		if len(rest) < 1 {
+			return usageErr("limitation add|accept|dismiss|reopen …")
+		}
+		switch rest[0] {
+		case "add":
+			if len(rest) != 4 {
+				return usageErr(`limitation add <category> <task-class> "<title>"`)
+			}
+			var out map[string]any
+			if err := c.do("POST", "/limitations", map[string]string{"category": rest[1], "task_class": rest[2], "title": rest[3]}, nil, &out); err != nil {
+				return err
+			}
+			printJSON(stdout, out)
+			return nil
+		case "accept", "dismiss", "reopen":
+			if len(rest) < 2 {
+				return usageErr("limitation " + rest[0] + " <id> [note]")
+			}
+			note := ""
+			if len(rest) > 2 {
+				note = rest[2]
+			}
+			var out map[string]any
+			if err := c.do("POST", "/limitations/"+rest[1]+"/"+rest[0], map[string]string{"note": note}, nil, &out); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "%s %s\n", out["id"], out["status"])
+			return nil
+		}
+		return usageErr("unknown limitation subcommand")
 	case "correct":
 		if len(rest) != 2 {
 			return usageErr(`correct <task-id> "<correction or added instruction>"`)
@@ -774,6 +855,64 @@ func ownerData(c *apiClient, cmd string, rest []string, stdout io.Writer) error 
 	}
 	if err != nil {
 		return err
+	}
+	printJSON(stdout, out)
+	return nil
+}
+
+// triggerCmd implements `aura trigger`.
+func triggerCmd(c *apiClient, rest []string, stdout io.Writer) error {
+	if len(rest) == 0 {
+		return usageErr("trigger list|add-task|add-watch|enable|disable|run|delete")
+	}
+	var out any
+	switch rest[0] {
+	case "list":
+		if err := c.do("GET", "/triggers", nil, nil, &out); err != nil {
+			return err
+		}
+	case "enable", "disable", "run", "delete":
+		if len(rest) != 2 {
+			return usageErr("trigger " + rest[0] + " <id>")
+		}
+		if err := c.do("POST", "/triggers/"+rest[1]+"/"+rest[0], nil, nil, &out); err != nil {
+			return err
+		}
+	case "add-task", "add-watch":
+		fs := flag.NewFlagSet(rest[0], flag.ContinueOnError)
+		every := fs.Int64("every", 0, "interval in seconds (>= 60)")
+		daily := fs.String("daily", "", "daily at HH:MM (workspace time zone) or HH:MM+07:00")
+		var domains, sources multiFlag
+		fs.Var(&domains, "allow-domain", "allowlisted domain (repeatable)")
+		fs.Var(&sources, "source", "watched source URL (watch only, repeatable)")
+		purpose := fs.String("purpose", "", "why you watch it (watch only)")
+		pos, err := parse(fs, rest[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) < 1 {
+			return usageErr(`trigger add-task|add-watch "<name>" [--objective ...] --every N | --daily HH:MM`)
+		}
+		body := map[string]any{"name": pos[0], "kind": strings.TrimPrefix(rest[0], "add-")}
+		if *every > 0 {
+			body["interval_seconds"] = *every
+		}
+		if *daily != "" {
+			body["daily_at"] = *daily
+		}
+		if len(pos) > 1 {
+			body["objective"] = pos[1]
+		}
+		spec := map[string]any{"allow_domains": []string(domains), "data_class": "public"}
+		if rest[0] == "add-watch" {
+			spec["sources"], spec["purpose"] = []string(sources), *purpose
+		}
+		body["spec"] = spec
+		if err := c.do("POST", "/triggers", body, nil, &out); err != nil {
+			return err
+		}
+	default:
+		return usageErr("unknown trigger subcommand")
 	}
 	printJSON(stdout, out)
 	return nil

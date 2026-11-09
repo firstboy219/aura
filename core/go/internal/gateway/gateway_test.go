@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -362,5 +363,116 @@ func TestInvalidOutputMarkedInUsage(t *testing.T) {
 	s.R.QueryRow("select sum(outcome='invalid_output'), sum(outcome='ok') from usage_records where purpose='verify'").Scan(&invalid, &ok)
 	if invalid != 1 || ok != 1 {
 		t.Fatalf("invalid=%d ok=%d", invalid, ok)
+	}
+}
+
+// SELF-07 / OL-03: a route that keeps failing is taken out of rotation, the next
+// route serves, and the route is tried again (half-open) after the cooldown.
+func TestCircuitBreakerOpensAndRecovers(t *testing.T) {
+	var events []string
+	var mu sync.Mutex
+	down := true
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if r.RouteID == "route/a" && down {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 429, Msg: "rate limited"}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	g, _, id := setup(t, f)
+	g.Notify = func(ev string, _ map[string]any) { mu.Lock(); events = append(events, ev); mu.Unlock() }
+	now := time.Now()
+	g.SetClockForTest(func() time.Time { return now })
+	call := func() *gateway.Result {
+		res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	for i := 0; i < 5; i++ {
+		if call().RouteID != "route/b" { // always served by the fallback
+			t.Fatal("fallback did not serve")
+		}
+	}
+	callsAtOpen := 0
+	for _, r := range f.Routes {
+		if r == "route/a" {
+			callsAtOpen++
+		}
+	}
+	for i := 0; i < 3; i++ {
+		call()
+	}
+	after := 0
+	for _, r := range f.Routes {
+		if r == "route/a" {
+			after++
+		}
+	}
+	if after != callsAtOpen || len(g.OpenRoutes()) != 1 {
+		t.Fatalf("open circuit still called route/a: %d -> %d, open=%v", callsAtOpen, after, g.OpenRoutes())
+	}
+	down = false
+	now = now.Add(61 * time.Second) // cooldown over: one probe goes to route/a, which has recovered
+	if call().RouteID != "route/a" || len(g.OpenRoutes()) != 0 {
+		t.Fatal("route did not recover after the cooldown")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(events, ",") != "R0_CIRCUIT_OPEN,R0_CIRCUIT_CLOSED" {
+		t.Fatalf("events %v", events)
+	}
+}
+
+// OL-01: empty content from a reasoning route is retried once with reasoning
+// disabled; OL-02: raw tool-call markup is a failed attempt and falls back.
+func TestEmptyAnswerAndToolMarkup(t *testing.T) {
+	var seen []string
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		seen = append(seen, r.RouteID+"|"+r.ReasoningEffort)
+		switch {
+		case r.RouteID == "route/a" && r.ReasoningEffort != "":
+			return gatewaytest.Reply{Content: "   "}
+		case r.RouteID == "route/a":
+			return gatewaytest.Reply{Content: `{"answer":"after retry"}`}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"b"}`}
+	}}
+	g, s, id := setup(t, f)
+	withReasoning := map[string][]config.ModelRoute{"standard": {
+		{DisplayName: "A", APIModelID: "a", RouteID: "route/a", ReasoningEffort: "medium", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 100},
+		{DisplayName: "B", APIModelID: "b", RouteID: "route/b", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 100}}}
+	g = gateway.New(f, withReasoning, budget.New(s, 10))
+	var events []string
+	g.Notify = func(ev string, _ map[string]any) { events = append(events, ev) }
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	if err != nil || res.RouteID != "route/a" || strings.Join(seen, ",") != "route/a|medium,route/a|" {
+		t.Fatalf("%v %+v %v", err, res, seen)
+	}
+	if strings.Join(events, ",") != "R0_EMPTY_ANSWER_RETRY" {
+		t.Fatal(events)
+	}
+	var empty int
+	s.R.QueryRow("select count(*) from usage_records where outcome='empty_output'").Scan(&empty)
+	if empty != 1 {
+		t.Fatal("empty answer not recorded")
+	}
+
+	seen = nil
+	f2 := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if r.RouteID == "route/a" {
+			return gatewaytest.Reply{Content: `<tool_call>{"name":"shell","arguments":{"cmd":"id"}}</tool_call>`}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"b"}`}
+	}}
+	g2 := gateway.New(f2, withReasoning, budget.New(s, 10))
+	res, err = g2.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	if err == nil && res.RouteID == "route/a" {
+		t.Fatal("raw tool-call markup accepted as an answer")
+	}
+	var markup int
+	s.R.QueryRow("select count(*) from usage_records where outcome='tool_call_markup'").Scan(&markup)
+	if err != nil || res.RouteID != "route/b" || markup != 1 {
+		t.Fatalf("%v %+v markup=%d", err, res, markup)
 	}
 }

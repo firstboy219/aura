@@ -8,6 +8,7 @@ import (
 
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/store"
+	"aura.local/core/internal/taxonomy"
 )
 
 type StepState string
@@ -33,6 +34,7 @@ type Step struct {
 	OutcomeRef     *string   `json:"outcome_ref"`
 	OutcomeHash    *string   `json:"outcome_hash"`
 	Reason         *string   `json:"reason"`
+	ReasonCode     *string   `json:"reason_code"`
 	Attempts       int       `json:"attempts"`
 	PlanJSON       *string   `json:"plan,omitempty"` // planned arguments (P2)
 }
@@ -56,12 +58,12 @@ func InsertSteps(ctx context.Context, tx *sql.Tx, taskID string, steps []Step) e
 	return nil
 }
 
-const stepCols = "id, task_id, step_no, description, tool_id, side_effect, state, idempotency_key, outcome_ref, outcome_hash, reason, attempts, plan_json"
+const stepCols = "id, task_id, step_no, description, tool_id, side_effect, state, idempotency_key, outcome_ref, outcome_hash, reason, reason_code, attempts, plan_json"
 
 func scanStep(sc interface{ Scan(...any) error }) (*Step, error) {
 	var s Step
 	err := sc.Scan(&s.ID, &s.TaskID, &s.StepNo, &s.Description, &s.ToolID, &s.SideEffect, &s.State,
-		&s.IdempotencyKey, &s.OutcomeRef, &s.OutcomeHash, &s.Reason, &s.Attempts, &s.PlanJSON)
+		&s.IdempotencyKey, &s.OutcomeRef, &s.OutcomeHash, &s.Reason, &s.ReasonCode, &s.Attempts, &s.PlanJSON)
 	return &s, err
 }
 
@@ -108,8 +110,17 @@ func UpdateStep(ctx context.Context, tx *sql.Tx, s *Step, state StepState, outco
 	if reason != "" {
 		s.Reason = &reason
 	}
-	_, err := tx.ExecContext(ctx, `update task_steps set state=?, outcome_ref=?, outcome_hash=?, reason=?, attempts=?, updated_at=?
-		where id=?`, s.State, s.OutcomeRef, s.OutcomeHash, s.Reason, s.Attempts, ids.NowMs(), s.ID)
+	var code any
+	if state == StepFailed {
+		code = nullableStr(taxonomy.Canonical(reason)) // every failed step records a canonical reason code
+		if code == nil {
+			code = taxonomy.InternalError
+		}
+		c := code.(string)
+		s.ReasonCode = &c
+	}
+	_, err := tx.ExecContext(ctx, `update task_steps set state=?, outcome_ref=?, outcome_hash=?, reason=?, reason_code=coalesce(?, reason_code),
+		attempts=?, updated_at=? where id=?`, s.State, s.OutcomeRef, s.OutcomeHash, s.Reason, code, s.Attempts, ids.NowMs(), s.ID)
 	if err != nil || event == "" {
 		return err
 	}
@@ -122,4 +133,11 @@ func UpdateStep(ctx context.Context, tx *sql.Tx, s *Step, state StepState, outco
 	}
 	_, err = AppendEvent(ctx, tx, s.TaskID, &s.ID, event, "core", data)
 	return err
+}
+
+func nullableStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/obs"
 	"aura.local/core/internal/store"
+	"aura.local/core/internal/taxonomy"
 )
 
 type State string
@@ -23,23 +25,25 @@ const (
 	Planning        State = "PLANNING"
 	Running         State = "RUNNING"
 	WaitingApproval State = "WAITING_APPROVAL"
-	WaitingInput    State = "WAITING_INPUT" // P2: clarification requested from the owner
-	Waiting         State = "WAITING"       // P2: persistent wait for an event, a time or child tasks
+	WaitingInput    State = "WAITING_INPUT"    // P2: clarification requested from the owner
+	Waiting         State = "WAITING_EXTERNAL" // persistent wait for an external event or child tasks (Blueprint §8.2)
+	Scheduled       State = "SCHEDULED"        // waiting for a future time (wait.until, triggers)
 	Paused          State = "PAUSED"
-	Succeeded       State = "SUCCEEDED"
+	Succeeded       State = "COMPLETED" // Blueprint §8.2 terminal state name
 	Failed          State = "FAILED"
 	Cancelled       State = "CANCELLED"
 	BudgetExceeded  State = "BUDGET_EXCEEDED"
 )
 
 var transitions = map[State][]State{
-	Created:         {Planning, Cancelled, Paused, Failed, BudgetExceeded},
+	Created:         {Planning, Scheduled, Cancelled, Paused, Failed, BudgetExceeded},
 	Planning:        {Running, WaitingInput, Failed, Cancelled, Paused, BudgetExceeded},
-	Running:         {WaitingApproval, WaitingInput, Waiting, Succeeded, Failed, Cancelled, Paused, BudgetExceeded},
+	Running:         {WaitingApproval, WaitingInput, Waiting, Scheduled, Succeeded, Failed, Cancelled, Paused, BudgetExceeded},
+	Scheduled:       {Running, Planning, Failed, Cancelled, Paused},
 	WaitingApproval: {Running, Failed, Cancelled, Paused},
 	WaitingInput:    {Planning, Running, Failed, Cancelled, Paused},
 	Waiting:         {Running, Failed, Cancelled, Paused},
-	Paused:          {Created, Planning, Running, WaitingApproval, WaitingInput, Waiting, Cancelled},
+	Paused:          {Created, Planning, Running, WaitingApproval, WaitingInput, Waiting, Scheduled, Cancelled},
 }
 
 // Terminal reports whether no further transition is possible.
@@ -87,6 +91,8 @@ type Task struct {
 	Objective       string  `json:"objective"`
 	State           State   `json:"state"`
 	Reason          *string `json:"reason"`
+	ReasonCode      *string `json:"reason_code"` // canonical failure-taxonomy code (internal/taxonomy)
+	TaskClass       *string `json:"task_class"`
 	WaitReason      *string `json:"wait_reason"`
 	ParentTaskID    *string `json:"parent_task_id"`
 	RootTaskID      string  `json:"root_task_id"`
@@ -131,10 +137,10 @@ func Insert(ctx context.Context, tx *sql.Tx, t *Task) error {
 	b, _ := json.Marshal(t.Budget)
 	sc, _ := json.Marshal(t.Scope)
 	_, err := tx.ExecContext(ctx, `insert into tasks(id, objective, state, parent_task_id, root_task_id, agent_role, depth,
-		budget_json, scope_json, config_hash, idempotency_key, priority, tier_override, created_at, updated_at)
-		values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		budget_json, scope_json, config_hash, idempotency_key, priority, tier_override, task_class, created_at, updated_at)
+		values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.Objective, t.State, t.ParentTaskID, t.RootTaskID, t.AgentRole, t.Depth, string(b), string(sc),
-		t.ConfigHash, t.IdempotencyKey, t.Priority, t.TierOverride, now, now)
+		t.ConfigHash, t.IdempotencyKey, t.Priority, t.TierOverride, ClassOf(t.Scope), now, now)
 	if err != nil {
 		return err
 	}
@@ -189,9 +195,16 @@ func Transition(ctx context.Context, tx *sql.Tx, id string, to State, reason, wa
 		return from, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, from, to)
 	}
 	now := ids.NowMs()
-	_, err := tx.ExecContext(ctx, `update tasks set state=?, reason=?, wait_reason=?, version=version+1, updated_at=?,
+	code := ""
+	if to == Failed || to == BudgetExceeded || to == Cancelled || to == Paused {
+		code = taxonomy.Canonical(reason)
+		if to == BudgetExceeded && code == "" {
+			code = taxonomy.BudgetExceeded
+		}
+	}
+	_, err := tx.ExecContext(ctx, `update tasks set state=?, reason=?, reason_code=?, wait_reason=?, version=version+1, updated_at=?,
 		started_at=coalesce(started_at, case when ?='PLANNING' then ? end) where id=?`,
-		to, nullable(reason), nullable(waitReason), now, string(to), now, id)
+		to, nullable(reason), nullable(code), nullable(waitReason), now, string(to), now, id)
 	if err != nil {
 		return from, err
 	}
@@ -207,14 +220,14 @@ func nullable(s string) any {
 	return s
 }
 
-const taskCols = `id, objective, state, reason, wait_reason, parent_task_id, root_task_id, agent_role, depth,
+const taskCols = `id, objective, state, reason, reason_code, task_class, wait_reason, parent_task_id, root_task_id, agent_role, depth,
 	budget_json, scope_json, config_hash, idempotency_key, started_at, cost_reserved_usd, cost_actual_usd, priority, replans,
 	tier_override, created_at, updated_at`
 
 func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
 	var b, s string
-	err := sc.Scan(&t.ID, &t.Objective, &t.State, &t.Reason, &t.WaitReason, &t.ParentTaskID, &t.RootTaskID,
+	err := sc.Scan(&t.ID, &t.Objective, &t.State, &t.Reason, &t.ReasonCode, &t.TaskClass, &t.WaitReason, &t.ParentTaskID, &t.RootTaskID,
 		&t.AgentRole, &t.Depth, &b, &s, &t.ConfigHash, &t.IdempotencyKey, &t.StartedAt, &t.CostReservedUSD,
 		&t.CostUSD, &t.Priority, &t.Replans, &t.TierOverride, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -278,7 +291,7 @@ func List(ctx context.Context, q store.Querier, state State, limit int, cursor s
 // Runnable returns the oldest task the engine should drive, if any.
 func Runnable(ctx context.Context, q store.Querier) (*Task, error) {
 	t, err := scanTask(q.QueryRowContext(ctx, "select "+taskCols+
-		" from tasks where state in ('CREATED','PLANNING','RUNNING') order by priority desc, created_at, id limit 1"))
+		" from tasks where state in ('CREATED','PLANNING','RUNNING') and agent_role not in ('watch','improvement') order by priority desc, created_at, id limit 1"))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -344,4 +357,15 @@ func Children(ctx context.Context, q store.Querier, id string) ([]*Task, error) 
 func SetLease(ctx context.Context, tx *sql.Tx, id, owner string, expiresMs int64) error {
 	_, err := tx.ExecContext(ctx, "update tasks set lease_owner=?, lease_expires_at=? where id=?", owner, expiresMs, id)
 	return err
+}
+
+// ClassOf is the deterministic v1 task class: the sorted tool set (the kind of
+// work a task is allowed to do). Used by the Limitation Ledger to group tasks.
+func ClassOf(s Scope) string {
+	tools := append([]string(nil), s.Tools...)
+	sort.Strings(tools)
+	if len(tools) == 0 {
+		return "no-tools"
+	}
+	return strings.Join(tools, "+")
 }

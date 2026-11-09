@@ -34,19 +34,22 @@ const maxStepAttempts = 3
 
 // Engine owns task execution.
 type Engine struct {
-	cfg     *config.Config
-	st      *store.Store
-	gw      *gateway.Gateway
-	gov     *budget.Governor
-	sup     *worker.Supervisor
-	fetch   *tools.Fetcher
-	ws      *tools.Workspace
-	srch    tools.Searcher // nil: web.search unavailable
-	mcp     map[string]*mcp.Client
-	docs    map[string]string // owner-written descriptions of MCP tools
-	charter string            // owner Charter text ("" = not provided)
-	log     *slog.Logger
-	runID   string
+	cfg         *config.Config
+	st          *store.Store
+	gw          *gateway.Gateway
+	gov         *budget.Governor
+	sup         *worker.Supervisor
+	fetch       *tools.Fetcher
+	ws          *tools.Workspace
+	srch        tools.Searcher // nil: web.search unavailable
+	mcp         map[string]*mcp.Client
+	docs        map[string]string // owner-written descriptions of MCP tools
+	charter     string            // owner Charter text ("" = not provided)
+	ledgerCfg   LedgerConfig
+	version     string
+	lastImprove time.Time
+	log         *slog.Logger
+	runID       string
 
 	wake    chan struct{}
 	mu      sync.Mutex
@@ -67,7 +70,8 @@ type Deps struct {
 	Searcher  tools.Searcher
 	MCP       map[string]*mcp.Client // by server name
 	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
-	Charter   string                 // owner Charter text, verified against its pinned hash by the caller
+	Version   string
+	Charter   string // owner Charter text, verified against its pinned hash by the caller
 	Log       *slog.Logger
 }
 
@@ -76,7 +80,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, charter: d.Charter, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.
@@ -116,13 +120,21 @@ func (e *Engine) Run(ctx context.Context) error {
 			e.ExpireApprovals(ctx)
 		}
 		e.Supervise(ctx)
+		e.RunTriggers(ctx)
+		e.improveTick(ctx)
 	}
 }
 
 // Recover handles tasks a previous Core run left in flight (ADR-0013 lease):
 // steps that had started are resolved by side-effect class before resuming.
 func (e *Engine) Recover(ctx context.Context) error {
-	rows, err := e.st.R.QueryContext(ctx, "select id from tasks where state in ('PLANNING','RUNNING') and coalesce(lease_owner,'') != ?", e.runID)
+	// A watch run interrupted by a crash is simply failed; the next scheduled
+	// run checks the sources again.
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "update tasks set state='FAILED', reason='interrupted_watch', updated_at=? where agent_role='watch' and state in ('CREATED','PLANNING','RUNNING')", ids.NowMs())
+		return err
+	})
+	rows, err := e.st.R.QueryContext(ctx, "select id from tasks where state in ('PLANNING','RUNNING') and agent_role not in ('watch','improvement') and coalesce(lease_owner,'') != ?", e.runID)
 	if err != nil {
 		return err
 	}

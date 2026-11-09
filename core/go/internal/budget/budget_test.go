@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
@@ -106,5 +107,31 @@ func TestIterationLimitAndHalt(t *testing.T) {
 	}
 	if _, err := g.Reserve(context.Background(), call(id, 0, 1)); err == nil {
 		t.Fatal("zero estimate accepted")
+	}
+}
+
+// OL-08: the daily budget window follows the workspace time zone (WIB), not UTC.
+// 18:00 UTC on 9 Nov is 01:00 WIB on 10 Nov: a call made at 23:59 WIB on the 9th
+// (16:59 UTC) belongs to the previous workspace day.
+func TestDailyWindowUsesWorkspaceTimeZone(t *testing.T) {
+	g, _, id := setup(t, 0.10)
+	wib, _ := time.LoadLocation("Asia/Jakarta")
+	g.SetLocation(wib)
+	ctx := context.Background()
+	at := func(utc string) {
+		ts, _ := time.Parse(time.RFC3339, utc)
+		g.SetClockForTest(func() time.Time { return ts })
+	}
+	at("2026-11-09T16:59:00Z") // 23:59 WIB, 9 Nov
+	if _, err := g.Reserve(ctx, call(id, 0.08, 1)); err != nil {
+		t.Fatal(err)
+	}
+	at("2026-11-09T17:01:00Z") // 00:01 WIB, 10 Nov: a new workspace day
+	if _, err := g.Reserve(ctx, call(id, 0.08, 1)); err != nil {
+		t.Fatalf("new WIB day should have a fresh budget: %v", err)
+	}
+	at("2026-11-09T18:00:00Z") // 01:00 WIB, still 10 Nov (and still 9 Nov in UTC): both calls count
+	if _, err := g.Reserve(ctx, call(id, 0.08, 1)); err == nil {
+		t.Fatal("daily limit ignored inside the same WIB day")
 	}
 }

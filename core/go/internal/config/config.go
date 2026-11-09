@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	_ "time/tzdata" // zone database embedded: the container has none
 
 	"gopkg.in/yaml.v3"
 )
@@ -57,7 +59,10 @@ func (r ModelRoute) MayLog() bool { return r.PromptLogging == "may_log" }
 
 type Config struct {
 	ConfigVersion int `yaml:"config_version" json:"config_version"`
-	Server        struct {
+	// Timezone is the workspace time zone (Blueprint OL-08): every "today",
+	// schedule and deadline uses it, never UTC by accident.
+	Timezone string `yaml:"timezone" json:"timezone"`
+	Server   struct {
 		Bind      string `yaml:"bind" json:"bind"`
 		TokenFile string `yaml:"token_file" json:"token_file"`
 		RatePerS  int    `yaml:"rate_per_second" json:"rate_per_second"`
@@ -118,6 +123,17 @@ type Config struct {
 	MCP struct {
 		Servers []MCPServer `yaml:"servers" json:"servers"`
 	} `yaml:"mcp" json:"mcp"`
+	// Improvement configures the closed self-improvement loop (Blueprint §8A.5).
+	Improvement struct {
+		Enabled             bool    `yaml:"enabled" json:"enabled"`
+		MinClassRuns        int     `yaml:"min_class_runs" json:"min_class_runs"`
+		SuccessRateTarget   float64 `yaml:"success_rate_target" json:"success_rate_target"`
+		MinRepeatedFailures int     `yaml:"min_repeated_failures" json:"min_repeated_failures"`
+		LookbackDays        int     `yaml:"lookback_days" json:"lookback_days"`
+		RetestRuns          int     `yaml:"retest_runs" json:"retest_runs"`
+		NoiseMargin         float64 `yaml:"noise_margin" json:"noise_margin"`
+		DailyCostUSD        float64 `yaml:"daily_cost_usd" json:"daily_cost_usd"`
+	} `yaml:"improvement" json:"improvement"`
 	// Charter is the owner-authored Charter (ADR-0024): read-only, pinned by sha256.
 	Charter struct {
 		File   string `yaml:"file" json:"file"`
@@ -145,7 +161,7 @@ type MCPTool struct {
 
 // Default returns a config with every Blueprint default filled in.
 func Default() *Config {
-	c := &Config{ConfigVersion: 1}
+	c := &Config{ConfigVersion: 1, Timezone: "Asia/Jakarta"}
 	c.Server.Bind = "127.0.0.1:7400"
 	c.Server.TokenFile = "/var/lib/aura/api_token"
 	c.Server.RatePerS = 20
@@ -168,6 +184,9 @@ func Default() *Config {
 	c.Tools.WebSearch.WikipediaLang = "en"
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
+	c.Improvement.Enabled = true
+	c.Improvement.MinClassRuns, c.Improvement.SuccessRateTarget, c.Improvement.MinRepeatedFailures = 10, 0.70, 3
+	c.Improvement.LookbackDays, c.Improvement.RetestRuns, c.Improvement.NoiseMargin, c.Improvement.DailyCostUSD = 14, 5, 0.10, 0.25
 	return c
 }
 
@@ -235,6 +254,9 @@ func (c *Config) Validate() error {
 	add := func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) }
 	if c.ConfigVersion != 1 {
 		add("config_version must be 1")
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		add("timezone %q is not a valid IANA time zone", c.Timezone)
 	}
 	if c.Server.Bind == "" {
 		add("server.bind is required")
@@ -348,6 +370,10 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	if i := c.Improvement; i.MinClassRuns < 1 || i.MinRepeatedFailures < 1 || i.LookbackDays < 1 || i.RetestRuns < 1 ||
+		i.SuccessRateTarget <= 0 || i.SuccessRateTarget > 1 || i.NoiseMargin < 0 || i.NoiseMargin > 1 || i.DailyCostUSD < 0 {
+		add("improvement: thresholds must be positive; success_rate_target in (0,1]; noise_margin in [0,1]; daily_cost_usd >= 0")
+	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")
 	}
@@ -364,6 +390,15 @@ func validTier(t string) bool {
 		}
 	}
 	return false
+}
+
+// Location returns the workspace time zone (validated at load).
+func (c *Config) Location() *time.Location {
+	loc, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 // Hash is a stable hash of the effective config (secret paths, never values).

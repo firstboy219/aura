@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -120,6 +121,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		log.Warn("no model routes configured; model calls will fail with no_route_for_tier")
 	}
 	a.Governor = budget.New(st, cfg.Budgets.Global.DailyCostUSD)
+	a.Governor.SetLocation(cfg.Location())
 	provs := map[string]gateway.Provider{"openrouter": prov}
 	for _, p := range cfg.Providers.OpenAICompatible {
 		key, err := config.ReadSecret(p.KeyFile)
@@ -138,6 +140,10 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		provs[id] = p
 	}
 	gw := gateway.NewMulti(provs, cfg.Models, a.Governor)
+	gw.Notify = func(event string, data map[string]any) { // R0 self-healing is always recorded (Blueprint §8A.5)
+		st.Write(context.Background(), func(tx *sql.Tx) error { return policy.Audit(context.Background(), tx, event, "core", "", "", data) })
+		log.Warn("self-healing", "event", event, "data", data)
+	}
 	ws, err := tools.NewWorkspace(cfg.Workspace.Root)
 	if err != nil {
 		st.Close()
@@ -164,8 +170,13 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	charter, err := LoadCharter(cfg.Charter.File, cfg.Charter.SHA256)
 	if err != nil {
-		st.Close()
-		return nil, err
+		// Charter §5: on a hash mismatch Charter-dependent features are disabled and a
+		// security event is raised; the Core keeps running with the Blueprint baseline rules.
+		log.Error("charter not loaded", "err", err)
+		st.Write(ctx, func(tx *sql.Tx) error {
+			return policy.Audit(ctx, tx, "CHARTER_HASH_MISMATCH", "core", "", "", map[string]any{"file": cfg.Charter.File})
+		})
+		charter = ""
 	}
 	clients, docs, err := buildMCP(cfg, log)
 	if err != nil {
@@ -177,7 +188,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log})
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Version: o.Version, Log: log})
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks}
 	return a, nil

@@ -330,7 +330,8 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 	}
 	e.st.Write(ctx, func(tx *sql.Tx) error {
 		_, err := task.AppendEvent(ctx, tx, s.t.ID, ptr(stepID(s)), "MODEL_CALLED", "core", map[string]any{
-			"tier": p.Tier, "route_id": res.RouteID, "structured": len(res.Structured) > 0, "purpose": p.Purpose})
+			"tier": p.Tier, "route_id": res.RouteID, "structured": len(res.Structured) > 0, "purpose": p.Purpose,
+			"prompt_chars": size}) // OL-05: prompt size per step is recorded in the trace
 		return err
 	})
 	return res, nil

@@ -187,8 +187,8 @@ func (e *Engine) SelfModel(ctx context.Context) (map[string]any, error) {
 	}
 	rows.Close()
 	var total, succeeded, verified, replanned int
-	e.st.R.QueryRowContext(ctx, `select count(*), coalesce(sum(state='SUCCEEDED'),0), coalesce(sum(replans>0),0) from tasks
-		where state in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED')`).Scan(&total, &succeeded, &replanned)
+	e.st.R.QueryRowContext(ctx, `select count(*), coalesce(sum(state='COMPLETED'),0), coalesce(sum(replans>0),0) from tasks
+		where state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED')`).Scan(&total, &succeeded, &replanned)
 	e.st.R.QueryRowContext(ctx, "select count(distinct task_id) from task_events where type='VERIFIED'").Scan(&verified)
 	var limits []string
 	if e.srch == nil {
@@ -211,7 +211,16 @@ func (e *Engine) SelfModel(ctx context.Context) (map[string]any, error) {
 		rr.Close()
 	}
 	limits = append(limits, "worker is not OS-sandboxed until P4", "one task runs at a time (ADR-0003)")
+	open := e.OpenLimitationsDisclosure(ctx)
+	if open == nil {
+		open = []string{}
+	}
+	var openRoutes []string
+	if e.gw != nil {
+		openRoutes = e.gw.OpenRoutes()
+	}
 	return map[string]any{
+		"open_limitations": open, "routes_in_cooldown": openRoutes,
 		"evidence_level": "implementation-verified (computed from this instance's records)",
 		"tasks":          map[string]any{"finished": total, "succeeded": succeeded, "verified": verified, "replanned": replanned},
 		"models":         stats,
@@ -225,7 +234,7 @@ func (e *Engine) SelfModel(ctx context.Context) (map[string]any, error) {
 func (e *Engine) Scorecard(ctx context.Context) (map[string]any, error) {
 	var walls []float64
 	rows, err := e.st.R.QueryContext(ctx, `select (updated_at - coalesce(started_at, created_at)) / 1000.0 from tasks
-		where state in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED') and parent_task_id is null`)
+		where state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED') and parent_task_id is null`)
 	if err != nil {
 		return nil, err
 	}
@@ -244,10 +253,10 @@ func (e *Engine) Scorecard(ctx context.Context) (map[string]any, error) {
 	}
 	var finished, succeeded, verifiedOK int
 	var cost, tokIn, tokOut float64
-	e.st.R.QueryRowContext(ctx, `select count(*), coalesce(sum(state='SUCCEEDED'),0) from tasks
-		where state in ('SUCCEEDED','FAILED','CANCELLED','BUDGET_EXCEEDED') and parent_task_id is null`).Scan(&finished, &succeeded)
+	e.st.R.QueryRowContext(ctx, `select count(*), coalesce(sum(state='COMPLETED'),0) from tasks
+		where state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED') and parent_task_id is null`).Scan(&finished, &succeeded)
 	e.st.R.QueryRowContext(ctx, `select count(distinct e.task_id) from task_events e join tasks t on t.id=e.task_id
-		where e.type='VERIFIED' and t.state='SUCCEEDED'`).Scan(&verifiedOK)
+		where e.type='VERIFIED' and t.state='COMPLETED'`).Scan(&verifiedOK)
 	e.st.R.QueryRowContext(ctx, `select coalesce(sum(coalesce(cost_actual_usd, cost_reserved_usd)),0), coalesce(sum(input_tokens),0),
 		coalesce(sum(output_tokens),0) from usage_records`).Scan(&cost, &tokIn, &tokOut)
 	perSuccess := 0.0

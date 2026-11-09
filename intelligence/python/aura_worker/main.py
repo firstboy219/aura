@@ -42,6 +42,12 @@ def serve(ch: Channel) -> None:
                 result = agent.verify(ch, msg.get("params") or {})
             elif method == "task.reflect":
                 result = agent.reflect(ch, msg.get("params") or {})
+            elif method == "task.watch":
+                result = agent.watch(ch, msg.get("params") or {})
+            elif method == "task.diagnose":
+                result = agent.diagnose(ch, msg.get("params") or {})
+            elif method == "task.remedy_skill":
+                result = agent.remedy_skill(ch, msg.get("params") or {})
             else:
                 ch.write({"id": rid, "error": {"code": -32601, "message": f"unknown method {method}"}})
                 continue

@@ -116,6 +116,34 @@ paths:
         - { name: task_id, in: query, schema: { type: string } }
         - { name: after, in: query, schema: { type: string } }
       responses: { '200': { description: text/event-stream, content: { text/event-stream: { schema: { type: string } } } } }
+  /self:
+    get: { operationId: getSelf, description: Who AURA is, what it can do, its measured weaknesses and how it improves; every fact from Core records, no model., responses: { '200': { description: Self description } } }
+  /limitations:
+    get: { operationId: listLimitations, description: Limitation Ledger (Blueprint 8A.5), parameters: [ { name: status, in: query, schema: { type: string } } ], responses: { '200': { description: Ledger entries with remedies } } }
+    post: { operationId: addLimitation, description: Owner-recorded limitation, responses: { '201': { description: Created } } }
+  /limitations/{id}/{action}:
+    post: { operationId: limitationAction, description: 'Owner decision: dismiss, accept (wont_fix) or reopen', parameters: [ { name: id, in: path, required: true, schema: { type: string } }, { name: action, in: path, required: true, schema: { enum: [dismiss, accept, reopen] } } ], responses: { '200': { description: Updated entry } } }
+  /improvement/run:
+    post: { operationId: runImprovement, description: One pass of the self-improvement loop now (it also runs by itself at the lowest priority), responses: { '200': { description: Summary } } }
+  /memories:
+    get: { operationId: listMemories, responses: { '200': { description: Memories with provenance } } }
+    post: { operationId: addMemory, responses: { '201': { description: Created } } }
+  /skills:
+    get: { operationId: listSkills, responses: { '200': { description: Skills } } }
+  /profile:
+    get: { operationId: listProfile, responses: { '200': { description: Owner Working Profile } } }
+    post: { operationId: addPreference, responses: { '201': { description: Created } } }
+  /triggers:
+    get: { operationId: listTriggers, responses: { '200': { description: Schedules and watches } } }
+    post: { operationId: createTrigger, responses: { '201': { description: Created } } }
+  /notifications:
+    get: { operationId: listNotifications, responses: { '200': { description: Owner notifications (findings) } } }
+  /self-model:
+    get: { operationId: getSelfModel, responses: { '200': { description: Measured capabilities } } }
+  /scorecard:
+    get: { operationId: getScorecard, responses: { '200': { description: Efficiency scorecard } } }
+  /routing/shadow:
+    get: { operationId: getShadowRouting, responses: { '200': { description: Shadow routing comparison } } }
   /events:
     post:
       operationId: postExternalEvent
@@ -209,7 +237,7 @@ components:
   schemas:
     Ulid: { type: string, pattern: '^[0-9A-HJKMNP-TV-Z]{26}$' }
     TaskState:
-      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, WAITING_INPUT, WAITING, PAUSED, SUCCEEDED, FAILED, CANCELLED, BUDGET_EXCEEDED]
+      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, WAITING_INPUT, WAITING_EXTERNAL, SCHEDULED, PAUSED, COMPLETED, FAILED, CANCELLED, BUDGET_EXCEEDED]
     TaskCreate:
       type: object
       additionalProperties: false
@@ -234,6 +262,8 @@ components:
         id: { $ref: '#/components/schemas/Ulid' }
         state: { $ref: '#/components/schemas/TaskState' }
         reason: { type: [string, 'null'] }
+        reason_code: { type: [string, 'null'], description: Canonical failure-taxonomy code (BUDGET_EXCEEDED, POLICY_DENIED, PROVIDER_UNAVAILABLE, VERIFICATION_FAILED, ...) }
+        task_class: { type: [string, 'null'] }
         objective: { type: string }
         parent_task_id: { type: [string, 'null'] }
         root_task_id: { $ref: '#/components/schemas/Ulid' }

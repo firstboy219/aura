@@ -94,7 +94,9 @@ func TestWaitUntilAndLimits(t *testing.T) {
 	soon := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
 	h := newHarness(t, harnessOpts{respond: waitModel(gatewaytest.Step(2, "wait", "wait.until", map[string]any{"until": soon}))})
 	tk := h.submitTools("Write reports/a.md, wait a moment, then write reports/b.md", "workspace.write", "wait.until")
-	h.wait(tk.ID, task.Waiting)
+	if w := h.wait(tk.ID, task.Scheduled); deref(w.WaitReason) == "" { // a time wait is SCHEDULED (Blueprint §8.2)
+		t.Fatal("no wait reason")
+	}
 	done := h.wait(tk.ID, task.Succeeded, task.Failed)
 	if done.State != task.Succeeded {
 		t.Fatal(done.State)
@@ -102,7 +104,7 @@ func TestWaitUntilAndLimits(t *testing.T) {
 	far := time.Now().Add(90 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	h2 := newHarness(t, harnessOpts{respond: waitModel(gatewaytest.Step(2, "wait", "wait.until", map[string]any{"until": far}))})
 	tk2 := h2.submitTools("Write reports/a.md, wait, then write reports/b.md", "workspace.write", "wait.until")
-	if d := h2.wait(tk2.ID, task.Failed, task.Succeeded, task.Waiting); d.State != task.Failed {
+	if d := h2.wait(tk2.ID, task.Failed, task.Succeeded, task.Waiting, task.Scheduled); d.State != task.Failed {
 		t.Fatalf("wait beyond 30 days allowed: %s", d.State)
 	}
 	if _, _, err := h2.eng.ExternalEvent(context.Background(), "bad key!", "", nil); err == nil {

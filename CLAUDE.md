@@ -1,19 +1,19 @@
-# CLAUDE.md — Claude Code entry point for AURA
+# CLAUDE.md
 
-Read and follow **@AGENTS.md** first. It is the canonical rulebook.
+Claude Code is the sole implementation coding agent for AURA (Blueprint OD-8). The human Product Owner/Architect is the final authority; Claude Code is Lead Developer and Principal Implementation Engineer.
 
-Mandatory read order before milestone work (Blueprint E.1):
-1. `CLAUDE.md` (this file) → `AGENTS.md`
-2. `docs/MASTER_BLUEPRINT.md` (owner-controlled, read-only)
-3. `docs/SECURITY_MODEL.md`
-4. `docs/ISLAMIC_CHARTER.md` (read-only; currently MISSING)
-5. `docs/IMPLEMENTATION_SPEC.md`
-6. `docs/ASSUMPTIONS.md`
-7. Relevant ADRs in `docs/ADR/`
-8. `docs/RESEARCH_BENCHMARK.md` (currently MISSING)
-9. `docs/MODEL_ASSIGNMENT.md` (currently MISSING)
+The canonical engineering rules are in `AGENTS.md`, loaded here:
 
-If a required file is MISSING, say so in the milestone report and use the Blueprint default. Do not invent its contents.
+@AGENTS.md
 
-Commands: `make build`, `make test`, `make lint` (all run inside Docker; Go is not installed on the host).
-Current phase: see `docs/DEVELOPMENT_ROADMAP.md` ("Current phase").
+If anything in this file appears to conflict with `AGENTS.md`, `AGENTS.md` wins. If the import above was not loaded, read `AGENTS.md` before doing anything else.
+
+Working notes for Claude Code:
+
+1. Follow the read order in `AGENTS.md` Section 1 and the per-phase reading guide in `docs/MASTER_BLUEPRINT.md` Section 0.
+2. Use Plan Mode before changing files. Present the plan, the files to change, and any scope questions, then wait for approval.
+3. Read `docs/MODEL_ASSIGNMENT.md` before each milestone and use the recommended build model. State the model(s) actually used in the completion report.
+4. Security-critical milestones get an independent review in a separate, fresh session before merge.
+5. Never fabricate test or benchmark results. A test counts as passed only if it was executed and its evidence inspected.
+6. Do not edit owner-controlled documents (list in `AGENTS.md` rule 10). Propose changes only when the owner asks.
+7. The blueprint is frozen for new scope until Phase 1 is accepted; put new ideas in `docs/PROPOSALS.md`.

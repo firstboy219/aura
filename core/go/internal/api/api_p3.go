@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"strconv"
+
+	"aura.local/core/internal/engine"
 )
 
 // P3 owner-facing endpoints: memory, skills, profile (and, in later
@@ -199,4 +201,124 @@ func (s *Server) shadow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, m)
+}
+
+func (s *Server) self(w http.ResponseWriter, r *http.Request) {
+	m, err := s.Engine.SelfDescription(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
+
+func (s *Server) listLimitations(w http.ResponseWriter, r *http.Request) {
+	ls, err := s.Engine.ListLimitations(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"limitations": ls})
+}
+
+func (s *Server) addLimitation(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Category  string `json:"category"`
+		TaskClass string `json:"task_class"`
+		Title     string `json:"title"`
+		Note      string `json:"note"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	l, err := s.Engine.AddLimitation(r.Context(), in.Category, in.TaskClass, in.Title, in.Note)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 201, l)
+}
+
+func (s *Server) limitationAction(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Note string `json:"note"`
+	}
+	if r.ContentLength > 0 {
+		if err := decodeStrict(r, &in); err != nil {
+			s.mapErr(w, r, err)
+			return
+		}
+	}
+	l, err := s.Engine.LimitationAction(r.Context(), r.PathValue("id"), r.PathValue("action"), in.Note)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, l)
+}
+
+// improvementRun runs one pass of the self-improvement loop now (owner-triggered);
+// the loop also runs by itself every 30 s at the lowest priority.
+func (s *Server) improvementRun(w http.ResponseWriter, r *http.Request) {
+	s.Engine.RunImprovementCycle(r.Context())
+	ls, _ := s.Engine.ListLimitations(r.Context(), "open")
+	writeJSON(w, 200, map[string]any{"open_limitations": len(ls)})
+}
+
+func (s *Server) listTriggers(w http.ResponseWriter, r *http.Request) {
+	ts, err := s.Engine.ListTriggers(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"triggers": ts})
+}
+
+func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name            string             `json:"name"`
+		Kind            string             `json:"kind"`
+		IntervalSeconds *int64             `json:"interval_seconds"`
+		DailyAt         *string            `json:"daily_at"`
+		Objective       string             `json:"objective"`
+		Spec            engine.TriggerSpec `json:"spec"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	t, err := s.Engine.CreateTrigger(r.Context(), &engine.Trigger{Name: in.Name, Kind: in.Kind, IntervalSeconds: in.IntervalSeconds,
+		DailyAt: in.DailyAt, Objective: in.Objective, Spec: in.Spec})
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 201, t)
+}
+
+func (s *Server) triggerAction(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Engine.TriggerAction(r.Context(), r.PathValue("id"), r.PathValue("action"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, t)
+}
+
+func (s *Server) notifications(w http.ResponseWriter, r *http.Request) {
+	ns, err := s.Engine.Notifications(r.Context(), r.URL.Query().Get("unread") == "true")
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"notifications": ns})
+}
+
+func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.MarkRead(r.Context(), r.PathValue("id")); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"read": r.PathValue("id")})
 }

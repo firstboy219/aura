@@ -264,6 +264,11 @@ func (e *Engine) Resume(ctx context.Context, id string) (*task.Task, error) {
 			to = task.WaitingInput
 		case waits > 0:
 			to = task.Waiting
+			var timeWaits int
+			tx.QueryRowContext(ctx, "select count(*) from task_waits where task_id=? and satisfied_at is null and kind='time'", id).Scan(&timeWaits)
+			if timeWaits == waits {
+				to = task.Scheduled
+			}
 		case waiting > 0 && pending > 0:
 			to = task.WaitingApproval
 		case steps > 0:

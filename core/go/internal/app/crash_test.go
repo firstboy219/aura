@@ -174,14 +174,14 @@ func TestCrashRecovery(t *testing.T) {
 		var s, r string
 		rows.Scan(&s, &r)
 		states[s]++
-		if s != "SUCCEEDED" {
+		if s != "COMPLETED" {
 			reasons = append(reasons, s+":"+r)
 		}
 	}
 	rows.Close()
 	t.Logf("tasks after 20 kill/restart cycles: %v (non-success: %v)", states, reasons)
 	frows, _ := db.Query(`select e.task_id, e.type, e.data_json from task_events e join tasks t on t.id=e.task_id
-		where t.state != 'SUCCEEDED' and e.type in ('STEP_FAILED','STEP_ATTEMPT_FAILED','TOOL_FAILED','STEP_RECOVERED','STATE_CHANGED') order by e.task_id, e.seq`)
+		where t.state != 'COMPLETED' and e.type in ('STEP_FAILED','STEP_ATTEMPT_FAILED','TOOL_FAILED','STEP_RECOVERED','STATE_CHANGED') order by e.task_id, e.seq`)
 	for frows.Next() {
 		var id, typ, d string
 		frows.Scan(&id, &typ, &d)
@@ -192,7 +192,7 @@ func TestCrashRecovery(t *testing.T) {
 	for s, n := range states {
 		total += n
 		switch s {
-		case "SUCCEEDED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED", "WAITING_APPROVAL", "PAUSED":
+		case "COMPLETED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED", "WAITING_APPROVAL", "PAUSED":
 		default:
 			t.Errorf("%d task(s) left in non-terminal, non-waiting state %s", n, s)
 		}
@@ -221,7 +221,7 @@ func TestCrashRecovery(t *testing.T) {
 	var recovered int
 	db.QueryRow("select count(*) from task_events where type='TASK_RECOVERED'").Scan(&recovered)
 	t.Logf("recoveries: %d, writes performed: %d", recovered, len(performed))
-	if states["SUCCEEDED"] == 0 {
+	if states["COMPLETED"] == 0 {
 		t.Fatal("no task succeeded")
 	}
 }

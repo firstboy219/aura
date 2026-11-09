@@ -25,14 +25,19 @@ def api(method, path, body=None, raw=False):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(BASE + path, data=data, method=method,
                                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            b = r.read().decode()
-            return b if raw else json.loads(b or "{}")
-    except urllib.error.HTTPError as e:
-        if raw:
-            return None
-        return {"error": json.loads(e.read().decode() or "{}").get("error", {}), "status": e.code}
+    for attempt in range(8):
+        time.sleep(0.08)  # stay under the API's own 20 requests/second rate limit
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                b = r.read().decode()
+                return b if raw else json.loads(b or "{}")
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 7:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            if raw:
+                return None
+            return {"error": json.loads(e.read().decode() or "{}").get("error", {}), "status": e.code}
 
 
 def fill(s):
