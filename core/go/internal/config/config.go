@@ -118,6 +118,11 @@ type Config struct {
 	MCP struct {
 		Servers []MCPServer `yaml:"servers" json:"servers"`
 	} `yaml:"mcp" json:"mcp"`
+	// Charter is the owner-authored Charter (ADR-0024): read-only, pinned by sha256.
+	Charter struct {
+		File   string `yaml:"file" json:"file"`
+		SHA256 string `yaml:"sha256" json:"sha256"`
+	} `yaml:"charter" json:"charter"`
 }
 
 // MCPServer is an owner-declared MCP server (ADR-0020). Only the tools listed
@@ -307,6 +312,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Tools.WebSearch.MaxResults < 1 || c.Tools.WebSearch.MaxResults > 20 {
 		add("tools.web.search.max_results must be 1..20")
+	}
+	if (c.Charter.File == "") != (c.Charter.SHA256 == "") {
+		add("charter: file and sha256 go together (the Charter is pinned by hash)")
 	}
 	names := map[string]bool{}
 	for i, s := range c.MCP.Servers {

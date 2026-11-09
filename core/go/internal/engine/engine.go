@@ -34,18 +34,19 @@ const maxStepAttempts = 3
 
 // Engine owns task execution.
 type Engine struct {
-	cfg   *config.Config
-	st    *store.Store
-	gw    *gateway.Gateway
-	gov   *budget.Governor
-	sup   *worker.Supervisor
-	fetch *tools.Fetcher
-	ws    *tools.Workspace
-	srch  tools.Searcher // nil: web.search unavailable
-	mcp   map[string]*mcp.Client
-	docs  map[string]string // owner-written descriptions of MCP tools
-	log   *slog.Logger
-	runID string
+	cfg     *config.Config
+	st      *store.Store
+	gw      *gateway.Gateway
+	gov     *budget.Governor
+	sup     *worker.Supervisor
+	fetch   *tools.Fetcher
+	ws      *tools.Workspace
+	srch    tools.Searcher // nil: web.search unavailable
+	mcp     map[string]*mcp.Client
+	docs    map[string]string // owner-written descriptions of MCP tools
+	charter string            // owner Charter text ("" = not provided)
+	log     *slog.Logger
+	runID   string
 
 	wake    chan struct{}
 	mu      sync.Mutex
@@ -66,6 +67,7 @@ type Deps struct {
 	Searcher  tools.Searcher
 	MCP       map[string]*mcp.Client // by server name
 	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
+	Charter   string                 // owner Charter text, verified against its pinned hash by the caller
 	Log       *slog.Logger
 }
 
@@ -74,7 +76,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, charter: d.Charter, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.
@@ -352,6 +354,12 @@ func deadlineOf(s *session) (int64, bool) {
 func (e *Engine) callWorker(ctx context.Context, s *session, method string, params any) (json.RawMessage, error) {
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(e.cfg.Worker.CallTimeoutSeconds)*time.Second)
 	defer cancel()
+	if m, ok := params.(map[string]any); ok {
+		m["identity"] = Identity
+		if e.charter != "" {
+			m["charter"] = e.charter
+		}
+	}
 	raw, err := e.sup.Call(cctx, method, e.meta(s), params, func(hctx context.Context, req *rpc.Envelope) (any, *rpc.Error) {
 		return e.serve(hctx, s, req)
 	})

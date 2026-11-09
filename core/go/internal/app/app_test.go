@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -278,4 +280,25 @@ func TestStreamTimelineAndFiles(t *testing.T) {
 
 func engineInput(obj string, files map[string]string) engine.CreateInput {
 	return engine.CreateInput{Objective: obj, Attachments: files, AllowDomains: []string{"example.com"}}
+}
+
+func TestCharterPinnedByHash(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "charter.md")
+	os.WriteFile(p, []byte("Owner charter v1"), 0o444)
+	if _, err := LoadCharter(p, strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "refusing to start") {
+		t.Fatalf("mismatched charter accepted: %v", err)
+	}
+	sum := sha256Hex([]byte("Owner charter v1"))
+	if text, err := LoadCharter(p, sum); err != nil || text != "Owner charter v1" {
+		t.Fatalf("%q %v", text, err)
+	}
+	if text, err := LoadCharter("", ""); err != nil || text != "" {
+		t.Fatal("absent charter should be 'not provided', not an error")
+	}
+}
+
+func sha256Hex(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
 }

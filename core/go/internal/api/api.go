@@ -529,6 +529,7 @@ func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
 		"db":             map[string]any{"wal_bytes": s.Store.WALBytes(), "write_queue_depth": s.Store.QueueDepth(), "sqlite_version": s.Store.SQLiteVersion()},
 		"budget_today":   map[string]any{"reserved_usd": reserved, "spent_usd": spent, "limit_usd": s.Governor.Limit()},
 		"halted":         s.Governor.Halted(),
+		"charter":        s.Engine.CharterStatus(),
 	})
 }
 

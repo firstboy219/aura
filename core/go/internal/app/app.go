@@ -5,7 +5,9 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -160,6 +162,11 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			srch = tools.NewBrave(tools.NewGuard(), key)
 		}
 	}
+	charter, err := LoadCharter(cfg.Charter.File, cfg.Charter.SHA256)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
 	clients, docs, err := buildMCP(cfg, log)
 	if err != nil {
 		st.Close()
@@ -170,7 +177,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log})
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Log: log})
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks}
 	return a, nil
@@ -358,6 +365,26 @@ func (a *App) Close() {
 		c.Close()
 	}
 	a.Store.Close()
+}
+
+// LoadCharter reads the owner's Charter read-only and verifies its pinned
+// sha256 (ADR-0024). A mismatch refuses startup; no file means not provided.
+func LoadCharter(path, sha string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("charter: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	if got := hex.EncodeToString(sum[:]); !strings.EqualFold(got, sha) {
+		return "", fmt.Errorf("charter: %s has sha256 %s, config pins %s — refusing to start with an unapproved Charter", path, got, sha)
+	}
+	if len(b) > 64<<10 {
+		return "", fmt.Errorf("charter: %s is larger than 64 KiB", path)
+	}
+	return string(b), nil
 }
 
 // buildMCP starts nothing yet: it registers the owner-declared MCP tools in the

@@ -39,3 +39,22 @@ Scope: Blueprint D.1 P2. Started 2026-11-09 after P1 approval (A-21). One milest
 | P2-M7 | Second provider: OpenAI-compatible adapter (any base URL + key file) as fallback profile for `fast` and `standard` | fake second provider takes over when OpenRouter fails |
 | P2-M8 | SSE event stream, activity timeline endpoint, task files endpoint; Console TUI v1 (`aura console`): create task, live trace, approve A2 with full preview, answer questions, kill switch with confirmation, 80×24 | API tests; console model tests (update/view) |
 | P2-M9 | Eval suite v1 (≥ 15 tasks) with runner and report (success, cost, latency, failures); P2 evidence pack | suite runs against the deployed Core |
+
+---
+
+# Phase 3 — Memory, Identity, Charter, Learning, Self-Model v1, L1 (Agent MVP)
+
+Scope: Blueprint D.1 P3. Started 2026-11-09 directly after P2 (owner decision A-21). One milestone = one commit.
+`ISLAMIC_CHARTER.md` is MISSING: the Charter *framework* and GOV-06 integrity are built; GOV-01…05 need the owner's
+Charter text and an approved Quran/hadith source and stay **pending** (never invented).
+
+| M | Deliverable | Acceptance (tests) |
+|---|---|---|
+| P3-M1 | Migration 0003; **memory** (`memories` + FTS5): kinds fact/lesson, provenance (task, step, source, evidence), workspace scope (instance id), privacy class, status (active/tentative/corrected/deleted) with version history; `memory.search` for planning context; `memory.propose` from reflection — claims are promoted only with evidence the Core finds in the task's output/observations | unsupported claim stays tentative; correction creates a new version; deletion tombstones content but keeps an audit record; private memories never reach prompt-logging routes |
+| P3-M2 | **Identity** (Core-owned identity statement in every worker prompt; honesty statement §4) and **Charter framework**: owner Charter file pinned by sha256 in config, loaded read-only, injected as highest-priority rules; nothing (memory, skills, model output, workers, evolution) can modify it; proposals that touch policy/Charter are rejected | GOV-06 tests: memory/skill/model attempts to alter the Charter are rejected and audited; hash mismatch refuses start |
+| P3-M3 | **Learning L1**: `task.reflect` after verified success proposes a lesson and/or a skill (reusable plan template with trigger terms); skills versioned (diff), disable/enable, rollback; planning receives matching active skills and lessons | RS-3 (fake provider): second related run reuses the skill and needs fewer model calls/steps; skill rollback restores the previous version |
+| P3-M4 | **Owner Working Profile**: explicit preferences (confirmed) and inferred ones from owner corrections (tentative, never applied as rules); inspect, correct, disable, delete; versioned; scoped to this workspace (instance) | RS-11: tentative vs confirmed handling, correction versioning, second workspace (separate instance/DB) sees nothing |
+| P3-M5 | **Self-Model v1** (measured capabilities, success, cost, latency, limitations from traces), **efficiency scorecard** (verified success, cost per successful task, latency percentiles, tokens, CPU/RAM; energy reported as unavailable), **trace-driven routing in shadow mode** (learned tier policy per call purpose, recorded next to the actual choice, never auto-promoted) | reports computed from fixtures; shadow decisions recorded; no live routing change |
+| P3-M6 | **Scheduled triggers** (interval/daily) creating tasks under normal budget/permission checks; **Proactive Intelligence v1**: read-only watches on configured public sources with deterministic change detection (no model call when unchanged), findings with source, timestamp, observed change, confidence, relevance, suggested next step; owner notifications | RS-12: change reported, malicious instruction in the source not followed, no writes/messages possible; unchanged source costs 0 model calls |
+| P3-M7 | **Console v2** panels (memory with provenance + correct/delete, skills diff/disable/rollback, self-model, profile, notifications); API/OpenAPI | console model tests |
+| P3-M8 | Deploy, eval re-run, P3 evidence pack | — |

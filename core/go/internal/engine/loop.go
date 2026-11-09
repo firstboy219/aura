@@ -140,7 +140,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
 		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions && t.ParentTaskID == nil, "tier": tierFor(t),
-		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t)})
+		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t)})
 	if s.fatal != nil {
 		return s.fatal
 	}

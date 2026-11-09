@@ -23,6 +23,7 @@ def serve(ch: Channel) -> None:
             return
         rid, method = msg.get("id"), msg.get("method")
         ch.meta = msg.get("meta") or {}
+        agent.set_preamble(msg.get("params") or {})
         try:
             if method == "worker.health":
                 result = _health()

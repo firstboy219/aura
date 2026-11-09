@@ -22,12 +22,15 @@ def _data_model_sql():
 def test_migrations_create_exactly_the_planned_tables():
     db = sqlite3.connect(":memory:")
     db.executescript(_data_model_sql())
-    tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
+    tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")
+              if not r[0].endswith(("_fts", "_data", "_idx", "_content", "_docsize", "_config"))}
     assert tables == {
         "schema_migrations", "tasks", "task_steps", "task_events", "checkpoints", "capability_grants",
         "approvals", "providers", "model_tiers", "usage_records", "audit_events", "instance",
         # P2 (migration 0002)
         "task_waits", "task_inputs", "shared_context", "external_events",
+        # P3 (migration 0003)
+        "memories", "skills", "skill_versions", "profile_items", "routing_shadow", "triggers", "watch_state", "notifications",
     }
 
 
