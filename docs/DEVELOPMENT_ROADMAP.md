@@ -1,6 +1,8 @@
 # DEVELOPMENT_ROADMAP.md
 
-**Current phase: P0 — Foundation (complete, awaiting owner approval).** Next: P1 (see IMPLEMENTATION_SPEC.md).
+**Current phase: P1 — Core Runtime + Vertical Slice.** P0 approved by the owner on 2026-11-09. M1–M9 implemented and
+tested with the fake provider; the opt-in real-provider RS-1 acceptance (≥ 9/10) runs after the owner deploys
+`aura-core` with the OpenRouter key (see `benchmarks/reports/P1-2026-11-09.md`).
 Order is binding (Blueprint Part D); each phase ends with a completion report and explicit owner approval.
 
 ## Detailed (P0–P5)

@@ -25,6 +25,18 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 | A-11 | Hermes is **not** installed or run (E.1). Competitive benchmark is plan-only in P0. | — | Blueprint E.1 | None |
 | A-12 | Development target is this shared host, not the 2 vCPU/16 GB reference VPS (see facts). Measurements are labeled with the actual host. | Dedicated VPS | Owner asked to run alongside Jarvis | Shared-host noise in measurements (§12.1 item 3) |
 
+## Phase 1 implementation assumptions (2026-11-09)
+
+| ID | Assumption | Alternatives | Rationale | Risk |
+|---|---|---|---|---|
+| A-13 | **Provisional model profile** (MODEL_ASSIGNMENT.md is MISSING): fast = `anthropic/claude-haiku-5.5` (fallback `claude-haiku-4.5`), standard = `anthropic/claude-sonnet-5.5` (fallback `claude-sonnet-5`), deep = `anthropic/claude-opus-5.5` (fallback `claude-opus-5`). Route IDs, structured-output support and prices verified against the public OpenRouter catalog on 2026-11-09 (`deploy/config.yaml`). | Owner-specified profile | Blueprint §6 names the Claude family as default; fallbacks stay inside OpenRouter (§8.5) | Replace when the owner supplies MODEL_ASSIGNMENT.md; `aura doctor` re-checks routes and prices |
+| A-14 | A step attempt interrupted by a **Core crash** is not counted against `max_attempts` (3); instead each step may be resumed after at most 10 Core restarts (`recovery_limit`). | Count crashes as attempts | Found by the crash test: three crashes during one write step failed an otherwise healthy task | A Core crash loop on one step ends after 10 recoveries |
+| A-15 | The global daily budget window is the **UTC** day. | WIB day | Simple and unambiguous | Window resets at 07:00 WIB |
+| A-16 | `web.fetch` returns text extracted from HTML by a small built-in extractor (scripts/styles removed). Hidden text is kept and treated as untrusted like all content. | HTML parser library | Stdlib-first (§6); content is untrusted either way | Some pages extract poorly |
+| A-17 | Each task has its own workspace directory `<workspace.root>/<task_id>/`; `workspace.*` paths are relative to it. | One shared workspace | Isolation between tasks; A0 "writes in task workspace" (§8.3) | Tasks cannot read each other's files (by design in P1) |
+| A-18 | A tool call must use the **arguments fixed in the plan** (URL for `web.fetch`, path for `workspace.*`); only `workspace.write` content is produced at step time. | Let the worker choose arguments per step | Content read during the task cannot redirect a tool (P1 injection baseline) | Plans must name URLs and paths up front |
+| A-19 | `write_external` recovery (`OUTCOME_UNKNOWN` → approval) is designed but has no P1 tool to exercise it. | — | No P1 tool has that class | Must be tested when the first external-write tool arrives |
+
 ## Host facts recorded 2026-11-09 (P0 must record facts before proposing structure)
 
 - Host: AWS, Intel Xeon Platinum 8259CL, **4 vCPU**, 15.4 GiB RAM, ext4 root 309 GB (75 GB free), kernel

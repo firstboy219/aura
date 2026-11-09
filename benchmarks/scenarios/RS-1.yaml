@@ -1,6 +1,6 @@
 id: RS-1
 phase: "P1"
-status: spec-draft
+status: executable (fake provider in CI; real provider via runner)
 scenario: "Fetch three allowlisted URLs, summarize each in <=150 words, write reports/summary.md with source link under each summary"
 proves: "Planning, provider, tools, durable steps, idempotent write, recovery, basic untrusted-content handling"
 # Fields below are required before this test is executable (Blueprint D.1 P0).
@@ -19,5 +19,5 @@ assertions:
 evidence_artifacts: [trace.json, summary.md, usage.csv, resources.json]
 severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
 weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
-repetitions: 10  # >=9/10 real-provider passes (D.1 P1)
+repetitions: 10  # >=9/10 real-provider passes (D.1 P1); runner: benchmarks/runner/rs1.sh
 hard_gate: TBD_OWNER

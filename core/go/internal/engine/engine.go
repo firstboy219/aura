@@ -142,6 +142,13 @@ func (e *Engine) Recover(ctx context.Context) error {
 					"step_no": s.StepNo, "side_effect": s.SideEffect, "action": action, "idempotency_key": s.IdempotencyKey}); err != nil {
 					return err
 				}
+				if action == "rerun" {
+					// The attempt was interrupted by the Core, not failed by the step:
+					// it does not count against max attempts (recoveries are capped separately).
+					if _, err := tx.ExecContext(ctx, "update task_steps set state='PENDING', attempts=max(0, attempts-1) where id=?", s.ID); err != nil {
+						return err
+					}
+				}
 			}
 			_, err := task.AppendEvent(ctx, tx, id, nil, "TASK_RECOVERED", "core", map[string]any{"run_id": e.runID})
 			return err

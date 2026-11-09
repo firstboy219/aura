@@ -4,6 +4,9 @@ Scope: Blueprint E.2 only. One milestone = one commit/PR with a completion repor
 must pass with `./dev test` before the next starts. Deterministic tests use a fake provider and a local fixture HTTP
 server; real-provider runs are opt-in (`AURA_REAL_PROVIDER=1`).
 
+Status 2026-11-09: M1–M8 done; M9 done except the opt-in real-provider RS-1 runs (need the deployed Core + key).
+Evidence: `benchmarks/reports/P1-2026-11-09.md`.
+
 | M | Deliverable | Acceptance (tests) |
 |---|---|---|
 | M1 | `internal/config` (YAML strict, env overrides, secret-file checks); `internal/store` (modernc sqlite, migrations 0001 per DATA_MODEL, backup-before-migrate via `VACUUM INTO`, single-writer queue, read pool); `internal/task` state machine + event append + projection; startup recovery skeleton; `aura doctor` real checks | invalid config refuses start; secrets with wrong mode/symlink refused; SQLite ≥ 3.51.3 asserted; up-migration from empty; illegal transitions rejected; event append-only triggers; backup opens with `integrity_check ok`; concurrent writers do not hit `SQLITE_BUSY` |

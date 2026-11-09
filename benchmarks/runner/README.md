@@ -1,5 +1,6 @@
-# Benchmark runner (stub)
+# Benchmark runners
 
-Not implemented in P0. P1 milestone M9 adds `runner/rs1` which: starts a fixture server, creates the RS-1 task via
-the REST API, waits for a terminal state, runs the scenario assertions, and writes a report from
-`reports/TEMPLATE.md`. Real-provider mode only with `AURA_REAL_PROVIDER=1`.
+- `rs1.sh [runs]` — RS-1 acceptance against the deployed `aura-core` container with the real provider (opt-in;
+  spends OpenRouter credit). Creates the task through the CLI, waits for a terminal state, checks the summary file
+  (three source links, each summary ≤ 150 words) and prints PASS/FAIL per run; artifacts go to a temp directory.
+- Deterministic RS-1 (fake provider, fixture server) runs in CI: `go test ./internal/engine -run TestRS1FakeProvider`.

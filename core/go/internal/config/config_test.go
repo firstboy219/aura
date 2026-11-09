@@ -78,3 +78,14 @@ func TestHashIsStable(t *testing.T) {
 		t.Fatal("hash not stable")
 	}
 }
+
+// The shipped container config must load and validate.
+func TestShippedConfigIsValid(t *testing.T) {
+	c, err := Load("../../../../deploy/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Models["standard"]) == 0 || c.Providers.OpenRouter.KeyFile == "" || c.Server.TokenFile == "" {
+		t.Fatalf("%+v", c.Models)
+	}
+}

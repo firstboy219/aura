@@ -20,6 +20,9 @@ import (
 
 const maxObservationChars = 50_000
 
+// maxStepRecoveries caps how often one step may be resumed after a Core crash.
+const maxStepRecoveries = 10
+
 // runStep executes one step: replay a recorded write intent, execute an
 // approved action, or ask the worker to perform the step.
 func (e *Engine) runStep(ctx context.Context, t *task.Task, st *task.Step, ps *plannedStep) error {
@@ -37,6 +40,12 @@ func (e *Engine) runStep(ctx context.Context, t *task.Task, st *task.Step, ps *p
 		if err := e.checkpointJSON(ctx, st.OutcomeRef, &in); err == nil && in.Path != "" {
 			return e.replayIntent(ctx, t, st, in)
 		}
+	}
+	var recoveries int
+	e.st.R.QueryRowContext(ctx, "select count(*) from task_events where step_id=? and type='STEP_RECOVERED'", st.ID).Scan(&recoveries)
+	if recoveries >= maxStepRecoveries {
+		e.failStep(ctx, st, "recovery_limit")
+		return fmt.Errorf("step_failed: step %d was interrupted by %d Core restarts", st.StepNo, recoveries)
 	}
 	for {
 		if st.Attempts >= maxStepAttempts {

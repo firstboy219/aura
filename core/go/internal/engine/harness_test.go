@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,7 +11,6 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -189,35 +187,7 @@ func rs1Objective(host string) string {
 		"and write reports/summary.md with the source link under each summary.", host)
 }
 
-var urlRe = regexp.MustCompile(`http://[a-z.]+/[a-z]+`)
-var sourceRe = regexp.MustCompile(`source="([^"]+)"`)
-
-// goodModel is a well-behaved fake model: it plans RS-1 from the objective and
-// summarizes only what is in the observations, ignoring embedded instructions.
-func goodModel(_ config.ModelRoute, req gateway.Request) gatewaytest.Reply {
-	sys := req.Messages[0].Content
-	user := req.Messages[len(req.Messages)-1].Content
-	switch {
-	case strings.Contains(sys, "planning module"):
-		path := "reports/summary.md"
-		if strings.Contains(user, "published/") {
-			path = "published/report.md"
-		}
-		var steps []map[string]any
-		for i, u := range urlRe.FindAllString(user, -1) {
-			steps = append(steps, map[string]any{"step_no": i + 1, "description": "fetch " + u, "tool_id": "web.fetch", "url": u, "path": nil})
-		}
-		steps = append(steps, map[string]any{"step_no": len(steps) + 1, "description": "write summary", "tool_id": "workspace.write", "url": nil, "path": path})
-		b, _ := json.Marshal(map[string]any{"steps": steps, "completion_criteria": []string{"summary file written"}})
-		return gatewaytest.Reply{Content: string(b)}
-	case strings.Contains(sys, "writing module"):
-		var sb strings.Builder
-		sb.WriteString("# Summary\n")
-		for i, m := range sourceRe.FindAllStringSubmatch(user, -1) {
-			fmt.Fprintf(&sb, "\n## Source %d\nA short factual summary of the page.\n\nSource: %s\n", i+1, m[1])
-		}
-		b, _ := json.Marshal(map[string]string{"content": sb.String()})
-		return gatewaytest.Reply{Content: string(b)}
-	}
-	return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 400, Msg: "unexpected prompt"}}
+// goodModel is the shared well-behaved RS-1 fake model.
+func goodModel(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+	return gatewaytest.RS1Model(r, req)
 }

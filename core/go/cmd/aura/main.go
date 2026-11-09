@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -168,7 +169,8 @@ func doctor(out io.Writer) int {
 	} else {
 		check("disk", nil, fmt.Sprintf("%d MiB free", free>>20))
 	}
-	sup := worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot})
+	sup := worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	start := time.Now()
 	raw, err := sup.Call(ctx, "worker.health", rpc.Meta{TraceID: "doctor", CorrelationID: "doctor"}, map[string]any{}, nil)

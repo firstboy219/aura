@@ -1,0 +1,49 @@
+# AURA Core configuration for the aura-core container (ADR-0002).
+# Holds paths to secrets, never secret values. Copied to /opt/aura/config.yaml by deploy/setup-host.sh.
+config_version: 1
+server:
+  bind: "0.0.0.0:7400"            # inside the container; published on host 127.0.0.1:7400 only
+  token_file: /var/lib/aura/api_token
+  rate_per_second: 20
+database:
+  path: /var/lib/aura/aura.db
+  backup_dir: /var/lib/aura/backups
+workspace:
+  root: /var/lib/aura/workspace
+worker:
+  command: ["python3", "-I", "-m", "aura_worker"]
+  idle_timeout_seconds: 60
+  max_workers: 1
+  max_concurrent_tasks: 1
+  scratch_root: /tmp/aura-scratch
+  call_timeout_seconds: 300
+budgets:
+  task_default: { max_cost_usd: 0.50, max_iterations: 20, max_wall_seconds: 900 }
+  global: { daily_cost_usd: 5.00 }
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    key_file: /run/aura-secrets/openrouter_key
+    timeout_seconds: 120
+# Provisional default profile (MODEL_ASSIGNMENT.md is MISSING; ASSUMPTIONS A-13).
+# Route IDs and prices (USD per million tokens) verified against the OpenRouter catalog on 2026-11-09.
+models:
+  fast:
+    - { display_name: "Claude Haiku 5.5", api_model_id: "claude-haiku-5-5", route_id: "anthropic/claude-haiku-5.5",
+        reasoning_effort: low, price_in_per_mtok: 0.10, price_out_per_mtok: 0.50, max_output_tokens: 4000 }
+    - { display_name: "Claude Haiku 4.5", api_model_id: "claude-haiku-4-5", route_id: "anthropic/claude-haiku-4.5",
+        reasoning_effort: low, price_in_per_mtok: 1.00, price_out_per_mtok: 5.00, max_output_tokens: 4000 }
+  standard:
+    - { display_name: "Claude Sonnet 5.5", api_model_id: "claude-sonnet-5-5", route_id: "anthropic/claude-sonnet-5.5",
+        reasoning_effort: medium, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, max_output_tokens: 6000 }
+    - { display_name: "Claude Sonnet 5", api_model_id: "claude-sonnet-5", route_id: "anthropic/claude-sonnet-5",
+        reasoning_effort: medium, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, max_output_tokens: 6000 }
+  deep:
+    - { display_name: "Claude Opus 5.5", api_model_id: "claude-opus-5-5", route_id: "anthropic/claude-opus-5.5",
+        reasoning_effort: high, price_in_per_mtok: 4.00, price_out_per_mtok: 20.00, max_output_tokens: 8000 }
+    - { display_name: "Claude Opus 5", api_model_id: "claude-opus-5", route_id: "anthropic/claude-opus-5",
+        reasoning_effort: high, price_in_per_mtok: 5.00, price_out_per_mtok: 25.00, max_output_tokens: 8000 }
+tools:
+  web.fetch: { allow_domains: [], max_bytes: 2000000, timeout_seconds: 20 }
+approvals:
+  ttl_seconds: 1800

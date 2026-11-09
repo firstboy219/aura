@@ -25,8 +25,8 @@ Modular monolith: one Go Core binary (`aura`) + one on-demand Python worker proc
 ```
 
 ## 2. Go packages (P1 target layout)
-`core/go/cmd/aura` (CLI + `serve`), `internal/{config,store,task,policy,budget,gateway,tools,worker,api,audit,obs,
-contracts}`. Packages depend inward on `store` and `task`; `gateway` and `tools` never import `api`.
+`core/go/cmd/aura` (CLI + `serve`), `internal/{app,config,store,task,policy,budget,gateway,tools,rpc,worker,engine,api,obs,
+ids,contracts}`. Audit writes live in `policy.Audit`. Packages depend inward on `store` and `task`; `gateway` and `tools` never import `api`.
 
 ## 3. Task lifecycle (P1)
 States: `CREATED → PLANNING → RUNNING ⇄ WAITING_APPROVAL → SUCCEEDED | FAILED | CANCELLED | BUDGET_EXCEEDED`, plus
@@ -55,6 +55,7 @@ provider JSON-schema response format; invalid output → one repair attempt → 
 | modernc.org/sqlite v1.62.0 (+modernc libc/memory/mathutil) | SQLite, pure Go | BSD-3-Clause |
 | gopkg.in/yaml.v3 | config | MIT / Apache-2.0 |
 | github.com/oklog/ulid/v2 | IDs | Apache-2.0 |
+| github.com/santhosh-tekuri/jsonschema/v6 | structured-output and contract validation (ADR-0015 amendment) | Apache-2.0 |
 | Python: none at runtime; dev: pytest (MIT), ruff (MIT), jsonschema (MIT) | | |
 
 ## 7. Isolation from Jarvis
