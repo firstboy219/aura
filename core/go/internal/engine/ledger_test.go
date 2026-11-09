@@ -424,3 +424,43 @@ func TestSELF07ProviderOutageSelfHeals(t *testing.T) {
 		t.Fatalf("a handled outage must not open a limitation by itself: %+v", opened)
 	}
 }
+
+// A task that waits in the queue must not lose wall time before it starts.
+func TestWallClockStartsWhenTaskStarts(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	tk := &task.Task{Objective: rs1Objective(h.host), ConfigHash: "h", Budget: task.Budget{MaxCostUSD: 0.5, MaxIterations: 20, MaxWallSeconds: 30},
+		Scope: task.Scope{Tools: []string{"web.fetch", "workspace.write"}, AllowDomains: []string{h.host}, DataClass: "public"}}
+	h.eng.gov.Halt() // keep it queued
+	h.st.Write(context.Background(), func(tx *sql.Tx) error {
+		if err := task.Insert(context.Background(), tx, tk); err != nil {
+			return err
+		}
+		// created 10 minutes ago: with creation-based deadlines its 30 s budget would already be gone
+		_, err := tx.Exec("update tasks set created_at=? where id=?", time.Now().Add(-10*time.Minute).UnixMilli(), tk.ID)
+		return err
+	})
+	h.eng.gov.Resume()
+	h.eng.Wake()
+	done := h.wait(tk.ID, task.Succeeded, task.Failed, task.BudgetExceeded)
+	if done.State != task.Succeeded {
+		t.Fatalf("queued task lost its wall budget: %s %s", done.State, deref(done.Reason))
+	}
+}
+
+func TestBackfillGivesOldTasksCodesAndClasses(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	tk := &task.Task{Objective: "old", ConfigHash: "h", Scope: task.Scope{Tools: []string{"workspace.write", "web.fetch"}}}
+	h.st.Write(ctx, func(tx *sql.Tx) error {
+		if err := task.Insert(ctx, tx, tk); err != nil {
+			return err
+		}
+		_, err := tx.Exec("update tasks set state='FAILED', reason='invalid_plan: x', reason_code=null, task_class=null where id=?", tk.ID)
+		return err
+	})
+	h.eng.Backfill(ctx)
+	got, _ := task.Get(ctx, h.st.R, tk.ID)
+	if got.ReasonCode == nil || *got.ReasonCode != taxonomy.PlanInvalid || got.TaskClass == nil || *got.TaskClass != "web.fetch+workspace.write" {
+		t.Fatalf("%v %v", got.ReasonCode, got.TaskClass)
+	}
+}

@@ -189,6 +189,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
 		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Version: o.Version, Log: log})
+	a.Engine.Backfill(ctx)
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks}
 	return a, nil

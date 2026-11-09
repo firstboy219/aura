@@ -158,7 +158,8 @@ type classStat struct {
 // classStats aggregates finished main tasks per task class inside the window.
 func (e *Engine) classStats(ctx context.Context, since int64) (map[string]*classStat, error) {
 	rows, err := e.st.R.QueryContext(ctx, `select t.id, coalesce(t.task_class,''), t.state, coalesce(t.reason_code,''),
-		(select count(*) > 0 from task_events v where v.task_id = t.id and v.type='VERIFIED'),
+		(select count(*) > 0 from task_events v where v.task_id = t.id and v.type='VERIFIED')
+		or not exists (select 1 from task_events v where v.task_id = t.id and v.type in ('VERIFIED','VERIFICATION_FAILED','VERIFICATION_SKIPPED')),
 		(t.updated_at - coalesce(t.started_at, t.created_at)) / 1000.0
 		from tasks t where t.state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED') and t.parent_task_id is null
 		and t.agent_role = 'main' and t.created_at >= ?`, since)
@@ -657,4 +658,42 @@ func ledgerFrom(c *config.Config) LedgerConfig {
 	i := c.Improvement
 	return LedgerConfig{MinClassRuns: i.MinClassRuns, SuccessRateTarget: i.SuccessRateTarget, MinRepeatedFailures: i.MinRepeatedFailures,
 		LookbackDays: i.LookbackDays, RetestRuns: i.RetestRuns, NoiseMargin: i.NoiseMargin, ImprovementUSDDaily: i.DailyCostUSD}
+}
+
+// Backfill gives tasks created before canonical reason codes and task classes existed
+// (P1/P2 builds) their code and class, so the ledger measures them consistently.
+// It is idempotent and only fills NULLs.
+func (e *Engine) Backfill(ctx context.Context) {
+	rows, err := e.st.R.QueryContext(ctx, "select id, coalesce(reason,''), scope_json, reason_code is null, task_class is null from tasks where (reason_code is null and reason is not null and reason != '') or task_class is null")
+	if err != nil {
+		return
+	}
+	type row struct {
+		id, reason, scope   string
+		needCode, needClass bool
+	}
+	var todo []row
+	for rows.Next() {
+		var r row
+		rows.Scan(&r.id, &r.reason, &r.scope, &r.needCode, &r.needClass)
+		todo = append(todo, r)
+	}
+	rows.Close()
+	if len(todo) == 0 {
+		return
+	}
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		for _, r := range todo {
+			if r.needCode && r.reason != "" {
+				tx.ExecContext(ctx, "update tasks set reason_code=? where id=? and reason_code is null", taxonomy.Canonical(r.reason), r.id)
+			}
+			if r.needClass {
+				var sc task.Scope
+				json.Unmarshal([]byte(r.scope), &sc)
+				tx.ExecContext(ctx, "update tasks set task_class=? where id=? and task_class is null", task.ClassOf(sc), r.id)
+			}
+		}
+		return nil
+	})
+	e.log.Info("backfilled reason codes and task classes", "tasks", len(todo))
 }

@@ -206,7 +206,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 // drive runs one task until it is terminal, waiting, paused, or interrupted.
 func (e *Engine) drive(parent context.Context, t *task.Task) {
 	wall := time.Duration(t.Budget.MaxWallSeconds) * time.Second
-	start := t.CreatedAt
+	start := ids.NowMs() // queue time is not work time: the wall budget starts when the task starts
 	if t.StartedAt != nil {
 		start = *t.StartedAt
 	}
@@ -361,7 +361,7 @@ func (e *Engine) meta(s *session) rpc.Meta {
 }
 
 func deadlineOf(s *session) (int64, bool) {
-	start := s.t.CreatedAt
+	start := ids.NowMs()
 	if s.t.StartedAt != nil {
 		start = *s.t.StartedAt
 	}
