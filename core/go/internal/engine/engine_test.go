@@ -46,6 +46,9 @@ func TestRS1FakeProvider(t *testing.T) {
 	if done.State != task.Succeeded {
 		t.Fatalf("state %s reason %s", done.State, deref(done.Reason))
 	}
+	// Reflection runs (and reserves/reconciles its own model cost) right after success: wait for it.
+	waitAnyEvent(t, h, tk.ID, "REFLECTED", "REFLECTION_SKIPPED")
+	done, _ = task.Get(context.Background(), h.st.R, tk.ID)
 	b, err := os.ReadFile(filepath.Join(h.cfg.Workspace.Root, tk.ID, "reports", "summary.md"))
 	if err != nil {
 		t.Fatal(err)
