@@ -270,6 +270,13 @@ def cascade(ch: Channel, override: str, system: str, user: str, schema: dict, ma
 
 
 # ---------------------------------------------------------------- planning
+def _json_object(text: Any) -> bool:
+    try:
+        return isinstance(json.loads(text or ""), dict)
+    except ValueError:
+        return False
+
+
 def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict]:
     if not 1 <= len(steps) <= MAX_STEPS:
         raise StepFailure(f"plan has {len(steps)} steps (1..{MAX_STEPS} allowed)", "invalid_plan")
@@ -285,12 +292,8 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
         field = need.get(tool)
         if field and not s.get(field) and tool != "calc":
             raise StepFailure(f"step {i}: {tool} needs {field}", "invalid_plan")
-        if tool.startswith("mcp."):
-            try:
-                if not isinstance(json.loads(s.get("input") or ""), dict):
-                    raise ValueError
-            except ValueError:
-                raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan") from None
+        if tool.startswith("mcp.") and not _json_object(s.get("input")):
+            raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan")
         step = {"step_no": i, "description": str(s.get("description", ""))[:500], "tool_id": tool}
         for f in ("url", "path", "query", "expression", "key", "until", "brief", "input"):
             v = s.get(f)
