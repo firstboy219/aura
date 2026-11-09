@@ -23,6 +23,8 @@ const (
 	Planning        State = "PLANNING"
 	Running         State = "RUNNING"
 	WaitingApproval State = "WAITING_APPROVAL"
+	WaitingInput    State = "WAITING_INPUT" // P2: clarification requested from the owner
+	Waiting         State = "WAITING"       // P2: persistent wait for an event, a time or child tasks
 	Paused          State = "PAUSED"
 	Succeeded       State = "SUCCEEDED"
 	Failed          State = "FAILED"
@@ -32,10 +34,12 @@ const (
 
 var transitions = map[State][]State{
 	Created:         {Planning, Cancelled, Paused, Failed},
-	Planning:        {Running, Failed, Cancelled, Paused, BudgetExceeded},
-	Running:         {WaitingApproval, Succeeded, Failed, Cancelled, Paused, BudgetExceeded},
+	Planning:        {Running, WaitingInput, Failed, Cancelled, Paused, BudgetExceeded},
+	Running:         {WaitingApproval, WaitingInput, Waiting, Succeeded, Failed, Cancelled, Paused, BudgetExceeded},
 	WaitingApproval: {Running, Failed, Cancelled, Paused},
-	Paused:          {Created, Planning, Running, WaitingApproval, Cancelled},
+	WaitingInput:    {Planning, Running, Failed, Cancelled, Paused},
+	Waiting:         {Running, Failed, Cancelled, Paused},
+	Paused:          {Created, Planning, Running, WaitingApproval, WaitingInput, Waiting, Cancelled},
 }
 
 // Terminal reports whether no further transition is possible.
@@ -93,6 +97,9 @@ type Task struct {
 	StartedAt       *int64  `json:"started_at"`
 	CostReservedUSD float64 `json:"cost_reserved_usd"`
 	CostUSD         float64 `json:"cost_usd"`
+	Priority        int     `json:"priority"`
+	Replans         int     `json:"replans"`
+	TierOverride    *string `json:"tier_override"`
 	CreatedAt       int64   `json:"created_at"`
 	UpdatedAt       int64   `json:"updated_at"`
 }
@@ -122,9 +129,10 @@ func Insert(ctx context.Context, tx *sql.Tx, t *Task) error {
 	b, _ := json.Marshal(t.Budget)
 	sc, _ := json.Marshal(t.Scope)
 	_, err := tx.ExecContext(ctx, `insert into tasks(id, objective, state, parent_task_id, root_task_id, agent_role, depth,
-		budget_json, scope_json, config_hash, idempotency_key, created_at, updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		budget_json, scope_json, config_hash, idempotency_key, priority, tier_override, created_at, updated_at)
+		values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.Objective, t.State, t.ParentTaskID, t.RootTaskID, t.AgentRole, t.Depth, string(b), string(sc),
-		t.ConfigHash, t.IdempotencyKey, now, now)
+		t.ConfigHash, t.IdempotencyKey, t.Priority, t.TierOverride, now, now)
 	if err != nil {
 		return err
 	}
@@ -198,14 +206,15 @@ func nullable(s string) any {
 }
 
 const taskCols = `id, objective, state, reason, wait_reason, parent_task_id, root_task_id, agent_role, depth,
-	budget_json, scope_json, config_hash, idempotency_key, started_at, cost_reserved_usd, cost_actual_usd, created_at, updated_at`
+	budget_json, scope_json, config_hash, idempotency_key, started_at, cost_reserved_usd, cost_actual_usd, priority, replans,
+	tier_override, created_at, updated_at`
 
 func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
 	var b, s string
 	err := sc.Scan(&t.ID, &t.Objective, &t.State, &t.Reason, &t.WaitReason, &t.ParentTaskID, &t.RootTaskID,
 		&t.AgentRole, &t.Depth, &b, &s, &t.ConfigHash, &t.IdempotencyKey, &t.StartedAt, &t.CostReservedUSD,
-		&t.CostUSD, &t.CreatedAt, &t.UpdatedAt)
+		&t.CostUSD, &t.Priority, &t.Replans, &t.TierOverride, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +276,7 @@ func List(ctx context.Context, q store.Querier, state State, limit int, cursor s
 // Runnable returns the oldest task the engine should drive, if any.
 func Runnable(ctx context.Context, q store.Querier) (*Task, error) {
 	t, err := scanTask(q.QueryRowContext(ctx, "select "+taskCols+
-		" from tasks where state in ('CREATED','PLANNING','RUNNING') order by created_at, id limit 1"))
+		" from tasks where state in ('CREATED','PLANNING','RUNNING') order by priority desc, created_at, id limit 1"))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -294,6 +303,37 @@ func Events(ctx context.Context, q store.Querier, taskID string, afterSeq int64,
 		}
 		e.Data = json.RawMessage(d)
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SetPriority changes a task's scheduling priority (higher runs first).
+func SetPriority(ctx context.Context, tx *sql.Tx, id string, priority int) error {
+	res, err := tx.ExecContext(ctx, "update tasks set priority=?, updated_at=? where id=?", priority, ids.NowMs(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	_, err = AppendEvent(ctx, tx, id, nil, "PRIORITY_CHANGED", "owner", map[string]any{"priority": priority})
+	return err
+}
+
+// Children returns the direct child tasks of a task.
+func Children(ctx context.Context, q store.Querier, id string) ([]*Task, error) {
+	rows, err := q.QueryContext(ctx, "select "+taskCols+" from tasks where parent_task_id = ? order by created_at, id", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
 	}
 	return out, rows.Err()
 }

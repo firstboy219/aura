@@ -1,7 +1,7 @@
 # DEVELOPMENT_ROADMAP.md
 
-**Current phase: P1 — Core Runtime + Vertical Slice, complete and awaiting owner approval.** M1–M9 done; RS-1 with the
-real provider (free routes) 10/10 on the deployed `aura-core` (`benchmarks/reports/P1-2026-11-09.md`).
+**Current phase: P2 — Agent Loop + Subagents v1 + Persistent Supervisor + Console v1** (P1 approved 2026-11-09; owner
+decided P2 then P3 without a pause, ASSUMPTIONS A-21). P1 evidence: `benchmarks/reports/P1-2026-11-09.md`.
 Order is binding (Blueprint Part D); each phase ends with a completion report and explicit owner approval.
 
 ## Detailed (P0–P5)

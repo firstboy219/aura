@@ -22,5 +22,15 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 | audit_events | append-only security decisions |
 | instance | instance identity |
 
+### Phase 2 additions (migration `0002_p2_agent_loop.sql`)
+| Change | Purpose |
+|---|---|
+| tasks rebuilt | states `WAITING_INPUT`, `WAITING`; columns `priority`, `replans`, `tier_override` (SQLite table-rebuild procedure with foreign keys off and `foreign_key_check`) |
+| task_steps.plan_json | planned arguments per step (replanning, provenance checks) |
+| task_waits | supervisor waits: event / time / child tasks; exactly-once wake (ADR-0018) |
+| task_inputs | clarification questions and owner answers |
+| shared_context | Shared Task Context per root task with trust and provenance (ADR-0019) |
+| external_events | idempotent external dependency events `(key, dedup_id)` |
+
 Not created in P1 (scope rule): memory, identity, connectors, workspaces/tenants, subscriptions, billing,
 Shared Task Context (P2).

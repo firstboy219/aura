@@ -21,3 +21,21 @@ Evidence: `benchmarks/reports/P1-2026-11-09.md`.
 
 Deployment after M9 (owner command only): `/opt/aura/{config.yaml,secrets/}` prepared, compose `command` switched to
 `serve`, `docker compose -p aura up -d --build`.
+
+---
+
+# Phase 2 — Agent Loop + Subagents v1 + Persistent Supervisor + Console v1
+
+Scope: Blueprint D.1 P2. Started 2026-11-09 after P1 approval (A-21). One milestone = one commit.
+
+| M | Deliverable | Acceptance (tests) |
+|---|---|---|
+| P2-M1 | Migration 0002 (new task states `WAITING_INPUT`, `WAITING`; `priority`; per-step `plan_json`; tables `task_waits`, `task_inputs`, `shared_context`, `external_events`, `task_files`), migrator support for SQLite's documented table-rebuild procedure (foreign keys off around one migration), contracts for new methods | up-migration from 0001 with data preserved; FK check clean; old rows readable |
+| P2-M2 | Agent loop: step failure → bounded replanning (`task.replan`, ≤ 2); after steps, deterministic checks then `task.verify` against completion criteria; failed verification → replan; plan review for complex plans; clarification question from planning → `WAITING_INPUT`; cascade tiers (fast for checks, standard for planning/writing, deep after repeated verification failure) | RS-2-style fake runs: 404 step recovered by replan; failed verification triggers exactly one replan; INT-05: ambiguous objective → one question, resumes after answer; plan review only above the complexity rule |
+| P2-M3 | Tools `web.search` (Wikipedia keyless; Brave with key file), `data.read` (CSV/JSON summary with exact column stats), `calc` (exact rational arithmetic); provenance-bound dynamic arguments (a fetch URL not in the plan must appear in an earlier search result or fetched page link recorded by Core); task attachments (owner input files) | tool unit tests; dynamic URL without provenance denied; calc exactness; data.read stats recomputed by calc |
+| P2-M4 | Persistent Supervisor v1: `wait.event` / `wait.until` steps and child-task waits; durable wake exactly once; event intake `POST /events`; reprioritize; idle supervisor uses no model calls | RS-10: wait → Core restart → event → exactly one wake, no duplicate write; idle CPU measured |
+| P2-M5 | Subagents v1 (sequential): `agent.delegate` steps create child tasks with briefing, attenuated grant (subset), budget carve-out; Shared Task Context with provenance and trust labels; owner plan change reaches active children; cancel root cancels descendants; tree trace with rolled-up cost | RS-7 with fake provider; widening/overspend denied and audited |
+| P2-M6 | MCP client adapter: owner-declared stdio MCP servers; only tools declared in config with Core-side tier and side-effect class are exposed; same grant/budget/approval rules | fake MCP server: A0 tool runs, A2 tool waits, undeclared tool denied |
+| P2-M7 | Second provider: OpenAI-compatible adapter (any base URL + key file) as fallback profile for `fast` and `standard` | fake second provider takes over when OpenRouter fails |
+| P2-M8 | SSE event stream, activity timeline endpoint, task files endpoint; Console TUI v1 (`aura console`): create task, live trace, approve A2 with full preview, answer questions, kill switch with confirmation, 80×24 | API tests; console model tests (update/view) |
+| P2-M9 | Eval suite v1 (≥ 15 tasks) with runner and report (success, cost, latency, failures); P2 evidence pack | suite runs against the deployed Core |

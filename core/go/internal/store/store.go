@@ -351,13 +351,37 @@ func (s *Store) migrate(ctx context.Context, c *sql.Conn) error {
 		}
 	}
 	for _, m := range pending {
+		fkOff := strings.HasPrefix(m.sql, "-- aura:foreign_keys_off")
+		if fkOff {
+			// SQLite's table-rebuild procedure: foreign keys off outside the transaction,
+			// foreign_key_check inside it before commit, foreign keys back on after.
+			if _, err := c.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+				return err
+			}
+		}
 		tx, err := c.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, m.sql); err != nil {
 			tx.Rollback()
+			c.ExecContext(ctx, "PRAGMA foreign_keys=ON")
 			return fmt.Errorf("store: migration %s: %w", m.name, err)
+		}
+		if fkOff {
+			rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+			if err != nil {
+				tx.Rollback()
+				c.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+				return err
+			}
+			bad := rows.Next()
+			rows.Close()
+			if bad {
+				tx.Rollback()
+				c.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+				return fmt.Errorf("store: migration %s: foreign_key_check failed", m.name)
+			}
 		}
 		if m.version == 1 {
 			if _, err := tx.ExecContext(ctx, "insert into instance(id, instance_id, created_at) values(1, ?, ?)",
@@ -373,6 +397,11 @@ func (s *Store) migrate(ctx context.Context, c *sql.Conn) error {
 		}
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+		if fkOff {
+			if _, err := c.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -150,7 +150,7 @@ components:
   schemas:
     Ulid: { type: string, pattern: '^[0-9A-HJKMNP-TV-Z]{26}$' }
     TaskState:
-      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, PAUSED, SUCCEEDED, FAILED, CANCELLED, BUDGET_EXCEEDED]
+      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, WAITING_INPUT, WAITING, PAUSED, SUCCEEDED, FAILED, CANCELLED, BUDGET_EXCEEDED]
     TaskCreate:
       type: object
       additionalProperties: false

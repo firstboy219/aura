@@ -14,17 +14,20 @@ def test_benchmark_inventory_has_rs1_to_rs12():
 
 
 def _data_model_sql():
-    sql = (ROOT / "core" / "go" / "internal" / "store" / "migrations" / "0001_init.sql").read_text()
+    mig = ROOT / "core" / "go" / "internal" / "store" / "migrations"
+    sql = "\n".join(p.read_text() for p in sorted(mig.glob("*.sql")))
     return "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, checksum TEXT, applied_at INTEGER);" + sql
 
 
-def test_data_model_sql_creates_only_phase1_tables():
+def test_migrations_create_exactly_the_planned_tables():
     db = sqlite3.connect(":memory:")
     db.executescript(_data_model_sql())
     tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
     assert tables == {
         "schema_migrations", "tasks", "task_steps", "task_events", "checkpoints", "capability_grants",
         "approvals", "providers", "model_tiers", "usage_records", "audit_events", "instance",
+        # P2 (migration 0002)
+        "task_waits", "task_inputs", "shared_context", "external_events",
     }
 
 

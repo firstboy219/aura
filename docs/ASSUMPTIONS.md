@@ -25,6 +25,12 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 | A-11 | Hermes is **not** installed or run (E.1). Competitive benchmark is plan-only in P0. | — | Blueprint E.1 | None |
 | A-12 | Development target is this shared host, not the 2 vCPU/16 GB reference VPS (see facts). Measurements are labeled with the actual host. | Dedicated VPS | Owner asked to run alongside Jarvis | Shared-host noise in measurements (§12.1 item 3) |
 
+## Owner decisions recorded later
+
+| ID | Decision | Date | Note |
+|---|---|---|---|
+| A-21 | **P1 approved.** The owner then chose "P2 then P3 without a pause" when asked (the Blueprint requires owner approval between phases, Part D). | 2026-11-09 | The P2→P3 gate is skipped by explicit owner decision. P2 still ends with its own evidence pack; P3 builds on it immediately. Phase order itself is kept (P3 is not started before P2 code exists). |
+
 ## Phase 1 implementation assumptions (2026-11-09)
 
 | ID | Assumption | Alternatives | Rationale | Risk |

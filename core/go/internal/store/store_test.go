@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -151,5 +152,57 @@ func TestRestoreDrill(t *testing.T) {
 	n, err := RestoreDrill(ctx, p)
 	if err != nil || n != 1 {
 		t.Fatalf("restored %d tasks: %v", n, err)
+	}
+}
+
+// Upgrading a database created with migration 0001 keeps its rows and passes
+// the foreign key check (P2 table rebuild).
+func TestUpgradeFrom0001KeepsData(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "aura.db")
+	ms, _ := loadMigrations()
+	// Build a 0001-only database by hand.
+	db, err := sql.Open("sqlite", dsn(p, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)`)
+	if _, err := db.Exec(ms[0].sql); err != nil {
+		t.Fatal(err)
+	}
+	db.Exec("insert into instance values(1,'I',0)")
+	db.Exec("insert into schema_migrations values(?,?,?,0)", ms[0].version, ms[0].name, ms[0].checksum)
+	db.Exec(`insert into tasks(id, objective, state, root_task_id, budget_json, config_hash, created_at, updated_at) values('T1','o','SUCCEEDED','T1','{}','h',0,0)`)
+	db.Exec(`insert into task_steps(id, task_id, step_no, description, side_effect, state, idempotency_key, created_at, updated_at) values('S1','T1',1,'d','read','SUCCEEDED','k',0,0)`)
+	db.Exec(`insert into task_events(id, task_id, seq, type, actor, data_json, at) values('E1','T1',1,'X','core','{}',0)`)
+	db.Close()
+
+	s, err := Open(context.Background(), p, filepath.Join(dir, "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var state string
+	var prio, steps int
+	s.R.QueryRow("select state, priority from tasks where id='T1'").Scan(&state, &prio)
+	s.R.QueryRow("select count(*) from task_steps where task_id='T1'").Scan(&steps)
+	if state != "SUCCEEDED" || prio != 0 || steps != 1 {
+		t.Fatalf("state=%s prio=%d steps=%d", state, prio, steps)
+	}
+	var fk int
+	s.R.QueryRow("select count(*) from pragma_foreign_key_check").Scan(&fk)
+	if fk != 0 {
+		t.Fatal("foreign key violations after upgrade")
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "b"))
+	if len(entries) == 0 {
+		t.Fatal("no pre-migration backup")
+	}
+	err = s.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`insert into task_steps(id, task_id, step_no, description, side_effect, state, idempotency_key, created_at, updated_at) values('S2','NOPE',1,'d','read','PENDING','k2',0,0)`)
+		return err
+	})
+	if err == nil {
+		t.Fatal("foreign keys not re-enabled after migration")
 	}
 }
