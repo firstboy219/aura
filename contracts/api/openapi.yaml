@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AURA Core API
-  version: 0.1.0-p1-contract
+  version: 0.1.0-p1
   description: |
     Phase 1 endpoints only (Master Blueprint §11). Bound to loopback by default.
     Every request requires a bearer token read from a 0600 file outside the repository.
@@ -178,7 +178,11 @@ components:
         root_task_id: { $ref: '#/components/schemas/Ulid' }
         agent_role: { type: string, default: main }
         depth: { type: integer, default: 0 }
-        cost_usd: { type: number }
+        cost_usd: { type: number, description: Spent plus currently reserved }
+        budget: { type: object, properties: { max_cost_usd: { type: number }, max_iterations: { type: integer }, max_wall_seconds: { type: integer } } }
+        tools: { type: array, items: { type: string } }
+        allow_domains: { type: array, items: { type: string } }
+        wait_reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     TaskEvent:
@@ -188,6 +192,7 @@ components:
         seq: { type: integer }
         type: { type: string, examples: [TASK_CREATED, STEP_STARTED, STEP_SUCCEEDED, APPROVAL_REQUESTED, OUTCOME_UNKNOWN] }
         step_id: { type: [string, 'null'] }
+        actor: { enum: [core, worker, owner] }
         at: { type: string, format: date-time }
         data: { type: object, description: Redacted; never contains secrets or capability tokens }
     Approval:

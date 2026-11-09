@@ -1,0 +1,452 @@
+// Package api is the Phase 1 REST API (Blueprint §11, contracts/api/openapi.yaml):
+// bearer-token auth, loopback by default, request IDs, structured errors,
+// body limits, rate limiting and audit. There is no shell or execution endpoint.
+package api
+
+import (
+	"context"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"aura.local/core/internal/budget"
+	"aura.local/core/internal/engine"
+	"aura.local/core/internal/ids"
+	"aura.local/core/internal/policy"
+	"aura.local/core/internal/store"
+	"aura.local/core/internal/task"
+	"aura.local/core/internal/worker"
+)
+
+const maxBody = 64 << 10
+
+// Readiness reports named checks; all must be "ok" for /system/health to be ready.
+type Readiness func(ctx context.Context) map[string]string
+
+// Server serves the API.
+type Server struct {
+	Engine     *engine.Engine
+	Store      *store.Store
+	Governor   *budget.Governor
+	Worker     *worker.Supervisor
+	Token      string
+	Version    string
+	Log        *slog.Logger
+	Ready      Readiness
+	RatePerSec int
+	// AcceptTasks returns an error code (e.g. "disk_pressure") when new tasks must be refused.
+	AcceptTasks func() string
+
+	once sync.Once
+	lim  *limiter
+}
+
+type ctxKey int
+
+const reqIDKey ctxKey = 0
+
+// Handler builds the HTTP handler.
+func (s *Server) Handler() http.Handler {
+	s.once.Do(func() {
+		r := s.RatePerSec
+		if r <= 0 {
+			r = 20
+		}
+		s.lim = newLimiter(float64(r), float64(2*r))
+		if s.Log == nil {
+			s.Log = slog.Default()
+		}
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/system/health", s.health)
+	auth := func(h http.HandlerFunc) http.Handler { return s.authed(h) }
+	mux.Handle("POST /api/v1/tasks", auth(s.createTask))
+	mux.Handle("GET /api/v1/tasks", auth(s.listTasks))
+	mux.Handle("GET /api/v1/tasks/{id}", auth(s.getTask))
+	mux.Handle("GET /api/v1/tasks/{id}/events", auth(s.taskEvents))
+	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
+	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
+	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
+	mux.Handle("GET /api/v1/system/resources", auth(s.resources))
+	mux.Handle("POST /api/v1/system/stop", auth(s.stop))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.fail(w, r, 404, "not_found", "no such endpoint") })
+	return s.middleware(mux)
+}
+
+func (s *Server) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rid := ids.New()
+		w.Header().Set("X-Request-Id", rid)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		r = r.WithContext(context.WithValue(r.Context(), reqIDKey, rid))
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		start := time.Now()
+		defer func() {
+			if p := recover(); p != nil {
+				s.Log.Error("panic in handler", "request_id", rid, "panic", fmt.Sprint(p))
+				s.fail(w, r, 500, "internal", "internal error")
+			}
+			s.Log.Info("http", "request_id", rid, "method", r.Method, "path", r.URL.Path, "ms", time.Since(start).Milliseconds())
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) authed(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := r.Header.Get("Authorization")
+		tok, ok := strings.CutPrefix(h, "Bearer ")
+		if !ok || s.Token == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
+			s.audit(r, "AUTH_FAILED", map[string]any{"path": r.URL.Path, "remote": r.RemoteAddr})
+			s.fail(w, r, 401, "unauthorized", "missing or invalid bearer token")
+			return
+		}
+		if !s.lim.allow() {
+			s.fail(w, r, 429, "rate_limited", "too many requests")
+			return
+		}
+		next(w, r)
+	})
+}
+
+func requestID(r *http.Request) string {
+	v, _ := r.Context().Value(reqIDKey).(string)
+	return v
+}
+
+func (s *Server) audit(r *http.Request, typ string, data map[string]any) {
+	s.Store.Write(context.WithoutCancel(r.Context()), func(tx *sql.Tx) error {
+		return policy.Audit(r.Context(), tx, typ, "owner", "", requestID(r), data)
+	})
+}
+
+type apiError struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	RequestID string `json:"request_id"`
+}
+
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	writeJSON(w, status, map[string]apiError{"error": {Code: code, Message: msg, RequestID: requestID(r)}})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+// mapErr turns domain errors into HTTP errors without leaking internals.
+func (s *Server) mapErr(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, engine.ErrInvalid):
+		s.fail(w, r, 400, "invalid_input", strings.TrimPrefix(err.Error(), "invalid_input: "))
+	case errors.Is(err, task.ErrNotFound), errors.Is(err, policy.ErrApprovalMissing):
+		s.fail(w, r, 404, "not_found", "not found")
+	case errors.Is(err, task.ErrInvalidTransition):
+		s.fail(w, r, 409, "invalid_transition", err.Error())
+	case errors.Is(err, policy.ErrMismatch):
+		s.fail(w, r, 409, "approval_mismatch", "action_hash does not match the pending approval")
+	case errors.Is(err, policy.ErrExpired):
+		s.fail(w, r, 410, "approval_expired", "approval expired")
+	case errors.Is(err, policy.ErrNotPending):
+		s.fail(w, r, 409, "conflict", err.Error())
+	default:
+		s.Log.Error("request failed", "request_id", requestID(r), "err", err)
+		s.fail(w, r, 500, "internal", "internal error")
+	}
+}
+
+func decodeStrict(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return fmt.Errorf("%w: %v", engine.ErrInvalid, err)
+	}
+	return nil
+}
+
+// Task is the API representation (openapi Task).
+type Task struct {
+	ID           string      `json:"id"`
+	State        task.State  `json:"state"`
+	Reason       *string     `json:"reason"`
+	WaitReason   *string     `json:"wait_reason"`
+	Objective    string      `json:"objective"`
+	ParentTaskID *string     `json:"parent_task_id"`
+	RootTaskID   string      `json:"root_task_id"`
+	AgentRole    string      `json:"agent_role"`
+	Depth        int         `json:"depth"`
+	CostUSD      float64     `json:"cost_usd"`
+	Budget       task.Budget `json:"budget"`
+	Tools        []string    `json:"tools"`
+	AllowDomains []string    `json:"allow_domains"`
+	CreatedAt    string      `json:"created_at"`
+	UpdatedAt    string      `json:"updated_at"`
+}
+
+func ts(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.RFC3339Nano) }
+
+func toAPI(t *task.Task) Task {
+	return Task{ID: t.ID, State: t.State, Reason: t.Reason, WaitReason: t.WaitReason, Objective: t.Objective,
+		ParentTaskID: t.ParentTaskID, RootTaskID: t.RootTaskID, AgentRole: t.AgentRole, Depth: t.Depth,
+		CostUSD: t.CostUSD + t.CostReservedUSD, Budget: t.Budget, Tools: t.Scope.Tools, AllowDomains: t.Scope.AllowDomains,
+		CreatedAt: ts(t.CreatedAt), UpdatedAt: ts(t.UpdatedAt)}
+}
+
+type createReq struct {
+	Objective    string   `json:"objective"`
+	Tools        []string `json:"tools"`
+	AllowDomains []string `json:"allow_domains"`
+	Budget       *struct {
+		MaxCostUSD     float64 `json:"max_cost_usd"`
+		MaxIterations  int     `json:"max_iterations"`
+		MaxWallSeconds int     `json:"max_wall_seconds"`
+	} `json:"budget"`
+}
+
+func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
+	if s.AcceptTasks != nil {
+		if code := s.AcceptTasks(); code != "" {
+			s.fail(w, r, 503, code, "not accepting new tasks: "+code)
+			return
+		}
+	}
+	var in createReq
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains,
+		IdempotencyKey: r.Header.Get("Idempotency-Key")}
+	if in.Budget != nil {
+		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}
+	}
+	t, created, err := s.Engine.Submit(r.Context(), ci)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, toAPI(t))
+}
+
+func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			s.fail(w, r, 400, "invalid_input", "limit must be 1..200")
+			return
+		}
+		limit = n
+	}
+	ts, err := task.List(r.Context(), s.Store.R, task.State(q.Get("state")), limit+1, q.Get("cursor"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	var next *string
+	if len(ts) > limit {
+		ts = ts[:limit]
+		id := ts[limit-1].ID
+		next = &id
+	}
+	out := []Task{}
+	for _, t := range ts {
+		out = append(out, toAPI(t))
+	}
+	writeJSON(w, 200, map[string]any{"tasks": out, "next_cursor": next})
+}
+
+func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
+	t, err := task.Get(r.Context(), s.Store.R, r.PathValue("id"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, toAPI(t))
+}
+
+type eventOut struct {
+	Seq    int64           `json:"seq"`
+	Type   string          `json:"type"`
+	StepID *string         `json:"step_id"`
+	Actor  string          `json:"actor"`
+	At     string          `json:"at"`
+	Data   json.RawMessage `json:"data"`
+}
+
+func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := task.Get(r.Context(), s.Store.R, id); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after_seq"), 10, 64)
+	evs, err := task.Events(r.Context(), s.Store.R, id, after, true)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	out := []eventOut{}
+	for _, e := range evs {
+		out = append(out, eventOut{Seq: e.Seq, Type: e.Type, StepID: e.StepID, Actor: e.Actor, At: ts(e.At), Data: e.Data})
+	}
+	writeJSON(w, 200, map[string]any{"events": out})
+}
+
+func (s *Server) taskAction(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var t *task.Task
+	var err error
+	switch r.PathValue("action") {
+	case "cancel":
+		t, err = s.Engine.Cancel(r.Context(), id)
+	case "pause":
+		t, err = s.Engine.Pause(r.Context(), id)
+	case "resume":
+		t, err = s.Engine.Resume(r.Context(), id)
+	default:
+		s.fail(w, r, 404, "not_found", "no such action")
+		return
+	}
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, toAPI(t))
+}
+
+type approvalOut struct {
+	*policy.Approval
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+func apOut(ap *policy.Approval) approvalOut {
+	return approvalOut{Approval: ap, ExpiresAt: ts(ap.ExpiresAt), CreatedAt: ts(ap.CreatedAt)}
+}
+
+func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
+	aps, err := policy.Pending(r.Context(), s.Store.R)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	out := []approvalOut{}
+	for _, ap := range aps {
+		out = append(out, apOut(ap))
+	}
+	writeJSON(w, 200, map[string]any{"approvals": out})
+}
+
+func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var ap *policy.Approval
+	var err error
+	switch r.PathValue("decision") {
+	case "approve":
+		var in struct {
+			ActionHash string `json:"action_hash"`
+		}
+		if err := decodeStrict(r, &in); err != nil || len(in.ActionHash) != 64 {
+			s.fail(w, r, 400, "invalid_input", "body must be {\"action_hash\": \"<64 hex>\"}")
+			return
+		}
+		ap, err = s.Engine.Approve(r.Context(), id, in.ActionHash, "owner")
+	case "reject":
+		ap, err = s.Engine.Reject(r.Context(), id, "owner")
+	default:
+		s.fail(w, r, 404, "not_found", "no such decision")
+		return
+	}
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, apOut(ap))
+}
+
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	checks := map[string]string{}
+	if s.Ready != nil {
+		checks = s.Ready(r.Context())
+	}
+	ready := true
+	for _, v := range checks {
+		if v != "ok" {
+			ready = false
+		}
+	}
+	status := 200
+	if !ready {
+		status = 503
+	}
+	writeJSON(w, status, map[string]any{"live": true, "ready": ready, "version": s.Version, "checks": checks})
+}
+
+func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
+	state, pid, gen := s.Worker.State()
+	reserved, spent, _ := s.Governor.Today(r.Context())
+	var pidv any
+	if pid != 0 {
+		pidv = pid
+	}
+	writeJSON(w, 200, map[string]any{
+		"core_rss_bytes": worker.ProcRSS(os.Getpid()),
+		"worker":         map[string]any{"state": state, "pid": pidv, "generation": gen, "rss_bytes": s.Worker.RSS()},
+		"db":             map[string]any{"wal_bytes": s.Store.WALBytes(), "write_queue_depth": s.Store.QueueDepth(), "sqlite_version": s.Store.SQLiteVersion()},
+		"budget_today":   map[string]any{"reserved_usd": reserved, "spent_usd": spent, "limit_usd": s.Governor.Limit()},
+		"halted":         s.Governor.Halted(),
+	})
+}
+
+func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Engine.Stop(r.Context(), "owner")
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"stopped_tasks": n})
+}
+
+// limiter is a token bucket.
+type limiter struct {
+	mu     sync.Mutex
+	rate   float64
+	burst  float64
+	tokens float64
+	last   time.Time
+}
+
+func newLimiter(rate, burst float64) *limiter {
+	return &limiter{rate: rate, burst: burst, tokens: burst, last: time.Now()}
+}
+
+func (l *limiter) allow() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	l.tokens = min(l.burst, l.tokens+now.Sub(l.last).Seconds()*l.rate)
+	l.last = now
+	if l.tokens < 1 {
+		return false
+	}
+	l.tokens--
+	return true
+}

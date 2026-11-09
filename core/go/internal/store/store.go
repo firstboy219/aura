@@ -405,3 +405,9 @@ func CompareVersions(a, b string) int {
 	}
 	return 0
 }
+
+// MigrationCount is the number of embedded migrations.
+func MigrationCount() int {
+	ms, _ := loadMigrations()
+	return len(ms)
+}
