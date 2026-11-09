@@ -2,16 +2,60 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aura.local/contracts/schemas/task.step.json",
   "title": "task.step (Core \u2192 Worker)",
-  "description": "Decide the next step and request Core actions. tool_call is re-validated by Core against tool.invoke.",
+  "description": "Execute one planned step. The worker may call llm.complete and at most one tool.invoke for the step's tool; Core re-validates the call against grant, manifest and step.",
   "type": "object",
   "properties": {
     "params": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "step_no": {
-          "type": "integer",
-          "minimum": 1
+        "objective": {
+          "type": "string"
+        },
+        "step": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "step_no": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "tool_id": {
+              "enum": [
+                "web.fetch",
+                "workspace.read",
+                "workspace.write",
+                null
+              ]
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2000
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "step_no",
+            "description",
+            "tool_id",
+            "url",
+            "path"
+          ]
         },
         "observations": {
           "type": "array",
@@ -19,6 +63,15 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+              "step_no": {
+                "type": "integer"
+              },
+              "tool_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": "string"
               },
@@ -30,6 +83,8 @@
               }
             },
             "required": [
+              "step_no",
+              "tool_id",
               "source",
               "trust",
               "content"
@@ -38,7 +93,8 @@
         }
       },
       "required": [
-        "step_no",
+        "objective",
+        "step",
         "observations"
       ]
     },
@@ -48,15 +104,9 @@
       "properties": {
         "decision": {
           "enum": [
-            "invoke_tool",
-            "complete",
+            "step_done",
+            "waiting_approval",
             "fail"
-          ]
-        },
-        "tool_call": {
-          "type": [
-            "object",
-            "null"
           ]
         },
         "reason": {

@@ -10,7 +10,7 @@ SCHEMAS = pathlib.Path(__file__).resolve().parents[3] / "contracts" / "schemas"
 
 
 def test_package_imports():
-    assert aura_worker.PHASE == "P0"
+    assert aura_worker.PHASE == "P1"
 
 
 @pytest.mark.parametrize("path", sorted(SCHEMAS.glob("*.json")), ids=lambda p: p.name)
