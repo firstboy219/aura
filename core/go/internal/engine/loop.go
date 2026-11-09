@@ -633,11 +633,18 @@ func (e *Engine) finalize(ctx context.Context, taskID string) (bool, error) {
 
 func (e *Engine) retryOrFail(ctx context.Context, t *task.Task, reason string, cause map[string]any) (bool, error) {
 	if t.Replans < maxReplans {
-		if err := e.replan(ctx, t, cause); err == nil {
+		err := e.replan(ctx, t, cause)
+		if err == nil {
 			return false, nil
-		} else if errors.Is(err, errStop) || ctx.Err() != nil || isFatal(err) {
+		}
+		if errors.Is(err, errStop) || ctx.Err() != nil || isFatal(err) {
 			return true, err
 		}
+		// Record why the replan was rejected, so the failure can be diagnosed.
+		e.st.Write(ctx, func(tx *sql.Tx) error {
+			_, err := task.AppendEvent(ctx, tx, t.ID, nil, "REPLAN_FAILED", "core", map[string]any{"error": truncate(err.Error(), 500), "cause": cause["kind"]})
+			return err
+		})
 	}
 	return true, e.st.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := task.Transition(ctx, tx, t.ID, task.Failed, reason, "", "core"); err != nil {
@@ -789,7 +796,8 @@ func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, ev
 		case !found:
 			failures = append(failures, fmt.Sprintf("%q: claimed met but the quoted evidence is not in the output", c))
 		}
-		checked = append(checked, map[string]any{"criterion": c, "met": ok && res.Met, "evidence_found": found})
+		checked = append(checked, map[string]any{"criterion": c, "met": ok && res.Met, "evidence_found": found,
+			"quote": truncate(res.EvidenceQuote, 200)})
 	}
 	typ := "VERIFIED"
 	if len(failures) > 0 {
@@ -811,7 +819,17 @@ func normalizeText(s string) []string {
 // words appearing in order in one evidence item (tolerates small formatting).
 func quoteFound(quote string, evidence []evidenceItem) bool {
 	q := normalizeText(quote)
+	if len(q) == 0 {
+		return false
+	}
 	if len(q) < 2 {
+		// One word proves nothing, unless it is the whole of an evidence item
+		// (a file containing only "1024").
+		for _, ev := range evidence {
+			if w := normalizeText(ev.Content); len(w) == 1 && w[0] == q[0] {
+				return true
+			}
+		}
 		return false
 	}
 	qs := " " + strings.Join(q, " ") + " "

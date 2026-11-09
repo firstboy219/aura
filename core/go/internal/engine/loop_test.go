@@ -59,11 +59,13 @@ func TestFailedStepIsReplanned(t *testing.T) {
 	}
 }
 
-// A failed verification triggers exactly one replan, then passes.
+// A failed verification triggers exactly one replan, then passes. The first
+// verification fails on both tiers (an unmet verdict on fast gets a second
+// opinion on standard).
 func TestFailedVerificationReplansOnce(t *testing.T) {
 	var verifies atomic.Int32
 	h := newHarness(t, harnessOpts{respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
-		if isSys(req, "verification module") && verifies.Add(1) == 1 {
+		if isSys(req, "verification module") && verifies.Add(1) <= 2 {
 			return gatewaytest.Reply{Content: `{"criteria":[{"criterion":"the summary file summarizes each page with its source link","met":false,"evidence_quote":""}]}`}
 		}
 		return goodModel(r, req)
@@ -158,5 +160,9 @@ func TestQuoteFound(t *testing.T) {
 	}
 	if quoteFound("completely different words here", ev) || quoteFound("page", ev) {
 		t.Fatal("unrelated or trivial quote accepted")
+	}
+	whole := []evidenceItem{{Content: "1024\n"}}
+	if !quoteFound("1024", whole) || quoteFound("1025", whole) || quoteFound("", whole) {
+		t.Fatal("a one-word quote must match only an evidence item that is exactly that word")
 	}
 }

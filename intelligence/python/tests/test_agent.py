@@ -138,6 +138,24 @@ def test_verify_escalates_from_fast_to_standard_when_unusable():
     assert resp["result"]["criteria"][0]["evidence_quote"] == "a summary of the page"
 
 
+def test_verify_asks_a_second_opinion_on_unmet():
+    crit = ["file has the result"]
+    ev = [{"source": "r.md", "kind": "file", "content": "1024"}]
+    no = {"result": {"structured": {"criteria": [{"criterion": crit[0], "met": False, "evidence_quote": ""}]}}}
+    yes = {"result": {"structured": {"criteria": [{"criterion": crit[0], "met": True, "evidence_quote": "1024"}]}}}
+    core = FakeCore(req("task.verify", {"objective": "o", "completion_criteria": crit, "evidence": ev}), [no, yes])
+    resp = core.run()
+    assert [c["params"]["tier"] for c in core.seen] == ["fast", "standard"]
+    assert resp["result"]["criteria"][0] == {"criterion": crit[0], "met": True, "evidence_quote": "1024"}
+
+
+def test_verify_final_tier_unmet_stands():
+    crit = ["c"]
+    no = {"result": {"structured": {"criteria": [{"criterion": "c", "met": False, "evidence_quote": ""}]}}}
+    resp = FakeCore(req("task.verify", {"objective": "o", "completion_criteria": crit, "evidence": []}), [no, no]).run()
+    assert resp["result"]["criteria"][0]["met"] is False
+
+
 def test_verify_respects_tier_override():
     core = FakeCore(req("task.verify", {"objective": "o", "completion_criteria": ["c"], "evidence": [], "tier": "deep"}),
                     [{"result": {"structured": {"criteria": [{"criterion": "c", "met": False, "evidence_quote": ""}]}}}])
