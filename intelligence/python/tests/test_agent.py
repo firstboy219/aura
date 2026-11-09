@@ -57,9 +57,10 @@ def test_plan_with_ungranted_tool_is_rejected():
     bad = json.loads(json.dumps(PLAN))
     bad["steps"][1]["tool_id"] = "workspace.write"
     core = FakeCore(req("task.plan", {"objective": "o", "granted_tools": ["web.fetch"], "allow_domains": []}),
-                    [{"result": {"structured": bad}}])
+                    [{"result": {"structured": bad}}, {"result": {"structured": bad}}])
     resp = core.run()
     assert resp["error"]["data"]["reason_code"] == "invalid_plan"
+    assert "not granted" in core.seen[1]["params"]["messages"][-1]["content"]  # the repair said why
 
 
 def test_write_step_wraps_observations_and_invokes_tool():
@@ -100,3 +101,26 @@ def test_health_and_unknown_method():
 def test_validate_plan_rejects_bad_numbering(steps):
     with pytest.raises(agent.StepFailure):
         agent.validate_plan({"steps": steps}, ["web.fetch"])
+
+
+def test_expected_outputs_ignore_url_paths():
+    obj = "Fetch https://www.rfc-editor.org/rfc/rfc2606.txt and write reports/summary.md and notes.txt."
+    assert agent.expected_outputs(obj) == ["reports/summary.md", "notes.txt"]
+
+
+def test_plan_missing_required_write_is_repaired_once():
+    no_write = {"steps": [PLAN["steps"][0]], "completion_criteria": ["x"]}
+    obj = "Fetch https://a.test/1 and write reports/summary.md"
+    core = FakeCore(req("task.plan", {"objective": obj, "granted_tools": ["web.fetch", "workspace.write"], "allow_domains": ["a.test"]}),
+                    [{"result": {"structured": no_write}}, {"result": {"structured": PLAN}}])
+    resp = core.run()
+    assert resp["result"]["steps"][-1]["path"] == "reports/summary.md"
+    assert "never writes reports/summary.md" in core.seen[1]["params"]["messages"][-1]["content"]
+
+
+def test_plan_still_missing_write_fails():
+    no_write = {"steps": [PLAN["steps"][0]], "completion_criteria": ["x"]}
+    core = FakeCore(req("task.plan", {"objective": "Fetch https://a.test/1 and write reports/summary.md",
+                                      "granted_tools": ["web.fetch", "workspace.write"], "allow_domains": []}),
+                    [{"result": {"structured": no_write}}, {"result": {"structured": no_write}}])
+    assert core.run()["error"]["data"]["reason_code"] == "invalid_plan"

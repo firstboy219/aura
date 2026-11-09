@@ -135,3 +135,21 @@ func TestCompareVersions(t *testing.T) {
 		t.Fatal("compare")
 	}
 }
+
+func TestRestoreDrill(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	s.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`insert into tasks(id, objective, state, root_task_id, budget_json, config_hash, created_at, updated_at)
+			values('T1','o','CREATED','T1','{}','h',0,0)`)
+		return err
+	})
+	p, err := s.Backup(ctx, "drill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := RestoreDrill(ctx, p)
+	if err != nil || n != 1 {
+		t.Fatalf("restored %d tasks: %v", n, err)
+	}
+}

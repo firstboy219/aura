@@ -9,5 +9,7 @@ Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
 - `audit_events` record security-relevant decisions (auth failures, capability denials, approvals, kill switch,
   config changes) and are retained ≥ 365 days; content blobs default to 30 days, configurable; events are kept for
   the task lifetime + 90 days. Deletion of content never deletes the audit record (it records `content_purged`).
+- **P1 implementation:** a daily maintenance job deletes expired checkpoints of finished tasks and appends an internal
+  `CONTENT_PURGED` event; owner result files in the workspace are never purged by it.
 - A redaction filter runs on every event/log write: known secret values (loaded secrets), bearer/capability tokens and
   `Authorization` headers are replaced by `[REDACTED]`; the secret-scan test (D.1 P1) greps logs/events for them.

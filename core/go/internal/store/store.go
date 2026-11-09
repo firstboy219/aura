@@ -411,3 +411,33 @@ func MigrationCount() int {
 	ms, _ := loadMigrations()
 	return len(ms)
 }
+
+// RestoreDrill proves a backup can actually be restored: it copies the backup
+// into a fresh directory, opens it through the normal Open path (version check,
+// WAL, migrations) and returns its task count. The live database is untouched.
+func RestoreDrill(ctx context.Context, backupPath string) (tasks int, err error) {
+	dir, err := os.MkdirTemp("", "aura-restore-")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(dir)
+	b, err := os.ReadFile(backupPath)
+	if err != nil {
+		return 0, err
+	}
+	dst := filepath.Join(dir, "aura.db")
+	if err := os.WriteFile(dst, b, 0o600); err != nil {
+		return 0, err
+	}
+	s, err := Open(ctx, dst, filepath.Join(dir, "backups"))
+	if err != nil {
+		return 0, fmt.Errorf("restore drill: %w", err)
+	}
+	defer s.Close()
+	var res string
+	if err := s.R.QueryRowContext(ctx, "pragma integrity_check").Scan(&res); err != nil || res != "ok" {
+		return 0, fmt.Errorf("restore drill: integrity_check %q %v", res, err)
+	}
+	err = s.R.QueryRowContext(ctx, "select count(*) from tasks").Scan(&tasks)
+	return tasks, err
+}

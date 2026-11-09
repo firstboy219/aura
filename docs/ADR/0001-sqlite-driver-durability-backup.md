@@ -24,7 +24,9 @@ the only writer; single-writer queue; never back up by copying the main file whi
    (`disk_pressure`) and keeps running tasks' state durable.
 4. Backup: `VACUUM INTO '<path>'` (consistent online snapshot) — or the driver's backup API if P1 proves it — into
    `/var/lib/aura/backups/`, before every migration and daily; each backup is opened and checked with
-   `pragma integrity_check` (automated restore verification). Raw copies of `aura.db` alone are forbidden.
+   `pragma integrity_check` (automated restore verification).
+   **Amended in P1:** the daily backup is additionally verified by a restore drill (`store.RestoreDrill`: copy into
+   a fresh directory, open through the normal startup path, integrity check, count tasks); failures are logged as errors. Raw copies of `aura.db` alone are forbidden.
 5. Database files live on the local ext4 Docker volume `aura-data`, never a network filesystem.
 
 ## Consequences

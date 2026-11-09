@@ -235,10 +235,17 @@ func (a *App) maintain(ctx context.Context) {
 		if time.Since(lastBackup) > 24*time.Hour {
 			if p, err := a.Store.Backup(ctx, "daily"); err != nil {
 				a.Log.Error("daily backup", "err", err)
+			} else if n, err := store.RestoreDrill(ctx, p); err != nil {
+				a.Log.Error("daily restore drill failed", "path", p, "err", err)
 			} else {
-				a.Log.Info("daily backup verified", "path", p)
+				a.Log.Info("daily backup verified by restore drill", "path", p, "tasks", n)
 				lastBackup = time.Now()
 				pruneBackups(a.Cfg.Database.BackupDir, 7)
+			}
+			if n, err := a.Engine.PurgeContent(ctx); err != nil {
+				a.Log.Error("content purge", "err", err)
+			} else if n > 0 {
+				a.Log.Info("expired content purged", "checkpoints", n)
 			}
 		}
 	}

@@ -15,6 +15,24 @@ from typing import Any
 from aura_worker.rpc import Channel
 
 TOOLS = ("web.fetch", "workspace.read", "workspace.write")
+
+# Workspace files named in the objective (e.g. "reports/summary.md"). A path inside
+# a URL never matches because it must start after whitespace, a quote or "(".
+# Keep in sync with engine.ExpectedOutputs in the Go Core.
+OUTPUT_RE = re.compile(r"""(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:md|txt|json|csv|html|yaml|yml))\b""")
+
+
+def expected_outputs(objective: str) -> list[str]:
+    seen: list[str] = []
+    for m in OUTPUT_RE.finditer(objective):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
+
+
+def missing_outputs(plan: dict, objective: str) -> list[str]:
+    written = {s.get("path") for s in plan.get("steps", []) if s.get("tool_id") == "workspace.write"}
+    return [p for p in expected_outputs(objective) if p not in written]
 MAX_STEPS = 20
 MAX_OBSERVATION_CHARS = 12000
 
@@ -93,15 +111,26 @@ def plan(ch: Channel, params: dict) -> dict:
     if not objective or not granted:
         raise StepFailure("objective and at least one granted tool are required", "invalid_params")
     system = PLANNER_SYSTEM.format(domains=", ".join(domains) or "(none)", tools=", ".join(granted), max_steps=MAX_STEPS)
-    res = ch.call("llm.complete", {
-        "tier": "standard",
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": f"Objective:\n{objective}"}],
-        "response_schema": PLAN_SCHEMA,
-        "max_output_tokens": 2000,
-    })
-    out = res.get("structured") or {}
-    return validate_plan(out, granted)
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": f"Objective:\n{objective}"}]
+    for attempt in range(2):
+        res = ch.call("llm.complete", {"tier": "standard", "messages": messages, "response_schema": PLAN_SCHEMA,
+                                       "max_output_tokens": 2000})
+        out = res.get("structured") or {}
+        problem = ""
+        try:
+            plan = validate_plan(out, granted)
+            missing = missing_outputs(plan, objective) if "workspace.write" in granted else []
+            if not missing:
+                return plan
+            problem = ("The plan never writes " + ", ".join(missing) +
+                       ", which the objective asks for. Add a workspace.write step for each, after the steps it needs.")
+        except StepFailure as e:
+            problem = str(e)
+        if attempt == 1:
+            raise StepFailure(f"plan still invalid after one repair: {problem}", "invalid_plan")
+        messages = messages + [{"role": "assistant", "content": json.dumps(out)[:8000]},
+                               {"role": "user", "content": f"Your plan is not acceptable: {problem} Reply with the corrected plan."}]
+    raise StepFailure("unreachable", "invalid_plan")
 
 
 def validate_plan(out: dict, granted: list[str]) -> dict:

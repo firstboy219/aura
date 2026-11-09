@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -443,7 +444,39 @@ func (e *Engine) validatePlan(t *task.Task, p *planDoc) ([]task.Step, error) {
 		tool := spec.ID
 		out = append(out, task.Step{StepNo: ps.StepNo, Description: desc, ToolID: &tool, SideEffect: spec.SideEffect})
 	}
+	if allowed.HasTool("workspace.write") {
+		written := map[string]bool{}
+		for _, ps := range p.Steps {
+			if ps.ToolID != nil && *ps.ToolID == "workspace.write" && ps.Path != nil {
+				written[*ps.Path] = true
+			}
+		}
+		for _, want := range ExpectedOutputs(t.Objective) {
+			if !written[want] {
+				return nil, fmt.Errorf("invalid_plan: the plan never writes %s, which the objective asks for", want)
+			}
+		}
+	}
 	return out, nil
+}
+
+// outputRe finds workspace files named in an objective (e.g. reports/summary.md).
+// A path inside a URL never matches: it must start after whitespace, a quote
+// or "(". Keep in sync with OUTPUT_RE in the Python worker.
+var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:md|txt|json|csv|html|yaml|yml))\b`)
+
+// ExpectedOutputs lists the workspace files an objective explicitly asks for.
+// A task that does not produce them is not complete, whatever its plan said.
+func ExpectedOutputs(objective string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range outputRe.FindAllStringSubmatch(objective, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			out = append(out, m[1])
+		}
+	}
+	return out
 }
 
 func (e *Engine) loadPlan(ctx context.Context, taskID string) (*planDoc, error) {
@@ -495,6 +528,17 @@ func (e *Engine) complete(ctx context.Context, taskID string) error {
 		return err
 	}
 	var problems []string
+	t, err := task.Get(ctx, e.st.R, taskID)
+	if err != nil {
+		return err
+	}
+	if (policy.Scopes{Tools: t.Scope.Tools}).HasTool("workspace.write") {
+		for _, want := range ExpectedOutputs(t.Objective) {
+			if h, err := e.ws.FileHash(taskID, want); err != nil || h == "" {
+				problems = append(problems, fmt.Sprintf("%s named in the objective was not produced", want))
+			}
+		}
+	}
 	for _, s := range steps {
 		if s.State != task.StepSucceeded {
 			problems = append(problems, fmt.Sprintf("step %d is %s", s.StepNo, s.State))

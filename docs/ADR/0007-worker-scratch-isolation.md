@@ -13,8 +13,10 @@ Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
   mitigated by architecture, review and tests (no code execution, no file-access code paths in the worker, the
   secret-scan and "worker opens no files outside scratch" tests) — not by OS enforcement. A separate unprivileged
   identity and namespaces arrive in P4 (§5.1 rule 6).
-- Scratch: `/tmp/aura-scratch/<task_id>/<worker_gen>` (tmpfs), 32 MiB quota checked by Core, no symlinks
-  followed, deleted on task terminal state and on worker restart. Durable files only via `workspace.*` tools.
+- Scratch: `<worker.scratch_root>/gen-<n>` per worker generation (in the container: `/tmp/aura-scratch`, tmpfs),
+  removed when that worker exits. **Amended in P1:** there is no Core-checked 32 MiB quota; the bound is the
+  container's 64 MiB `/tmp` tmpfs, and the P1 worker writes no files. A per-task quota is a P4 isolation item.
+  Durable files only via `workspace.*` tools.
 - Container hardening (deployment, not sandbox): read-only rootfs, `cap_drop: ALL`, `no-new-privileges`,
   pids/memory/CPU limits, loopback-only publish.
 

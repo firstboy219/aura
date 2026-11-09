@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -288,4 +289,64 @@ func TestSubmitValidation(t *testing.T) {
 		t.Fatal("idempotency key did not deduplicate")
 	}
 	h.eng.Cancel(context.Background(), a.ID)
+}
+
+func TestExpectedOutputs(t *testing.T) {
+	got := strings.Join(ExpectedOutputs("Fetch https://www.rfc-editor.org/rfc/rfc2606.txt and http://a.test/x.md, then write "+
+		"reports/summary.md and notes.txt (also \"data/out.json\"). Again reports/summary.md."), ",")
+	if got != "reports/summary.md,notes.txt,data/out.json" {
+		t.Fatal(got)
+	}
+}
+
+// Regression (found by the first free-model RS-1 run): a plan that skips the
+// write the objective asks for must not end as SUCCEEDED.
+func TestPlanMissingRequiredOutputFails(t *testing.T) {
+	h := newHarness(t, harnessOpts{respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+		rep := goodModel(r, req)
+		if strings.Contains(req.Messages[0].Content, "planning module") {
+			var p map[string]any
+			json.Unmarshal([]byte(rep.Content), &p)
+			steps := p["steps"].([]any)
+			p["steps"] = steps[:len(steps)-1] // drop the write step
+			b, _ := json.Marshal(p)
+			rep.Content = string(b)
+		}
+		return rep
+	}})
+	tk := h.submit(rs1Objective(h.host), nil)
+	done := h.wait(tk.ID, task.Failed, task.Succeeded)
+	if done.State != task.Failed || deref(done.Reason) != "invalid_plan" {
+		t.Fatalf("state %s reason %s", done.State, deref(done.Reason))
+	}
+	if h.fake.CallCount() != 2 {
+		t.Fatalf("want one plan repair (2 calls), got %d", h.fake.CallCount())
+	}
+}
+
+func TestPurgeContentKeepsEventsAndResults(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	tk := h.submit(rs1Objective(h.host), nil)
+	h.wait(tk.ID, task.Succeeded)
+	running := h.submit(rs1Objective(h.host), nil) // not finished yet: must not be purged
+	h.st.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec("update checkpoints set purge_after = 1")
+		return err
+	})
+	n, err := h.eng.PurgeContent(context.Background())
+	if err != nil || n == 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+	var left int
+	h.st.R.QueryRow("select count(*) from checkpoints where task_id=?", tk.ID).Scan(&left)
+	if left != 0 {
+		t.Fatal("expired checkpoints not purged")
+	}
+	if !strings.Contains(eventTypes(h.events(tk.ID)), "CONTENT_PURGED") {
+		t.Fatal("purge not recorded")
+	}
+	if _, err := os.Stat(filepath.Join(h.cfg.Workspace.Root, tk.ID, "reports", "summary.md")); err != nil {
+		t.Fatal("owner result was deleted")
+	}
+	h.eng.Cancel(context.Background(), running.ID)
 }
