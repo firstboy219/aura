@@ -65,13 +65,13 @@ NULLABLE_STR = {"type": ["string", "null"]}
 STEP_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["step_no", "description", "tool_id", "url", "path", "query", "expression", "key", "until", "brief", "tools"],
+    "required": ["step_no", "description", "tool_id", "url", "path", "query", "expression", "key", "until", "brief", "tools", "input"],
     "properties": {
         "step_no": {"type": "integer"},
         "description": {"type": "string"},
         "tool_id": {"type": "string", "enum": list(TOOLS)},
         "url": NULLABLE_STR, "path": NULLABLE_STR, "query": NULLABLE_STR, "expression": NULLABLE_STR,
-        "key": NULLABLE_STR, "until": NULLABLE_STR, "brief": NULLABLE_STR,
+        "key": NULLABLE_STR, "until": NULLABLE_STR, "brief": NULLABLE_STR, "input": NULLABLE_STR,
         "tools": {"type": ["array", "null"], "items": {"type": "string"}},
     },
 }
@@ -117,6 +117,17 @@ URL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["url"],
     "properties": {"url": {"type": "string"}},
 }
+
+def plan_schema(granted: list[str]) -> dict[str, Any]:
+    """PLAN_SCHEMA with tool_id restricted to the granted tools (incl. MCP tools)."""
+    schema = json.loads(json.dumps(PLAN_SCHEMA))
+    schema["properties"]["steps"]["items"]["properties"]["tool_id"]["enum"] = list(granted)
+    return schema
+
+
+def is_known_tool(t: str) -> bool:
+    return t in TOOLS or (t.startswith("mcp.") and t.count(".") >= 2)
+
 
 # ---------------------------------------------------------------- prompts
 TOOL_DOCS = {
@@ -220,8 +231,15 @@ def render_owner_context(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def tool_docs(granted: list[str], domains: list[str]) -> str:
-    return "\n".join("- " + TOOL_DOCS[t].format(domains=", ".join(domains) or "(none)") for t in granted if t in TOOL_DOCS)
+def tool_docs(granted: list[str], domains: list[str], extra: dict | None = None) -> str:
+    lines = []
+    for t in granted:
+        if t in TOOL_DOCS:
+            lines.append("- " + TOOL_DOCS[t].format(domains=", ".join(domains) or "(none)"))
+        elif t.startswith("mcp."):
+            desc = (extra or {}).get(t, "an external tool")
+            lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments.')
+    return "\n".join(lines)
 
 
 def complete(ch: Channel, tier: str, system: str, user: str, schema: dict, max_tokens: int) -> dict:
@@ -267,8 +285,14 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
         field = need.get(tool)
         if field and not s.get(field) and tool != "calc":
             raise StepFailure(f"step {i}: {tool} needs {field}", "invalid_plan")
+        if tool.startswith("mcp."):
+            try:
+                if not isinstance(json.loads(s.get("input") or ""), dict):
+                    raise ValueError
+            except ValueError:
+                raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan") from None
         step = {"step_no": i, "description": str(s.get("description", ""))[:500], "tool_id": tool}
-        for f in ("url", "path", "query", "expression", "key", "until", "brief"):
+        for f in ("url", "path", "query", "expression", "key", "until", "brief", "input"):
             v = s.get(f)
             step[f] = str(v) if v not in (None, "") else None
         tools = s.get("tools")
@@ -288,12 +312,12 @@ def validate_plan(out: dict, granted: list[str]) -> dict:
 
 def plan(ch: Channel, params: dict) -> dict:
     objective = str(params.get("objective", ""))
-    granted = [t for t in params.get("granted_tools", []) if t in TOOLS]
+    granted = [t for t in params.get("granted_tools", []) if is_known_tool(t)]
     domains = params.get("allow_domains") or []
     if not objective or not granted:
         raise StepFailure("objective and at least one granted tool are required", "invalid_params")
     may_ask = bool(params.get("may_ask", True))
-    system = PLANNER_SYSTEM.format(tool_docs=tool_docs(granted, domains), max_steps=MAX_STEPS, start=1,
+    system = PLANNER_SYSTEM.format(tool_docs=tool_docs(granted, domains, params.get("tool_docs")), max_steps=MAX_STEPS, start=1,
                                    ask_rule=ASK_RULE_ALLOWED if may_ask else ASK_RULE_DENIED)
     user = f"Objective:\n{objective}"
     owner = render_owner_context(params.get("owner_context") or [])
@@ -302,7 +326,7 @@ def plan(ch: Channel, params: dict) -> dict:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     tier = params.get("tier") or "standard"
     for attempt in range(2):
-        res = ch.call("llm.complete", {"tier": tier, "messages": messages, "response_schema": PLAN_SCHEMA,
+        res = ch.call("llm.complete", {"tier": tier, "messages": messages, "response_schema": plan_schema(granted),
                                        "max_output_tokens": 3000})
         out = res.get("structured") or {}
         question = (out.get("question") or "").strip()
@@ -326,7 +350,7 @@ def plan(ch: Channel, params: dict) -> dict:
 
 
 def review(ch: Channel, params: dict) -> dict:
-    granted = [t for t in params.get("granted_tools", []) if t in TOOLS]
+    granted = [t for t in params.get("granted_tools", []) if is_known_tool(t)]
     plan_doc = params.get("plan") or {}
     user = f"Objective:\n{params.get('objective', '')}\n\nPlan:\n{json.dumps(plan_doc.get('steps', []), ensure_ascii=False)}"
     out = cascade(ch, params.get("tier") or "", REVIEW_SYSTEM, user, REVIEW_SCHEMA, 3000,
@@ -342,10 +366,10 @@ def review(ch: Channel, params: dict) -> dict:
 
 
 def replan(ch: Channel, params: dict) -> dict:
-    granted = [t for t in params.get("granted_tools", []) if t in TOOLS]
+    granted = [t for t in params.get("granted_tools", []) if is_known_tool(t)]
     start = int(params.get("next_step_no", 1))
     objective = str(params.get("objective", ""))
-    system = REPLANNER_SYSTEM.format(start=start, tool_docs=tool_docs(granted, params.get("allow_domains") or []))
+    system = REPLANNER_SYSTEM.format(start=start, tool_docs=tool_docs(granted, params.get("allow_domains") or [], params.get("tool_docs")))
     already = {s.get("path") for s in params.get("steps", []) if s.get("state") == "SUCCEEDED" and s.get("tool_id") == "workspace.write"}
     user = (f"Objective:\n{objective}\n\nSteps so far:\n{json.dumps(params.get('steps', []), ensure_ascii=False)}\n\n"
             f"What went wrong:\n{json.dumps(params.get('cause', {}), ensure_ascii=False)}\n\n"
@@ -354,7 +378,7 @@ def replan(ch: Channel, params: dict) -> dict:
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
         user += f"\n\nWhat the owner has told you:\n{owner}"
-    out = complete(ch, params.get("tier") or "standard", system, user, PLAN_SCHEMA, 3000)
+    out = complete(ch, params.get("tier") or "standard", system, user, plan_schema(granted), 3000)
     steps = validate_steps(out.get("steps") or [], granted, start)
     written = {s["path"] for s in steps if s["tool_id"] == "workspace.write"}
     inputs = input_paths(steps + list(params.get("steps", [])), params.get("attachments"))
@@ -443,4 +467,6 @@ def step(ch: Channel, params: dict) -> dict:
         if not isinstance(content, str) or not content.strip():
             raise StepFailure("model returned empty content", "invalid_model_output")
         return _result(_invoke(ch, tool, {"path": s.get("path"), "content": content}))
+    if tool and tool.startswith("mcp."):
+        return _result(_invoke(ch, tool, {"arguments": json.loads(s.get("input") or "{}")}))
     raise StepFailure(f"unsupported tool {tool!r}", "invalid_step")

@@ -313,3 +313,39 @@ func TestRetryAfterHonoured(t *testing.T) {
 		t.Fatal("Retry-After ignored")
 	}
 }
+
+// A second (OpenAI-compatible) provider takes over when the first fails.
+func TestSecondProviderFallback(t *testing.T) {
+	or := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Err: &gateway.ProviderError{Status: 402, Msg: "Insufficient credits"}}}}
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer second-key" || r.URL.Path != "/v1/chat/completions" {
+			w.WriteHeader(401)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &got)
+		w.Write([]byte(`{"id":"x","choices":[{"message":{"content":"{\"answer\":\"from second\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`))
+	}))
+	defer srv.Close()
+	second := gateway.NewOpenAICompatible("second", srv.URL+"/v1", "second-key", 5*time.Second)
+	two := map[string][]config.ModelRoute{"standard": {
+		{DisplayName: "A", APIModelID: "a", RouteID: "route/a", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 100},
+		{Provider: "second", DisplayName: "B", APIModelID: "b", RouteID: "b-model", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 100},
+	}}
+	_, s, id := setup(t, or)
+	g := gateway.NewMulti(map[string]gateway.Provider{"openrouter": or, "second": second}, two, budget.New(s, 10))
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req())
+	if err != nil || res.Provider != "second" || string(res.Structured) != `{"answer":"from second"}` {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if _, ok := got["usage"]; ok || got["provider"] != nil || got["model"] != "b-model" {
+		t.Fatalf("OpenRouter-only fields sent to a generic provider: %v", got)
+	}
+	var prov string
+	var cost float64
+	s.R.QueryRow("select provider_id, cost_actual_usd from usage_records where route_id='b-model'").Scan(&prov, &cost)
+	if prov != "second" || cost <= 0 {
+		t.Fatalf("usage not attributed: %s %v", prov, cost)
+	}
+}

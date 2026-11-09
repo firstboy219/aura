@@ -19,6 +19,7 @@ import (
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/gateway/gatewaytest"
+	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
 	"aura.local/core/internal/tools"
@@ -57,6 +58,8 @@ type harnessOpts struct {
 	dir       string // reuse a data directory (restart tests)
 	respond   func(config.ModelRoute, gateway.Request) gatewaytest.Reply
 	searcher  tools.Searcher
+	mcp       map[string]*mcp.Client
+	toolDocs  map[string]string
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -105,7 +108,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	h.start()
 	t.Cleanup(h.close)

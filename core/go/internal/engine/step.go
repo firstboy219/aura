@@ -577,6 +577,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 		}
 		return map[string]any{"path": p, "content": a.Content}, p, ""
 	}
+	if strings.HasPrefix(c.ToolID, "mcp.") {
+		return validateMCPArgs(s, c)
+	}
 	return nil, "", "unknown_tool"
 }
 
@@ -608,6 +611,9 @@ func (e *Engine) hasProvenance(taskID, u string) bool {
 // execute0 runs an authorized A0 (or approved) tool call and records its
 // outcome on the step. Writes are preceded by a durable intent (§8.1).
 func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
+	if strings.HasPrefix(spec.ID, "mcp.") {
+		return e.executeMCP(ctx, t, st, spec, args)
+	}
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":
 		return nil, errWaitTool // handled in serveTool before execution

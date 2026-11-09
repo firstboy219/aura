@@ -65,3 +65,18 @@ tools:
   web.search: { provider: wikipedia, wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800
+# MCP servers (ADR-0020): only the tools listed here are exposed, with the tier and side effect YOU set.
+# Example (disabled):
+# mcp:
+#   servers:
+#     - name: notes
+#       command: ["python3", "-I", "/opt/aura/mcp/notes_server.py"]
+#       timeout_seconds: 30
+#       tools:
+#         search_notes: { tier: A0, side_effect: read, description: "Search the owner's notes by keyword." }
+#         add_note:     { tier: A2, side_effect: write_external, description: "Add a note (needs approval)." }
+#
+# Second model provider (ADR-0021), used by routes with provider: <id>. Example (disabled):
+# providers:
+#   openai_compatible:
+#     - { id: groq, base_url: "https://api.groq.com/openai/v1", key_file: /run/aura-secrets/groq_key }

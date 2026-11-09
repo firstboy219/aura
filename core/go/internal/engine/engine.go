@@ -21,6 +21,7 @@ import (
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/ids"
+	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/rpc"
 	"aura.local/core/internal/store"
@@ -41,6 +42,8 @@ type Engine struct {
 	fetch *tools.Fetcher
 	ws    *tools.Workspace
 	srch  tools.Searcher // nil: web.search unavailable
+	mcp   map[string]*mcp.Client
+	docs  map[string]string // owner-written descriptions of MCP tools
 	log   *slog.Logger
 	runID string
 
@@ -61,6 +64,8 @@ type Deps struct {
 	Fetcher   *tools.Fetcher
 	Workspace *tools.Workspace
 	Searcher  tools.Searcher
+	MCP       map[string]*mcp.Client // by server name
+	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
 	Log       *slog.Logger
 }
 
@@ -69,7 +74,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.
@@ -146,6 +151,12 @@ func (e *Engine) Recover(ctx context.Context) error {
 					"step_no": s.StepNo, "side_effect": s.SideEffect, "action": action, "idempotency_key": s.IdempotencyKey}); err != nil {
 					return err
 				}
+				if action == "outcome_unknown" {
+					if err := e.outcomeUnknown(ctx, tx, id, s); err != nil {
+						return err
+					}
+					continue
+				}
 				if action == "rerun" {
 					// The attempt was interrupted by the Core, not failed by the step:
 					// it does not count against max attempts (recoveries are capped separately).
@@ -155,7 +166,18 @@ func (e *Engine) Recover(ctx context.Context) error {
 				}
 			}
 			_, err := task.AppendEvent(ctx, tx, id, nil, "TASK_RECOVERED", "core", map[string]any{"run_id": e.runID})
-			return err
+			if err != nil {
+				return err
+			}
+			// A step whose external outcome is unknown parked the task for the owner.
+			var waiting int
+			tx.QueryRowContext(ctx, "select count(*) from task_steps where task_id=? and state='WAITING_APPROVAL'", id).Scan(&waiting)
+			if waiting > 0 {
+				if _, err := task.Transition(ctx, tx, id, task.WaitingApproval, "OUTCOME_UNKNOWN", "outcome_unknown", "core"); err != nil {
+					return err
+				}
+			}
+			return nil
 		})
 		if err != nil {
 			return err

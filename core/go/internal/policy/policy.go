@@ -66,6 +66,16 @@ var Manifest = map[string]ToolSpec{
 	}},
 }
 
+// RegisterMCPTool adds an owner-declared MCP tool to the trusted manifest at
+// startup (before any task runs). Its tier and side-effect class come from the
+// owner's config, never from the MCP server.
+func RegisterMCPTool(id, sideEffect string, tier Tier) {
+	if !strings.HasPrefix(id, "mcp.") {
+		panic("policy: MCP tool ids start with mcp.")
+	}
+	Manifest[id] = ToolSpec{ID: id, Version: "mcp-1", SideEffect: sideEffect, Tier: func(map[string]any) Tier { return tier }}
+}
+
 // Errors returned to callers; all denials are audited by the caller.
 var (
 	ErrDenied          = errors.New("capability_denied")

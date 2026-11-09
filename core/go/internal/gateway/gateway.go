@@ -80,15 +80,22 @@ var (
 
 // Gateway routes requests by tier.
 type Gateway struct {
-	prov       Provider
+	provs      map[string]Provider
 	routes     map[string][]config.ModelRoute
 	gov        *budget.Governor
 	maxRetries int
 	backoff    func(attempt int) time.Duration
 }
 
+// New creates a gateway whose routes use one provider (the default "openrouter" id).
 func New(p Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
-	return &Gateway{prov: p, routes: routes, gov: gov, maxRetries: 2,
+	return NewMulti(map[string]Provider{"openrouter": p}, routes, gov)
+}
+
+// NewMulti creates a gateway over several providers; each route names its
+// provider (default "openrouter"), so tier fallback can cross providers.
+func NewMulti(provs map[string]Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
+	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2,
 		backoff: func(a int) time.Duration { return time.Duration(500*(1<<a)) * time.Millisecond }}
 }
 
@@ -164,7 +171,7 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 		if err != nil {
 			return nil, err
 		}
-		res := &Result{Content: at.Content, Provider: g.prov.ID(), RouteID: route.RouteID, APIModelID: route.APIModelID,
+		res := &Result{Content: at.Content, Provider: g.provider(route).ID(), RouteID: route.RouteID, APIModelID: route.APIModelID,
 			FinishReason: at.FinishReason}
 		if schema == nil {
 			return res, nil
@@ -197,14 +204,14 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 	req.MaxOutputTokens = maxOut
 	est := Estimate(route, req)
 	for try := 0; ; try++ {
-		res, err := g.gov.Reserve(ctx, budget.Call{TaskID: b.TaskID, StepID: b.StepID, Tier: req.Tier, ProviderID: g.prov.ID(),
+		res, err := g.gov.Reserve(ctx, budget.Call{TaskID: b.TaskID, StepID: b.StepID, Tier: req.Tier, ProviderID: g.provider(route).ID(),
 			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, RootTaskID: b.RootTaskID, RootLimitUSD: b.RootLimitUSD, MaxCalls: b.MaxCalls,
 			Free: route.Free})
 		if err != nil {
 			return nil, err
 		}
 		start := time.Now()
-		at, err := g.prov.Complete(ctx, route, req)
+		at, err := g.provider(route).Complete(ctx, route, req)
 		lat := time.Since(start).Milliseconds()
 		act := budget.Actual{LatencyMs: lat, Outcome: "ok"}
 		if at != nil {
@@ -255,6 +262,25 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			return nil, ctx.Err()
 		}
 	}
+}
+
+// missingProvider fails every call for a route whose provider is not configured.
+type missingProvider string
+
+func (m missingProvider) ID() string { return string(m) }
+func (m missingProvider) Complete(context.Context, config.ModelRoute, Request) (*Attempt, error) {
+	return nil, &ProviderError{Status: 0, Transient: false, Msg: "provider " + string(m) + " is not configured"}
+}
+
+func (g *Gateway) provider(route config.ModelRoute) Provider {
+	id := route.Provider
+	if id == "" {
+		id = "openrouter"
+	}
+	if p, ok := g.provs[id]; ok {
+		return p
+	}
+	return missingProvider(id)
 }
 
 // Estimate is a conservative upper bound: ~3 characters per input token plus

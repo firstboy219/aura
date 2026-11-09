@@ -11,11 +11,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+var identRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // Tiers are the logical model tiers (Blueprint §8.5).
 var Tiers = []string{"fast", "standard", "deep"}
@@ -29,6 +32,8 @@ type TaskBudget struct {
 // ModelRoute is one OpenRouter route for a tier. Display name, provider API
 // model ID and route ID are distinct values (Blueprint §13 model identity).
 type ModelRoute struct {
+	// Provider is "openrouter" (default) or the id of an openai_compatible provider.
+	Provider        string  `yaml:"provider" json:"provider"`
 	DisplayName     string  `yaml:"display_name" json:"display_name"`
 	APIModelID      string  `yaml:"api_model_id" json:"api_model_id"`
 	RouteID         string  `yaml:"route_id" json:"route_id"`
@@ -84,6 +89,14 @@ type Config struct {
 			KeyFile        string `yaml:"key_file" json:"key_file"`
 			TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeout_seconds"`
 		} `yaml:"openrouter" json:"openrouter"`
+		// OpenAICompatible are additional providers (ADR-0021), e.g. a second
+		// vendor's OpenAI-compatible endpoint, used as fallback routes.
+		OpenAICompatible []struct {
+			ID             string `yaml:"id" json:"id"`
+			BaseURL        string `yaml:"base_url" json:"base_url"`
+			KeyFile        string `yaml:"key_file" json:"key_file"`
+			TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeout_seconds"`
+		} `yaml:"openai_compatible" json:"openai_compatible"`
 	} `yaml:"providers" json:"providers"`
 	Models map[string][]ModelRoute `yaml:"models" json:"models"`
 	Tools  struct {
@@ -102,6 +115,27 @@ type Config struct {
 	Approvals struct {
 		TTLSeconds int `yaml:"ttl_seconds" json:"ttl_seconds"`
 	} `yaml:"approvals" json:"approvals"`
+	MCP struct {
+		Servers []MCPServer `yaml:"servers" json:"servers"`
+	} `yaml:"mcp" json:"mcp"`
+}
+
+// MCPServer is an owner-declared MCP server (ADR-0020). Only the tools listed
+// here are exposed, with the tier and side-effect class the owner set.
+type MCPServer struct {
+	Name           string             `yaml:"name" json:"name"`
+	Command        []string           `yaml:"command" json:"command"`
+	Env            map[string]string  `yaml:"env" json:"env"`           // non-secret values only
+	KeyFile        string             `yaml:"key_file" json:"key_file"` // optional secret, passed as KeyEnv
+	KeyEnv         string             `yaml:"key_env" json:"key_env"`
+	TimeoutSeconds int                `yaml:"timeout_seconds" json:"timeout_seconds"`
+	Tools          map[string]MCPTool `yaml:"tools" json:"tools"`
+}
+
+type MCPTool struct {
+	Tier        string `yaml:"tier" json:"tier"`               // A0 | A2 | A3
+	SideEffect  string `yaml:"side_effect" json:"side_effect"` // pure | read | write_idempotent | write_external
+	Description string `yaml:"description" json:"description"` // owner-written; shown to the planner
 }
 
 // Default returns a config with every Blueprint default filled in.
@@ -216,11 +250,24 @@ func (c *Config) Validate() error {
 	if c.Budgets.Global.DailyCostUSD <= 0 {
 		add("budgets.global.daily_cost_usd must be positive")
 	}
+	providers := map[string]bool{"openrouter": true}
+	for i, p := range c.Providers.OpenAICompatible {
+		if !identRe.MatchString(p.ID) || providers[p.ID] {
+			add("providers.openai_compatible[%d]: id must be unique and match %s", i, identRe)
+		}
+		if !strings.HasPrefix(p.BaseURL, "https://") || p.KeyFile == "" {
+			add("providers.openai_compatible[%d]: base_url must be https and key_file is required", i)
+		}
+		providers[p.ID] = true
+	}
 	for tier, routes := range c.Models {
 		if !validTier(tier) {
 			add("models: unknown tier %q", tier)
 		}
 		for i, r := range routes {
+			if r.Provider != "" && !providers[r.Provider] {
+				add("models.%s[%d]: unknown provider %q", tier, i, r.Provider)
+			}
 			if r.RouteID == "" || r.APIModelID == "" || r.DisplayName == "" {
 				add("models.%s[%d]: display_name, api_model_id and route_id are required", tier, i)
 			}
@@ -260,6 +307,38 @@ func (c *Config) Validate() error {
 	}
 	if c.Tools.WebSearch.MaxResults < 1 || c.Tools.WebSearch.MaxResults > 20 {
 		add("tools.web.search.max_results must be 1..20")
+	}
+	names := map[string]bool{}
+	for i, s := range c.MCP.Servers {
+		if !identRe.MatchString(s.Name) || names[s.Name] {
+			add("mcp.servers[%d]: name must be unique and match %s", i, identRe)
+		}
+		names[s.Name] = true
+		if len(s.Command) == 0 {
+			add("mcp.servers[%d]: command is required", i)
+		}
+		if (s.KeyFile == "") != (s.KeyEnv == "") {
+			add("mcp.servers[%d]: key_file and key_env go together", i)
+		}
+		for tn, tl := range s.Tools {
+			if !identRe.MatchString(tn) {
+				add("mcp.servers[%d].tools: bad tool name %q", i, tn)
+			}
+			switch tl.Tier {
+			case "A0", "A2", "A3":
+			default:
+				add("mcp.servers[%d].tools.%s: tier must be A0, A2 or A3 (A1 is unsupported)", i, tn)
+			}
+			switch tl.SideEffect {
+			case "pure", "read", "write_idempotent":
+			case "write_external":
+				if tl.Tier == "A0" {
+					add("mcp.servers[%d].tools.%s: write_external tools need approval (A2) or are forbidden (A3)", i, tn)
+				}
+			default:
+				add("mcp.servers[%d].tools.%s: side_effect must be pure, read, write_idempotent or write_external", i, tn)
+			}
+		}
 	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")

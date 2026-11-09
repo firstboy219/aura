@@ -24,7 +24,9 @@ import (
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/gateway"
+	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/obs"
+	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/tools"
 	"aura.local/core/internal/worker"
@@ -38,8 +40,10 @@ type Options struct {
 	Provider gateway.Provider
 	Guard    *tools.Guard
 	Searcher tools.Searcher // tests; nil = from config
-	Log      *slog.Logger
-	Version  string
+	// ExtraProviders replace or add providers by id (tests).
+	ExtraProviders map[string]gateway.Provider
+	Log            *slog.Logger
+	Version        string
 }
 
 // App is a running Core.
@@ -50,6 +54,7 @@ type App struct {
 	Worker   *worker.Supervisor
 	Governor *budget.Governor
 	API      *api.Server
+	MCP      map[string]*mcp.Client
 	Log      *slog.Logger
 	keyOK    bool
 	srv      *http.Server
@@ -113,7 +118,24 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		log.Warn("no model routes configured; model calls will fail with no_route_for_tier")
 	}
 	a.Governor = budget.New(st, cfg.Budgets.Global.DailyCostUSD)
-	gw := gateway.New(prov, cfg.Models, a.Governor)
+	provs := map[string]gateway.Provider{"openrouter": prov}
+	for _, p := range cfg.Providers.OpenAICompatible {
+		key, err := config.ReadSecret(p.KeyFile)
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		obs.RegisterSecret(key)
+		timeout := time.Duration(p.TimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 120 * time.Second
+		}
+		provs[p.ID] = gateway.NewOpenAICompatible(p.ID, p.BaseURL, key, timeout)
+	}
+	for id, p := range o.ExtraProviders {
+		provs[id] = p
+	}
+	gw := gateway.NewMulti(provs, cfg.Models, a.Governor)
 	ws, err := tools.NewWorkspace(cfg.Workspace.Root)
 	if err != nil {
 		st.Close()
@@ -138,11 +160,17 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			srch = tools.NewBrave(tools.NewGuard(), key)
 		}
 	}
+	clients, docs, err := buildMCP(cfg, log)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	a.MCP = clients
 	a.Worker = worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot,
 		IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log})
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Log: log})
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks}
 	return a, nil
@@ -324,5 +352,38 @@ func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
 	return err
 }
 
-// Close releases the store.
-func (a *App) Close() { a.Store.Close() }
+// Close releases the store and stops MCP servers.
+func (a *App) Close() {
+	for _, c := range a.MCP {
+		c.Close()
+	}
+	a.Store.Close()
+}
+
+// buildMCP starts nothing yet: it registers the owner-declared MCP tools in the
+// trusted manifest and prepares one client per server (started on first use).
+func buildMCP(cfg *config.Config, log *slog.Logger) (map[string]*mcp.Client, map[string]string, error) {
+	clients := map[string]*mcp.Client{}
+	docs := map[string]string{}
+	for _, s := range cfg.MCP.Servers {
+		env := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+		for k, v := range s.Env {
+			env = append(env, k+"="+v)
+		}
+		if s.KeyFile != "" {
+			key, err := config.ReadSecret(s.KeyFile)
+			if err != nil {
+				return nil, nil, err
+			}
+			obs.RegisterSecret(key)
+			env = append(env, s.KeyEnv+"="+key)
+		}
+		clients[s.Name] = mcp.New(s.Name, s.Command, env, time.Duration(s.TimeoutSeconds)*time.Second, log)
+		for name, tl := range s.Tools {
+			id := "mcp." + s.Name + "." + name
+			policy.RegisterMCPTool(id, tl.SideEffect, policy.Tier(tl.Tier))
+			docs[id] = tl.Description
+		}
+	}
+	return clients, docs, nil
+}

@@ -49,7 +49,7 @@ def test_plan_calls_llm_with_schema_and_returns_validated_plan():
     resp = core.run()
     assert resp["result"]["steps"][1]["path"] == "reports/summary.md"
     call = core.seen[0]
-    assert call["method"] == "llm.complete" and call["params"]["response_schema"] == agent.PLAN_SCHEMA
+    assert call["method"] == "llm.complete" and call["params"]["response_schema"] == agent.plan_schema(["web.fetch", "workspace.write"])
     assert call["meta"]["capability_token"] == "x" * 43
 
 

@@ -42,6 +42,7 @@ type plannedStep struct {
 	Until       *string  `json:"until"`
 	Brief       *string  `json:"brief"`
 	Tools       []string `json:"tools"`
+	Input       *string  `json:"input"` // JSON object text: arguments of an MCP tool
 }
 
 type planDoc struct {
@@ -77,6 +78,17 @@ func (e *Engine) runTask(ctx context.Context, t *task.Task) error {
 		}
 	}
 	return e.execute(ctx, cur)
+}
+
+// toolDocs are owner-written descriptions of the task's MCP tools.
+func (e *Engine) toolDocs(t *task.Task) map[string]string {
+	out := map[string]string{}
+	for _, id := range t.Scope.Tools {
+		if d, ok := e.docs[id]; ok {
+			out[id] = d
+		}
+	}
+	return out
 }
 
 // tierFor returns the owner's tier override for a task ("" = cascade policy).
@@ -128,7 +140,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
 		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions && t.ParentTaskID == nil, "tier": tierFor(t),
-		"attachments": t.Scope.Attachments})
+		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t)})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -378,6 +390,13 @@ func requiredArgs(ps *plannedStep) error {
 		if !has(ps.Brief) {
 			return errors.New("brief is required")
 		}
+	default:
+		if strings.HasPrefix(*ps.ToolID, "mcp.") {
+			var m map[string]any
+			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
+				return errors.New("input must be a JSON object with the tool's arguments")
+			}
+		}
 	}
 	return nil
 }
@@ -521,7 +540,7 @@ func (e *Engine) replan(ctx context.Context, t *task.Task, cause map[string]any)
 	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"objective": cur.Objective, "granted_tools": cur.Scope.Tools,
 		"allow_domains": cur.Scope.AllowDomains, "steps": summary, "cause": cause, "next_step_no": next,
 		"completion_criteria": e.criteria(ctx, t.ID), "observations": obs, "owner_context": octx, "tier": tier,
-		"attachments": cur.Scope.Attachments})
+		"attachments": cur.Scope.Attachments, "tool_docs": e.toolDocs(cur)})
 	if s.fatal != nil {
 		return s.fatal
 	}

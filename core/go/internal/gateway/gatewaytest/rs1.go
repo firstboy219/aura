@@ -23,7 +23,7 @@ var (
 // Step builds a planned step with every nullable field present.
 func Step(no int, desc, tool string, args map[string]any) map[string]any {
 	s := map[string]any{"step_no": no, "description": desc, "tool_id": tool, "url": nil, "path": nil, "query": nil,
-		"expression": nil, "key": nil, "until": nil, "brief": nil, "tools": nil}
+		"expression": nil, "key": nil, "until": nil, "brief": nil, "tools": nil, "input": nil}
 	for k, v := range args {
 		s[k] = v
 	}

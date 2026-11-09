@@ -16,17 +16,27 @@ import (
 
 // OpenRouter is the P1 provider adapter. The key lives only here.
 type OpenRouter struct {
+	id      string
+	extras  bool // OpenRouter-only request fields (usage accounting, provider routing, reasoning)
 	baseURL string
 	key     string
 	client  *http.Client
 }
 
 func NewOpenRouter(baseURL, key string, timeout time.Duration) *OpenRouter {
-	return &OpenRouter{baseURL: strings.TrimRight(baseURL, "/"), key: key,
+	return &OpenRouter{id: "openrouter", extras: true, baseURL: strings.TrimRight(baseURL, "/"), key: key,
 		client: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil, ForceAttemptHTTP2: true}}}
 }
 
-func (o *OpenRouter) ID() string { return "openrouter" }
+// NewOpenAICompatible is the same chat-completions adapter for any
+// OpenAI-compatible provider (ADR-0021), without OpenRouter-only fields.
+func NewOpenAICompatible(id, baseURL, key string, timeout time.Duration) *OpenRouter {
+	o := NewOpenRouter(baseURL, key, timeout)
+	o.id, o.extras = id, false
+	return o
+}
+
+func (o *OpenRouter) ID() string { return o.id }
 
 type orRequest struct {
 	Model          string         `json:"model"`
@@ -34,7 +44,7 @@ type orRequest struct {
 	MaxTokens      int            `json:"max_tokens,omitempty"`
 	ResponseFormat any            `json:"response_format,omitempty"`
 	Reasoning      map[string]any `json:"reasoning,omitempty"`
-	Usage          map[string]any `json:"usage"`
+	Usage          map[string]any `json:"usage,omitempty"`
 	Provider       map[string]any `json:"provider,omitempty"`
 }
 
@@ -65,14 +75,18 @@ type orResponse struct {
 
 // Complete performs one chat-completions attempt with native structured output.
 func (o *OpenRouter) Complete(ctx context.Context, route config.ModelRoute, req Request) (*Attempt, error) {
-	body := orRequest{Model: route.RouteID, Messages: req.Messages, MaxTokens: req.MaxOutputTokens,
-		Usage: map[string]any{"include": true}}
+	body := orRequest{Model: route.RouteID, Messages: req.Messages, MaxTokens: req.MaxOutputTokens}
+	if o.extras {
+		body.Usage = map[string]any{"include": true}
+	}
 	if len(req.ResponseSchema) > 0 && route.StructuredOutput != "prompt" {
 		body.ResponseFormat = map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "aura_response", "strict": true, "schema": json.RawMessage(req.ResponseSchema)}}
-		body.Provider = map[string]any{"require_parameters": true}
+		if o.extras {
+			body.Provider = map[string]any{"require_parameters": true}
+		}
 	}
-	if route.ReasoningEffort != "" {
+	if route.ReasoningEffort != "" && o.extras {
 		body.Reasoning = map[string]any{"effort": route.ReasoningEffort, "exclude": true}
 	}
 	b, _ := json.Marshal(body)
@@ -82,7 +96,9 @@ func (o *OpenRouter) Complete(ctx context.Context, route config.ModelRoute, req 
 	}
 	hreq.Header.Set("Authorization", "Bearer "+o.key)
 	hreq.Header.Set("Content-Type", "application/json")
-	hreq.Header.Set("X-Title", "AURA")
+	if o.extras {
+		hreq.Header.Set("X-Title", "AURA")
+	}
 	resp, err := o.client.Do(hreq)
 	if err != nil {
 		if ctx.Err() != nil {

@@ -26,6 +26,8 @@ func VerifyRoutes(models map[string][]config.ModelRoute, catalog map[string]Mode
 			c := RouteCheck{Tier: tier, RouteID: r.RouteID, Health: "ok"}
 			mi, ok := catalog[r.RouteID]
 			switch {
+			case r.Provider != "" && r.Provider != "openrouter":
+				c.Health, c.Detail = "unknown", "not an OpenRouter route; verified by use"
 			case catalog == nil:
 				c.Health, c.Detail = "unknown", "catalog unavailable"
 			case !ok:
@@ -70,9 +72,17 @@ func SyncRegistry(ctx context.Context, st *store.Store, baseURL, keyRef string, 
 				if h == "ok" {
 					verified = now
 				}
+				prov := r.Provider
+				if prov == "" {
+					prov = "openrouter"
+				}
+				if _, err := tx.ExecContext(ctx, `insert or ignore into providers(id, kind, base_url, key_ref, health, updated_at) values(?,?,?,?,?,?)`,
+					prov, "openai_compatible", "", "", "configured", now); err != nil {
+					return err
+				}
 				if _, err := tx.ExecContext(ctx, `insert into model_tiers(tier, priority, provider_id, display_name, api_model_id, route_id,
 					structured_output, price_in_per_mtok, price_out_per_mtok, reasoning_effort, health, verified_at)
-					values(?,?,?,?,?,?,?,?,?,?,?,?)`, tier, i, "openrouter", r.DisplayName, r.APIModelID, r.RouteID,
+					values(?,?,?,?,?,?,?,?,?,?,?,?)`, tier, i, prov, r.DisplayName, r.APIModelID, r.RouteID,
 					boolInt(h == "ok"), r.PriceInPerMTok, r.PriceOutPerMTok, r.ReasoningEffort, h, verified); err != nil {
 					return err
 				}
