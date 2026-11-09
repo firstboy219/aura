@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"aura.local/core/internal/config"
+	"aura.local/core/internal/engine"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/gateway/gatewaytest"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -224,4 +225,57 @@ func TestOpenAPIConformance(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("no events")
+}
+
+func TestStreamTimelineAndFiles(t *testing.T) {
+	e := newEnv(t, 100)
+	h := e.auth()
+	// Seed a task and a workspace file directly through the engine.
+	tk, _, err := e.a.Engine.Submit(context.Background(), engineInput("Write notes/hello.md", map[string]string{"notes/hello.md": "hi there"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, files := e.req("GET", "/api/v1/tasks/"+tk.ID+"/files", "", h)
+	list, _ := files["files"].([]any)
+	if resp.StatusCode != 200 || len(list) != 1 {
+		t.Fatalf("%d %v", resp.StatusCode, files)
+	}
+	r, _ := http.NewRequest("GET", e.srv.URL+"/api/v1/tasks/"+tk.ID+"/files/notes/hello.md", nil)
+	r.Header.Set("Authorization", h["Authorization"])
+	fr, _ := http.DefaultClient.Do(r)
+	body, _ := io.ReadAll(fr.Body)
+	if fr.StatusCode != 200 || string(body) != "hi there" {
+		t.Fatalf("%d %q", fr.StatusCode, body)
+	}
+	for _, bad := range []string{"../../etc/passwd", "%2e%2e/%2e%2e/x"} {
+		r, _ := http.NewRequest("GET", e.srv.URL+"/api/v1/tasks/"+tk.ID+"/files/"+bad, nil)
+		r.Header.Set("Authorization", h["Authorization"])
+		br, _ := http.DefaultClient.Do(r)
+		if br.StatusCode == 200 {
+			t.Fatalf("path %q served", bad)
+		}
+	}
+	resp, tl := e.req("GET", "/api/v1/tasks/"+tk.ID+"/timeline", "", h)
+	if resp.StatusCode != 200 || tl["spend"] == nil || tl["task"] == nil {
+		t.Fatalf("%d %v", resp.StatusCode, tl)
+	}
+	// Stream from the beginning: the task's events arrive as SSE.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sr, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+"/api/v1/stream?task_id="+tk.ID+"&after=0", nil)
+	sr.Header.Set("Authorization", h["Authorization"])
+	sresp, err := http.DefaultClient.Do(sr)
+	if err != nil || sresp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("%v %v", err, sresp.Header)
+	}
+	buf := make([]byte, 4096)
+	n, _ := sresp.Body.Read(buf)
+	if !strings.Contains(string(buf[:n]), "event: TASK_CREATED") {
+		t.Fatalf("stream: %q", buf[:n])
+	}
+	cancel()
+}
+
+func engineInput(obj string, files map[string]string) engine.CreateInput {
+	return engine.CreateInput{Objective: obj, Attachments: files, AllowDomains: []string{"example.com"}}
 }

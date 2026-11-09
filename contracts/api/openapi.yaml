@@ -92,6 +92,30 @@ paths:
       parameters: [ { $ref: '#/components/parameters/TaskId' } ]
       responses:
         '200': { description: Task with subagents and rolled-up cost, content: { application/json: { schema: { $ref: '#/components/schemas/TreeNode' } } } }
+  /tasks/{id}/timeline:
+    get:
+      operationId: getTimeline
+      description: Activity timeline derived from Core events (completed steps, current state, wait reason, next step, blockers, spend, pending owner decisions).
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      responses: { '200': { description: Timeline, content: { application/json: { schema: { type: object } } } } }
+  /tasks/{id}/files:
+    get:
+      operationId: listFiles
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      responses: { '200': { description: Workspace files, content: { application/json: { schema: { type: object, properties: { files: { type: array, items: { type: object, properties: { path: { type: string }, bytes: { type: integer } } } } } } } } } }
+  /tasks/{id}/files/{path}:
+    get:
+      operationId: readFile
+      parameters: [ { $ref: '#/components/parameters/TaskId' }, { name: path, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: File content, content: { text/plain: { schema: { type: string } } } }, '400': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } }
+  /stream:
+    get:
+      operationId: stream
+      description: Server-Sent Events of task events in ULID order; resume with Last-Event-ID or ?after=; optional task_id filter.
+      parameters:
+        - { name: task_id, in: query, schema: { type: string } }
+        - { name: after, in: query, schema: { type: string } }
+      responses: { '200': { description: text/event-stream, content: { text/event-stream: { schema: { type: string } } } } }
   /events:
     post:
       operationId: postExternalEvent

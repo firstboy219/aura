@@ -22,11 +22,14 @@ import (
 	"time"
 
 	"aura.local/core/internal/app"
+	apiclient "aura.local/core/internal/client"
 	"aura.local/core/internal/config"
+	"aura.local/core/internal/console"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/rpc"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/worker"
+	tea "github.com/charmbracelet/bubbletea"
 	_ "modernc.org/sqlite"
 )
 
@@ -41,6 +44,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `usage: aura <command> [flags]
 
   serve                         run the Core
+  console                       interactive terminal console (80×24 is enough)
   doctor                        check config, secrets, database, worker and provider
   version                       print version
   task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public] [--tier T] [--attach ws/path=file]...
@@ -76,6 +80,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = serve(args[1:])
 	case "doctor":
 		return doctor(stdout)
+	case "console":
+		err = runConsole()
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
@@ -648,4 +654,14 @@ func printTree(w io.Writer, n treeJSON, depth int) {
 	for _, c := range n.Children {
 		printTree(w, c, depth+1)
 	}
+}
+
+func runConsole() error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	base := strings.TrimSuffix(c.base, "/api/v1")
+	_, err = tea.NewProgram(console.New(apiclient.New(base, c.token)), tea.WithAltScreen()).Run()
+	return err
 }

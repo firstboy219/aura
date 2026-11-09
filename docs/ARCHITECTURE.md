@@ -56,6 +56,7 @@ provider JSON-schema response format; invalid output → one repair attempt → 
 | gopkg.in/yaml.v3 | config | MIT / Apache-2.0 |
 | github.com/oklog/ulid/v2 | IDs | Apache-2.0 |
 | github.com/santhosh-tekuri/jsonschema/v6 | structured-output and contract validation (ADR-0015 amendment) | Apache-2.0 |
+| github.com/charmbracelet/bubbletea, lipgloss, bubbles (+ deps) | Console TUI (ADR-0022) | MIT |
 | Python: none at runtime; dev: pytest (MIT), ruff (MIT), jsonschema (MIT) | | |
 
 ## 7. Isolation from Jarvis
