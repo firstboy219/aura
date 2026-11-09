@@ -59,8 +59,9 @@ type Call struct {
 	// the root's budget, ADR-0019). Empty RootTaskID = no tree check.
 	RootTaskID   string
 	RootLimitUSD float64
-	MaxCalls     int  // per-task provider-call limit (max_iterations); 0 = none
-	Free         bool // zero-price route: a 0 estimate is allowed
+	MaxCalls     int    // per-task provider-call limit (max_iterations); 0 = none
+	Purpose      string // what the call is for (self-model, shadow routing)
+	Free         bool   // zero-price route: a 0 estimate is allowed
 }
 
 // dayStart is the start of the current UTC day in unix ms (daily budget window).
@@ -111,9 +112,9 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 			return ErrDailyBudget
 		}
 		if _, err := tx.ExecContext(ctx, `insert into usage_records(id, task_id, step_id, tier, provider_id, api_model_id, route_id,
-			cost_estimated_usd, cost_reserved_usd, outcome, created_at) values(?,?,?,?,?,?,?,?,?,?,?)`,
+			cost_estimated_usd, cost_reserved_usd, outcome, purpose, created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)`,
 			r.UsageID, c.TaskID, nullable(c.StepID), c.Tier, c.ProviderID, c.APIModelID, c.Route, c.EstimateUSD, c.EstimateUSD,
-			"reserved", ids.NowMs()); err != nil {
+			"reserved", nullable(c.Purpose), ids.NowMs()); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, "update tasks set cost_reserved_usd = cost_reserved_usd + ? where id=?", c.EstimateUSD, c.TaskID)
@@ -155,6 +156,16 @@ func (g *Governor) Reconcile(ctx context.Context, r *Reservation, taskID string,
 		}
 		_, err := tx.ExecContext(ctx, `update tasks set cost_reserved_usd = max(0, cost_reserved_usd - ?),
 			cost_actual_usd = cost_actual_usd + ? where id=?`, r.Amount, actual, taskID)
+		return err
+	})
+}
+
+// MarkOutcome overrides a reconciled call's outcome (e.g. invalid_output when
+// the provider answered but the content failed schema validation).
+func (g *Governor) MarkOutcome(ctx context.Context, usageID, outcome string) error {
+	ctx = context.WithoutCancel(ctx)
+	return g.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "update usage_records set outcome=? where id=?", outcome, usageID)
 		return err
 	})
 }

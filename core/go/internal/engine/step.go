@@ -310,6 +310,7 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 	}
 	res, err := e.gw.Complete(ctx, gateway.Budget{TaskID: s.t.ID, StepID: stepID(s), TaskLimitUSD: s.t.Budget.MaxCostUSD,
 		RootTaskID: s.t.RootTaskID, RootLimitUSD: rootLimit, MaxCalls: s.t.Budget.MaxIterations}, p)
+	e.recordShadow(ctx, p.Purpose, p.Tier)
 	if err != nil {
 		switch {
 		case errors.Is(err, budget.ErrTaskBudget), errors.Is(err, budget.ErrDailyBudget), errors.Is(err, budget.ErrIterations):
@@ -329,7 +330,7 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 	}
 	e.st.Write(ctx, func(tx *sql.Tx) error {
 		_, err := task.AppendEvent(ctx, tx, s.t.ID, ptr(stepID(s)), "MODEL_CALLED", "core", map[string]any{
-			"tier": p.Tier, "route_id": res.RouteID, "structured": len(res.Structured) > 0})
+			"tier": p.Tier, "route_id": res.RouteID, "structured": len(res.Structured) > 0, "purpose": p.Purpose})
 		return err
 	})
 	return res, nil

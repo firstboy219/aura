@@ -29,6 +29,9 @@ type Request struct {
 	Messages        []Message       `json:"messages"`
 	ResponseSchema  json.RawMessage `json:"response_schema,omitempty"`
 	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+	// Purpose labels the call (plan, review, verify, write, replan, pick_url,
+	// calc, reflect) for the self-model and shadow routing (ADR-0027).
+	Purpose string `json:"purpose,omitempty"`
 	// DataClass is set by the Core from the task ("public" or "private"); the
 	// worker cannot set it. Routes that may log prompts serve public tasks only.
 	DataClass string `json:"-"`
@@ -54,6 +57,7 @@ type Attempt struct {
 	ReasoningTokens int
 	CostUSD         *float64
 	CacheHit        bool
+	usageID         string // set by the gateway after accounting
 }
 
 // Provider is one adapter (OpenRouter in P1). It performs exactly one attempt.
@@ -181,6 +185,7 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 			res.Structured = structured
 			return res, nil
 		}
+		g.gov.MarkOutcome(ctx, at.usageID, "invalid_output")
 		if repair == 1 {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidOutput, truncate(verr.Error(), 300))
 		}
@@ -206,7 +211,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 	for try := 0; ; try++ {
 		res, err := g.gov.Reserve(ctx, budget.Call{TaskID: b.TaskID, StepID: b.StepID, Tier: req.Tier, ProviderID: g.provider(route).ID(),
 			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, RootTaskID: b.RootTaskID, RootLimitUSD: b.RootLimitUSD, MaxCalls: b.MaxCalls,
-			Free: route.Free})
+			Free: route.Free, Purpose: req.Purpose})
 		if err != nil {
 			return nil, err
 		}
@@ -240,6 +245,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			return nil, rerr
 		}
 		if err == nil {
+			at.usageID = res.UsageID
 			return at, nil
 		}
 		if ctx.Err() != nil {

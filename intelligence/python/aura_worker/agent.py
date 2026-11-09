@@ -284,9 +284,10 @@ def tool_docs(granted: list[str], domains: list[str], extra: dict | None = None)
     return "\n".join(lines)
 
 
-def complete(ch: Channel, tier: str, system: str, user: str, schema: dict, max_tokens: int) -> dict:
+def complete(ch: Channel, tier: str, system: str, user: str, schema: dict, max_tokens: int, purpose: str = "") -> dict:
     res = ch.call("llm.complete", {
         "tier": tier,
+        "purpose": purpose,
         "messages": [{"role": "system", "content": sys_prompt(system)}, {"role": "user", "content": user}],
         "response_schema": schema,
         "max_output_tokens": max_tokens,
@@ -294,13 +295,13 @@ def complete(ch: Channel, tier: str, system: str, user: str, schema: dict, max_t
     return res.get("structured") or {}
 
 
-def cascade(ch: Channel, override: str, system: str, user: str, schema: dict, max_tokens: int, ok) -> dict:
+def cascade(ch: Channel, override: str, system: str, user: str, schema: dict, max_tokens: int, ok, purpose: str = "") -> dict:
     """Fast tier first; escalate to standard when the answer is unusable (ADR-0016)."""
     tiers = [override] if override else ["fast", "standard"]
     last: dict = {}
     for i, tier in enumerate(tiers):
         try:
-            last = complete(ch, tier, system, user, schema, max_tokens)
+            last = complete(ch, tier, system, user, schema, max_tokens, purpose)
         except RpcError as e:
             escalate = e.reason == "invalid_model_output" or e.reason.startswith(("no_route_for_tier", "all_routes_failed"))
             if not escalate or i == len(tiers) - 1:
@@ -380,7 +381,7 @@ def plan(ch: Channel, params: dict) -> dict:
     tier = params.get("tier") or "standard"
     for attempt in range(2):
         res = ch.call("llm.complete", {"tier": tier, "messages": messages, "response_schema": plan_schema(granted),
-                                       "max_output_tokens": 3000})
+                                       "max_output_tokens": 3000, "purpose": "plan"})
         out = res.get("structured") or {}
         question = (out.get("question") or "").strip()
         if question and may_ask and not out.get("steps"):
@@ -407,7 +408,7 @@ def review(ch: Channel, params: dict) -> dict:
     plan_doc = params.get("plan") or {}
     user = f"Objective:\n{params.get('objective', '')}\n\nPlan:\n{json.dumps(plan_doc.get('steps', []), ensure_ascii=False)}"
     out = cascade(ch, params.get("tier") or "", REVIEW_SYSTEM, user, REVIEW_SCHEMA, 3000,
-                  ok=lambda r: isinstance(r.get("ok"), bool))
+                  ok=lambda r: isinstance(r.get("ok"), bool), purpose="review")
     revised = None
     if out.get("ok") is False and out.get("revised_steps"):
         try:
@@ -431,7 +432,7 @@ def replan(ch: Channel, params: dict) -> dict:
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
         user += f"\n\nWhat the owner has told you:\n{owner}"
-    out = complete(ch, params.get("tier") or "standard", system, user, plan_schema(granted), 3000)
+    out = complete(ch, params.get("tier") or "standard", system, user, plan_schema(granted), 3000, "replan")
     steps = validate_steps(out.get("steps") or [], granted, start)
     written = {s["path"] for s in steps if s["tool_id"] == "workspace.write"}
     inputs = input_paths(steps + list(params.get("steps", [])), params.get("attachments"))
@@ -454,7 +455,7 @@ def verify(ch: Channel, params: dict) -> dict:
         items = r.get("criteria") or []
         return len(items) == len(criteria) and all(not it.get("met") or len(str(it.get("evidence_quote", "")).split()) >= 3
                                                    for it in items)
-    out = cascade(ch, params.get("tier") or "", VERIFIER_SYSTEM, user, VERIFY_SCHEMA, 2000, ok=usable)
+    out = cascade(ch, params.get("tier") or "", VERIFIER_SYSTEM, user, VERIFY_SCHEMA, 2000, ok=usable, purpose="verify")
     return {"criteria": [{"criterion": str(c.get("criterion", "")), "met": bool(c.get("met")),
                           "evidence_quote": str(c.get("evidence_quote", ""))[:500]} for c in (out.get("criteria") or [])]}
 
@@ -485,7 +486,7 @@ def step(ch: Channel, params: dict) -> dict:
         if not url:
             user = (f"Objective:\n{params.get('objective', '')}\n\nThis step: {s.get('description', '')}\n\n"
                     f"Observations:\n{render_observations(observations)}")
-            url = complete(ch, tier or "fast", PICK_URL_SYSTEM, user, URL_SCHEMA, 300).get("url")
+            url = complete(ch, tier or "fast", PICK_URL_SYSTEM, user, URL_SCHEMA, 300, "pick_url").get("url")
             if not url:
                 raise StepFailure("no URL chosen for a dynamic fetch", "invalid_model_output")
         return _result(_invoke(ch, tool, {"url": url}))
@@ -497,7 +498,7 @@ def step(ch: Channel, params: dict) -> dict:
         expression = s.get("expression")
         if not expression:
             user = (f"This step: {s.get('description', '')}\n\nObservations:\n{render_observations(observations)}")
-            expression = complete(ch, tier or "fast", CALC_SYSTEM, user, EXPR_SCHEMA, 300).get("expression")
+            expression = complete(ch, tier or "fast", CALC_SYSTEM, user, EXPR_SCHEMA, 300, "calc").get("expression")
             if not expression:
                 raise StepFailure("no expression produced for a calc step", "invalid_model_output")
         return _result(_invoke(ch, tool, {"expression": expression}))
@@ -517,7 +518,7 @@ def step(ch: Channel, params: dict) -> dict:
         if owner:
             user += f"\n\nWhat the owner has told you:\n{owner}"
         user += render_profile(params.get("profile"))
-        content = complete(ch, tier or "standard", WRITER_SYSTEM, user, CONTENT_SCHEMA, 6000).get("content")
+        content = complete(ch, tier or "standard", WRITER_SYSTEM, user, CONTENT_SCHEMA, 6000, "write").get("content")
         if not isinstance(content, str) or not content.strip():
             raise StepFailure("model returned empty content", "invalid_model_output")
         return _result(_invoke(ch, tool, {"path": s.get("path"), "content": content}))
@@ -561,7 +562,7 @@ def reflect(ch: Channel, params: dict) -> dict:
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
         user += f"\n\nWhat the owner told the task:\n{owner}"
-    out = complete(ch, params.get("tier") or "fast", REFLECT_SYSTEM, user, REFLECT_SCHEMA, 2000)
+    out = complete(ch, params.get("tier") or "fast", REFLECT_SYSTEM, user, REFLECT_SCHEMA, 2000, "reflect")
     skill = out.get("skill")
     if skill and skill.get("steps"):
         for i, s in enumerate(skill["steps"], start=1):

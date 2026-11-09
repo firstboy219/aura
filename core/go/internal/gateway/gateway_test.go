@@ -349,3 +349,18 @@ func TestSecondProviderFallback(t *testing.T) {
 		t.Fatalf("usage not attributed: %s %v", prov, cost)
 	}
 }
+
+func TestInvalidOutputMarkedInUsage(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Content: `nope`}, {Content: `{"answer":"x"}`}}}
+	g, s, id := setup(t, f)
+	r := req()
+	r.Purpose = "verify"
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, r); err != nil {
+		t.Fatal(err)
+	}
+	var invalid, ok int
+	s.R.QueryRow("select sum(outcome='invalid_output'), sum(outcome='ok') from usage_records where purpose='verify'").Scan(&invalid, &ok)
+	if invalid != 1 || ok != 1 {
+		t.Fatalf("invalid=%d ok=%d", invalid, ok)
+	}
+}

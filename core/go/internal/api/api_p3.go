@@ -173,3 +173,30 @@ func (s *Server) profileAction(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, p)
 }
+
+func (s *Server) selfModel(w http.ResponseWriter, r *http.Request) {
+	m, err := s.Engine.SelfModel(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
+
+func (s *Server) scorecard(w http.ResponseWriter, r *http.Request) {
+	m, err := s.Engine.Scorecard(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
+
+func (s *Server) shadow(w http.ResponseWriter, r *http.Request) {
+	m, err := s.Engine.ShadowReport(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
