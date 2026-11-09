@@ -75,6 +75,8 @@ type Scope struct {
 	// DataClass is "private" (default) or "public". Only public tasks may use
 	// model routes that may log prompts (e.g. free endpoints).
 	DataClass string `json:"data_class"`
+	// Attachments are owner-provided input files written into the task workspace at creation.
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 // IsPublic reports whether the task's content may go to prompt-logging routes.

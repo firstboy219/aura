@@ -40,6 +40,7 @@ type Engine struct {
 	sup   *worker.Supervisor
 	fetch *tools.Fetcher
 	ws    *tools.Workspace
+	srch  tools.Searcher // nil: web.search unavailable
 	log   *slog.Logger
 	runID string
 
@@ -59,6 +60,7 @@ type Deps struct {
 	Worker    *worker.Supervisor
 	Fetcher   *tools.Fetcher
 	Workspace *tools.Workspace
+	Searcher  tools.Searcher
 	Log       *slog.Logger
 }
 
@@ -67,7 +69,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.
@@ -342,9 +344,15 @@ var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_
 
 // ExpectedOutputs lists the workspace files an objective explicitly asks for.
 // A task that does not produce them is not complete, whatever its plan said.
-func ExpectedOutputs(objective string) []string {
+// Paths in inputs (attachments, files the plan only reads) are not outputs.
+func ExpectedOutputs(objective string, inputs ...map[string]bool) []string {
 	var out []string
 	seen := map[string]bool{}
+	for _, in := range inputs {
+		for k := range in {
+			seen[k] = true
+		}
+	}
 	for _, m := range outputRe.FindAllStringSubmatch(objective, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true

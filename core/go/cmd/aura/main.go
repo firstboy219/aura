@@ -43,7 +43,7 @@ func usage(w io.Writer) {
   serve                         run the Core
   doctor                        check config, secrets, database, worker and provider
   version                       print version
-  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public] [--tier T]
+  task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public] [--tier T] [--attach ws/path=file]...
   task list [--state S] | show <id> | cancel <id> | pause <id> | resume <id>
   trace <id> [--follow]         print a task's event log
   approve <approval-id> [--yes] show the full action and approve its exact hash
@@ -348,6 +348,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			idem := fs.String("idempotency-key", "", "Idempotency-Key header")
 			public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
 			tier := fs.String("tier", "", "force a model tier for the whole task: fast | standard | deep")
+			var attach multiFlag
+			fs.Var(&attach, "attach", "input file: workspace/path=local-file (repeatable)")
 			pos, err := parse(fs, rest)
 			if err != nil {
 				return err
@@ -361,6 +363,21 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			}
 			if *tier != "" {
 				body["tier"] = *tier
+			}
+			if len(attach) > 0 {
+				files := map[string]string{}
+				for _, a := range attach {
+					dst, src, ok := strings.Cut(a, "=")
+					if !ok {
+						return usageErr("--attach needs workspace/path=local-file")
+					}
+					b, err := os.ReadFile(src)
+					if err != nil {
+						return err
+					}
+					files[dst] = string(b)
+				}
+				body["attachments"] = files
 			}
 			if *maxCost > 0 {
 				body["budget"] = map[string]any{"max_cost_usd": *maxCost}

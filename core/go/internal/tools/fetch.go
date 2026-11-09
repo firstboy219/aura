@@ -29,6 +29,9 @@ type FetchResult struct {
 	SHA256      string `json:"sha256"`
 	Title       string `json:"title"`
 	Text        string `json:"text"`
+	// Links are absolute http(s) links found on the page (provenance for
+	// dynamic fetches, ADR-0017). Untrusted.
+	Links []string `json:"links"`
 }
 
 // Fetcher implements web.fetch.
@@ -102,6 +105,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, allow []string) (*Fetch
 		Bytes: len(body), SHA256: hex.EncodeToString(sum[:])}
 	if ct == "text/html" || ct == "application/xhtml+xml" {
 		res.Title, res.Text = HTMLToText(string(body))
+		res.Links = ExtractLinks(string(body), resp.Request.URL)
 	} else {
 		res.Text = string(body)
 	}
@@ -134,4 +138,32 @@ func HTMLToText(s string) (title, text string) {
 	s = reSpace.ReplaceAllString(s, " ")
 	s = reLines.ReplaceAllString(s, "\n\n")
 	return title, strings.TrimSpace(s)
+}
+
+var reHref = regexp.MustCompile(`(?i)<a\s[^>]*href\s*=\s*["']([^"'#][^"']*)["']`)
+
+// maxLinks bounds the provenance recorded per page.
+const maxLinks = 200
+
+// ExtractLinks returns absolute http(s) links from a page, fragments removed,
+// de-duplicated, at most maxLinks.
+func ExtractLinks(page string, base *url.URL) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range reHref.FindAllStringSubmatch(page, -1) {
+		u, err := base.Parse(html.UnescapeString(strings.TrimSpace(m[1])))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
+			continue
+		}
+		u.Fragment = ""
+		s := u.String()
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+			if len(out) >= maxLinks {
+				break
+			}
+		}
+	}
+	return out
 }

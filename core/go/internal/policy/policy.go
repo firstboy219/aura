@@ -47,6 +47,9 @@ const PublishedPrefix = "published/"
 // Manifest is the Phase 1 trusted tool manifest (E.2 item 7).
 var Manifest = map[string]ToolSpec{
 	"web.fetch":      {ID: "web.fetch", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"web.search":     {ID: "web.search", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"data.read":      {ID: "data.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"calc":           {ID: "calc", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.read": {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.write": {ID: "workspace.write", Version: "1", SideEffect: "write_idempotent", Tier: func(a map[string]any) Tier {
 		p, _ := a["path"].(string)

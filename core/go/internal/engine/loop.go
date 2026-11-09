@@ -127,7 +127,8 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	e.st.R.QueryRowContext(ctx, "select count(*) from task_inputs where task_id=?", t.ID).Scan(&asked)
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
-		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions, "tier": tierFor(t)})
+		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions, "tier": tierFor(t),
+		"attachments": t.Scope.Attachments})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -318,13 +319,35 @@ func (e *Engine) validatePlan(t *task.Task, p *planDoc, startNo int, alreadyWrit
 				written[*ps.Path] = true
 			}
 		}
-		for _, want := range ExpectedOutputs(t.Objective) {
-			if !written[want] {
+		inputs := inputPaths(t, p.Steps)
+		for _, want := range ExpectedOutputs(t.Objective, inputs) {
+			if !written[want] && !inputs[want] {
 				return nil, fmt.Errorf("invalid_plan: the plan never writes %s, which the objective asks for", want)
 			}
 		}
 	}
 	return out, nil
+}
+
+// inputPaths are files the task reads rather than produces: attachments and
+// paths of read steps that no step writes.
+func inputPaths(t *task.Task, steps []plannedStep) map[string]bool {
+	in := map[string]bool{}
+	for _, a := range t.Scope.Attachments {
+		in[a] = true
+	}
+	writes := map[string]bool{}
+	for _, s := range steps {
+		if s.ToolID != nil && s.Path != nil && *s.ToolID == "workspace.write" {
+			writes[*s.Path] = true
+		}
+	}
+	for _, s := range steps {
+		if s.ToolID != nil && s.Path != nil && (*s.ToolID == "workspace.read" || *s.ToolID == "data.read") && !writes[*s.Path] {
+			in[*s.Path] = true
+		}
+	}
+	return in
 }
 
 // requiredArgs checks that each tool's planning-time arguments are present.
@@ -342,9 +365,7 @@ func requiredArgs(ps *plannedStep) error {
 			return errors.New("query is required")
 		}
 	case "calc":
-		if !has(ps.Expression) {
-			return errors.New("expression is required")
-		}
+		// expression may be null: built at step time from earlier results (calc is pure)
 	case "wait.event":
 		if !has(ps.Key) {
 			return errors.New("key is required")
@@ -492,7 +513,8 @@ func (e *Engine) replan(ctx context.Context, t *task.Task, cause map[string]any)
 	obs, _ := e.observations(ctx, cur, next)
 	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"objective": cur.Objective, "granted_tools": cur.Scope.Tools,
 		"allow_domains": cur.Scope.AllowDomains, "steps": summary, "cause": cause, "next_step_no": next,
-		"completion_criteria": e.criteria(ctx, t.ID), "observations": obs, "owner_context": octx, "tier": tier})
+		"completion_criteria": e.criteria(ctx, t.ID), "observations": obs, "owner_context": octx, "tier": tier,
+		"attachments": cur.Scope.Attachments})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -556,7 +578,12 @@ func (e *Engine) finalize(ctx context.Context, taskID string) (bool, error) {
 		return e.retryOrFail(ctx, t, "completion_check_failed", map[string]any{"kind": "completion_check_failed", "problems": problems})
 	}
 	criteria := e.criteria(ctx, taskID)
-	if len(criteria) > 0 {
+	if len(criteria) == 0 {
+		e.st.Write(ctx, func(tx *sql.Tx) error {
+			_, err := task.AppendEvent(ctx, tx, taskID, nil, "VERIFICATION_SKIPPED", "core", map[string]any{"reason": "plan has no completion criteria; deterministic checks only"})
+			return err
+		})
+	} else {
 		failures, err := e.verify(ctx, t, criteria, evidence)
 		if err != nil {
 			return true, err
@@ -616,8 +643,14 @@ func (e *Engine) deterministicChecks(ctx context.Context, t *task.Task) ([]strin
 	}
 	var problems []string
 	evidence := []evidenceItem{}
+	var planned []plannedStep
+	for _, s := range steps {
+		if ps, err := stepPlan(s); err == nil {
+			planned = append(planned, *ps)
+		}
+	}
 	if (policy.Scopes{Tools: t.Scope.Tools}).HasTool("workspace.write") {
-		for _, want := range ExpectedOutputs(t.Objective) {
+		for _, want := range ExpectedOutputs(t.Objective, inputPaths(t, planned)) {
 			if h, err := e.ws.FileHash(t.ID, want); err != nil || h == "" {
 				problems = append(problems, fmt.Sprintf("%s named in the objective was not produced", want))
 			}

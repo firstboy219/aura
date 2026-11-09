@@ -61,5 +61,7 @@ models:
         reasoning_effort: high, price_in_per_mtok: 5.00, price_out_per_mtok: 25.00, max_output_tokens: 8000 }
 tools:
   web.fetch: { allow_domains: [], max_bytes: 2000000, timeout_seconds: 20 }
+  # Search results can only be fetched if their domain is in the task's allow_domains (e.g. "*.wikipedia.org").
+  web.search: { provider: wikipedia, wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800

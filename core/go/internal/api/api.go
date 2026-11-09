@@ -193,6 +193,7 @@ type Task struct {
 	Tools        []string    `json:"tools"`
 	AllowDomains []string    `json:"allow_domains"`
 	DataClass    string      `json:"data_class"`
+	Attachments  []string    `json:"attachments,omitempty"`
 	Priority     int         `json:"priority"`
 	Replans      int         `json:"replans"`
 	Tier         *string     `json:"tier"`
@@ -206,17 +207,18 @@ func ts(ms int64) string { return time.UnixMilli(ms).UTC().Format(time.RFC3339Na
 func toAPI(t *task.Task) Task {
 	return Task{ID: t.ID, State: t.State, Reason: t.Reason, WaitReason: t.WaitReason, Objective: t.Objective,
 		ParentTaskID: t.ParentTaskID, RootTaskID: t.RootTaskID, AgentRole: t.AgentRole, Depth: t.Depth,
-		CostUSD: t.CostUSD + t.CostReservedUSD, Budget: t.Budget, Tools: t.Scope.Tools, AllowDomains: t.Scope.AllowDomains, DataClass: t.Scope.DataClass,
+		CostUSD: t.CostUSD + t.CostReservedUSD, Budget: t.Budget, Tools: t.Scope.Tools, AllowDomains: t.Scope.AllowDomains, DataClass: t.Scope.DataClass, Attachments: t.Scope.Attachments,
 		Priority: t.Priority, Replans: t.Replans, Tier: t.TierOverride,
 		CreatedAt: ts(t.CreatedAt), UpdatedAt: ts(t.UpdatedAt)}
 }
 
 type createReq struct {
-	Objective    string   `json:"objective"`
-	Tools        []string `json:"tools"`
-	AllowDomains []string `json:"allow_domains"`
-	DataClass    string   `json:"data_class"`
-	Tier         string   `json:"tier"`
+	Objective    string            `json:"objective"`
+	Tools        []string          `json:"tools"`
+	AllowDomains []string          `json:"allow_domains"`
+	DataClass    string            `json:"data_class"`
+	Tier         string            `json:"tier"`
+	Attachments  map[string]string `json:"attachments"`
 	Budget       *struct {
 		MaxCostUSD     float64 `json:"max_cost_usd"`
 		MaxIterations  int     `json:"max_iterations"`
@@ -236,7 +238,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		s.mapErr(w, r, err)
 		return
 	}
-	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier,
+	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Attachments: in.Attachments,
 		IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}

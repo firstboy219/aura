@@ -417,14 +417,56 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 		if strictDecode(c.Arguments, &a) != nil || a.URL == "" {
 			return nil, "", "invalid_arguments"
 		}
-		if s.plan == nil || s.plan.URL == nil || *s.plan.URL != a.URL {
+		if s.plan == nil {
 			return nil, "", "arguments_differ_from_plan"
+		}
+		if s.plan.URL != nil && *s.plan.URL != "" {
+			if *s.plan.URL != a.URL {
+				return nil, "", "arguments_differ_from_plan"
+			}
+		} else if !e.hasProvenance(s.t.ID, a.URL) {
+			// A URL chosen at step time must have been recorded by the Core earlier in
+			// this task (search result or page link), exactly (ADR-0017).
+			return nil, "", "argument_without_provenance"
 		}
 		u, err := url.Parse(a.URL)
 		if err != nil || tools.CheckURL(u, g.Scopes.AllowDomains) != nil {
 			return nil, "", "domain_not_allowed"
 		}
 		return map[string]any{"url": a.URL}, a.URL, ""
+	case "web.search":
+		var a struct {
+			Query string `json:"query"`
+		}
+		if strictDecode(c.Arguments, &a) != nil || strings.TrimSpace(a.Query) == "" || len(a.Query) > 300 {
+			return nil, "", "invalid_arguments"
+		}
+		if s.plan == nil || s.plan.Query == nil || *s.plan.Query != a.Query {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		return map[string]any{"query": a.Query}, a.Query, ""
+	case "data.read":
+		var a readArgs
+		if strictDecode(c.Arguments, &a) != nil {
+			return nil, "", "invalid_arguments"
+		}
+		if s.plan == nil || s.plan.Path == nil || *s.plan.Path != a.Path {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		p, err := tools.CleanPath(a.Path)
+		if err != nil {
+			return nil, "", "bad_path"
+		}
+		return map[string]any{"path": p}, p, ""
+	case "calc":
+		var a struct {
+			Expression string `json:"expression"`
+		}
+		if strictDecode(c.Arguments, &a) != nil || strings.TrimSpace(a.Expression) == "" {
+			return nil, "", "invalid_arguments"
+		}
+		// calc is pure (no I/O, no side effect), so a step-time expression is allowed.
+		return map[string]any{"expression": a.Expression}, "calc", ""
 	case "workspace.read":
 		var a readArgs
 		if strictDecode(c.Arguments, &a) != nil {
@@ -458,10 +500,37 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	return nil, "", "unknown_tool"
 }
 
+// hasProvenance reports whether url was recorded by the Core in this task as a
+// search result or a page link.
+func (e *Engine) hasProvenance(taskID, u string) bool {
+	rows, err := e.st.R.Query("select state_json from checkpoints where task_id=? and label='links'", taskID)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		rows.Scan(&raw)
+		var l struct {
+			URLs []string `json:"urls"`
+		}
+		if json.Unmarshal([]byte(raw), &l) == nil {
+			for _, x := range l.URLs {
+				if x == u {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // execute0 runs an authorized A0 (or approved) tool call and records its
 // outcome on the step. Writes are preceded by a durable intent (§8.1).
 func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
 	switch spec.ID {
+	case "web.search", "data.read", "calc":
+		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":
 		e.st.Write(ctx, func(tx *sql.Tx) error {
 			_, err := task.AppendEvent(ctx, tx, t.ID, &st.ID, "TOOL_STARTED", "core", map[string]any{"tool_id": spec.ID,
@@ -471,6 +540,7 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 		var rec obsRecord
 		var summary map[string]any
 		var hash string
+		var links []string
 		if spec.ID == "web.fetch" {
 			res, err := e.fetch.Fetch(ctx, args["url"].(string), t.Scope.AllowDomains)
 			if err == nil && res.Status >= 400 {
@@ -486,8 +556,10 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 				content = "Title: " + res.Title + "\n\n" + content
 			}
 			rec = obsRecord{Source: res.FinalURL, Content: truncate(content, maxObservationChars)}
-			summary = map[string]any{"final_url": res.FinalURL, "status": res.Status, "bytes": res.Bytes, "sha256": res.SHA256, "title": res.Title}
+			summary = map[string]any{"final_url": res.FinalURL, "status": res.Status, "bytes": res.Bytes, "sha256": res.SHA256, "title": res.Title,
+				"links": len(res.Links)}
 			hash = res.SHA256
+			links = res.Links
 		} else {
 			res, err := e.ws.Read(t.ID, args["path"].(string))
 			if err != nil {
@@ -502,6 +574,11 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 			ck, err := putCheckpoint(ctx, tx, t.ID, st.ID, "observation", rec)
 			if err != nil {
 				return err
+			}
+			if len(links) > 0 {
+				if _, err := putCheckpoint(ctx, tx, t.ID, st.ID, "links", map[string]any{"urls": links}); err != nil {
+					return err
+				}
 			}
 			summary["tool_id"] = spec.ID
 			return task.UpdateStep(ctx, tx, st, st.State, ck, hash, "", "TOOL_SUCCEEDED", summary)
@@ -599,4 +676,75 @@ func (e *Engine) executeApproved(ctx context.Context, t *task.Task, st *task.Ste
 	return e.st.Write(ctx, func(tx *sql.Tx) error {
 		return task.UpdateStep(ctx, tx, st, task.StepSucceeded, "", "", "", "STEP_SUCCEEDED", map[string]any{"approval_id": ap.ID})
 	})
+}
+
+// executeInfo runs the information tools whose output becomes an observation:
+// web.search (results also recorded as URL provenance), data.read, calc.
+func (e *Engine) executeInfo(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
+	var rec obsRecord
+	var summary map[string]any
+	var links []string
+	switch spec.ID {
+	case "web.search":
+		if e.srch == nil {
+			err := errors.New("tool_failed: web.search is not configured (tools.web.search.provider)")
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		q := args["query"].(string)
+		results, err := e.srch.Search(ctx, q, e.cfg.Tools.WebSearch.MaxResults)
+		if err != nil {
+			err = fmt.Errorf("tool_failed: %v", err)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Search results for %q (%s):\n", q, e.srch.Name())
+		for i, r := range results {
+			fmt.Fprintf(&sb, "%d. %s\n   %s\n   %s\n", i+1, r.Title, r.URL, r.Snippet)
+			links = append(links, r.URL)
+		}
+		if len(results) == 0 {
+			sb.WriteString("(no results)\n")
+		}
+		rec = obsRecord{Source: "search:" + q, Content: truncate(sb.String(), maxObservationChars)}
+		summary = map[string]any{"provider": e.srch.Name(), "results": len(results)}
+	case "data.read":
+		d, err := e.ws.ReadData(t.ID, args["path"].(string))
+		if err != nil {
+			err = fmt.Errorf("tool_failed: %v", err)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		b, _ := json.MarshalIndent(d, "", " ")
+		rec = obsRecord{Source: d.Path, Content: truncate(string(b), maxObservationChars)}
+		summary = map[string]any{"path": d.Path, "rows": d.RowCount, "columns": len(d.Columns), "sha256": d.SHA256}
+	case "calc":
+		r, err := tools.Calc(args["expression"].(string))
+		if err != nil {
+			err = fmt.Errorf("tool_failed: %v", err)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		exact := "exact"
+		if !r.Exact {
+			exact = "rounded to 20 decimal places; exact fraction " + r.Fraction
+		}
+		rec = obsRecord{Source: "calc", Content: fmt.Sprintf("%s = %s (%s)", r.Expression, r.Result, exact)}
+		summary = map[string]any{"expression": r.Expression, "result": r.Result, "exact": r.Exact}
+	}
+	err := e.st.Write(ctx, func(tx *sql.Tx) error {
+		ck, err := putCheckpoint(ctx, tx, t.ID, st.ID, "observation", rec)
+		if err != nil {
+			return err
+		}
+		if len(links) > 0 {
+			if _, err := putCheckpoint(ctx, tx, t.ID, st.ID, "links", map[string]any{"urls": links}); err != nil {
+				return err
+			}
+		}
+		summary["tool_id"] = spec.ID
+		return task.UpdateStep(ctx, tx, st, st.State, ck, tools.Hash([]byte(rec.Content)), "", "TOOL_SUCCEEDED", summary)
+	})
+	return summary, err
 }

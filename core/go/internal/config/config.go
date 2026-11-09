@@ -92,6 +92,12 @@ type Config struct {
 			MaxBytes       int64    `yaml:"max_bytes" json:"max_bytes"`
 			TimeoutSeconds int      `yaml:"timeout_seconds" json:"timeout_seconds"`
 		} `yaml:"web.fetch" json:"web.fetch"`
+		WebSearch struct {
+			Provider      string `yaml:"provider" json:"provider"` // wikipedia | brave | none
+			WikipediaLang string `yaml:"wikipedia_lang" json:"wikipedia_lang"`
+			BraveKeyFile  string `yaml:"brave_key_file" json:"brave_key_file"`
+			MaxResults    int    `yaml:"max_results" json:"max_results"`
+		} `yaml:"web.search" json:"web.search"`
 	} `yaml:"tools" json:"tools"`
 	Approvals struct {
 		TTLSeconds int `yaml:"ttl_seconds" json:"ttl_seconds"`
@@ -119,6 +125,9 @@ func Default() *Config {
 	c.Providers.OpenRouter.TimeoutSeconds = 120
 	c.Tools.WebFetch.MaxBytes = 2_000_000
 	c.Tools.WebFetch.TimeoutSeconds = 20
+	c.Tools.WebSearch.Provider = "wikipedia"
+	c.Tools.WebSearch.WikipediaLang = "en"
+	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
 	return c
 }
@@ -239,6 +248,18 @@ func (c *Config) Validate() error {
 				add("models.%s[%d]: reasoning_effort must be low|medium|high", tier, i)
 			}
 		}
+	}
+	switch c.Tools.WebSearch.Provider {
+	case "wikipedia", "none":
+	case "brave":
+		if c.Tools.WebSearch.BraveKeyFile == "" {
+			add("tools.web.search: provider brave needs brave_key_file")
+		}
+	default:
+		add("tools.web.search.provider must be wikipedia, brave or none")
+	}
+	if c.Tools.WebSearch.MaxResults < 1 || c.Tools.WebSearch.MaxResults > 20 {
+		add("tools.web.search.max_results must be 1..20")
 	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")

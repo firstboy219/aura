@@ -30,6 +30,8 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 | ID | Decision | Date | Note |
 |---|---|---|---|
 | A-21 | **P1 approved.** The owner then chose "P2 then P3 without a pause" when asked (the Blueprint requires owner approval between phases, Part D). | 2026-11-09 | The P2→P3 gate is skipped by explicit owner decision. P2 still ends with its own evidence pack; P3 builds on it immediately. Phase order itself is kept (P3 is not started before P2 code exists). |
+| A-22 | **web.search defaults to Wikipedia** (official keyless API, English edition); Brave Search is available with an owner key file. Search results are fetchable only if their domain is in the task's `allow_domains` (e.g. `*.wikipedia.org`) — the allowlist stays the owner's decision. | 2026-11-09 | No free general web-search API without a key exists that is not scraping; scraping search engines is avoided. |
+| A-23 | Files named in the objective that the task only **reads** (attachments, `workspace.read`/`data.read` paths not written) are inputs, not required outputs. Without completion criteria, model verification is skipped and recorded as `VERIFICATION_SKIPPED` (deterministic checks still run). | 2026-11-09 | Prevents both false failures (inputs demanded as outputs) and vacuous "verification". |
 
 ## Phase 1 implementation assumptions (2026-11-09)
 

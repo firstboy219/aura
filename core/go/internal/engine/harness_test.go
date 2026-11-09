@@ -56,6 +56,7 @@ type harnessOpts struct {
 	workerCmd []string
 	dir       string // reuse a data directory (restart tests)
 	respond   func(config.ModelRoute, gateway.Request) gatewaytest.Reply
+	searcher  tools.Searcher
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -104,7 +105,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	h.start()
 	t.Cleanup(h.close)

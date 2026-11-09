@@ -57,6 +57,12 @@
         },
         "tier": {
           "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
+	"aura.local/core/internal/tools"
 )
 
 // ErrInvalid marks a request the API should answer with 400.
@@ -26,6 +28,8 @@ type CreateInput struct {
 	IdempotencyKey string
 	DataClass      string // "private" (default) or "public"
 	Tier           string // optional owner override: fast | standard | deep
+	// Attachments are owner-provided input files (workspace path → text content).
+	Attachments map[string]string
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -40,7 +44,26 @@ func (e *Engine) Submit(ctx context.Context, in CreateInput) (*task.Task, bool, 
 	if err != nil {
 		return nil, false, err
 	}
-	err = e.st.Write(ctx, func(tx *sql.Tx) error { return task.Insert(ctx, tx, t) })
+	err = e.st.Write(ctx, func(tx *sql.Tx) error {
+		if err := task.Insert(ctx, tx, t); err != nil {
+			return err
+		}
+		if len(in.Attachments) == 0 {
+			return nil
+		}
+		// Files are written before commit: if the commit fails they are orphans in
+		// an unused directory, never files of a different task.
+		var files []map[string]any
+		for _, p := range t.Scope.Attachments {
+			res, err := e.ws.Write(t.ID, p, in.Attachments[p])
+			if err != nil {
+				return fmt.Errorf("%w: attachment %s: %v", ErrInvalid, p, err)
+			}
+			files = append(files, map[string]any{"path": p, "sha256": res.SHA256, "bytes": res.Bytes})
+		}
+		_, err := task.AppendEvent(ctx, tx, t.ID, nil, "ATTACHMENTS_ADDED", "owner", map[string]any{"files": files})
+		return err
+	})
 	if err != nil {
 		if in.IdempotencyKey != "" && strings.Contains(err.Error(), "UNIQUE") {
 			t2, gerr := task.GetByIdempotencyKey(ctx, e.st.R, in.IdempotencyKey)
@@ -59,17 +82,17 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 		return nil, bad("objective must be 1..8000 characters")
 	}
 	if len(in.Tools) == 0 {
-		in.Tools = []string{"web.fetch", "workspace.read", "workspace.write"}
+		in.Tools = []string{"web.fetch", "web.search", "workspace.read", "workspace.write", "data.read", "calc"}
 	}
 	seen := map[string]bool{}
-	var tools []string
+	var granted []string
 	for _, tl := range in.Tools {
 		if _, ok := policy.Manifest[tl]; !ok {
 			return nil, bad("unknown tool %q", tl)
 		}
 		if !seen[tl] {
 			seen[tl] = true
-			tools = append(tools, tl)
+			granted = append(granted, tl)
 		}
 	}
 	if len(in.AllowDomains) > 50 {
@@ -105,7 +128,7 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	default:
 		return nil, bad("data_class must be private or public")
 	}
-	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: tools, AllowDomains: domains, DataClass: dc}, ConfigHash: e.cfg.Hash()}
+	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc}, ConfigHash: e.cfg.Hash()}
 	switch in.Tier {
 	case "":
 	case "fast", "standard", "deep":
@@ -114,6 +137,20 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	default:
 		return nil, bad("tier must be fast, standard or deep")
 	}
+	if len(in.Attachments) > 10 {
+		return nil, bad("at most 10 attachments")
+	}
+	for p, c := range in.Attachments {
+		cp, err := tools.CleanPath(p)
+		if err != nil || cp != p || strings.HasPrefix(p, policy.ProtectedPrefix) {
+			return nil, bad("invalid attachment path %q", p)
+		}
+		if len(c) > 256<<10 {
+			return nil, bad("attachment %q is larger than 256 KiB", p)
+		}
+		t.Scope.Attachments = append(t.Scope.Attachments, p)
+	}
+	sort.Strings(t.Scope.Attachments)
 	if in.IdempotencyKey != "" {
 		if len(in.IdempotencyKey) > 128 {
 			return nil, bad("Idempotency-Key too long")
