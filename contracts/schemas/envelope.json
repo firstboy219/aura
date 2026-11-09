@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/envelope.json",
+  "title": "JSON-RPC request envelope",
+  "description": "Newline-delimited JSON-RPC 2.0 request over worker stdio. Both directions use the same envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "jsonrpc": {
+      "const": "2.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "method": {
+      "enum": [
+        "task.plan",
+        "task.step",
+        "worker.health",
+        "worker.shutdown",
+        "llm.complete",
+        "tool.invoke",
+        "task.checkpoint",
+        "approval.request"
+      ]
+    },
+    "params": {
+      "type": "object"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "ULID (ADR-0005)"
+        },
+        "step_id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "ULID; absent for task.plan"
+        },
+        "trace_id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "correlation_id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "capability_token": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 128,
+          "description": "Opaque; validated against the Core grant registry, never logged (\u00a78.3)"
+        },
+        "deadline_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cancel_generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "trace_id",
+        "correlation_id",
+        "deadline_unix_ms"
+      ]
+    }
+  },
+  "required": [
+    "jsonrpc",
+    "id",
+    "method",
+    "params",
+    "meta"
+  ]
+}

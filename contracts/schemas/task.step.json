@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.step.json",
+  "title": "task.step (Core \u2192 Worker)",
+  "description": "Decide the next step and request Core actions. tool_call is re-validated by Core against tool.invoke.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "trust": {
+                "const": "untrusted"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "trust",
+              "content"
+            ]
+          }
+        }
+      },
+      "required": [
+        "step_no",
+        "observations"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "invoke_tool",
+            "complete",
+            "fail"
+          ]
+        },
+        "tool_call": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "decision",
+        "reason"
+      ]
+    }
+  }
+}

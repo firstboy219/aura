@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/tool.invoke.json",
+  "title": "tool.invoke (Worker \u2192 Core)",
+  "description": "Invoke a granted tool. Tier and side-effect class come from the Core manifest, never from this request.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "enum": [
+            "web.fetch",
+            "workspace.read",
+            "workspace.write"
+          ]
+        },
+        "tool_version": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool_id",
+        "arguments"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "denied",
+            "waiting_approval",
+            "error"
+          ]
+        },
+        "output": {},
+        "approval_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  }
+}

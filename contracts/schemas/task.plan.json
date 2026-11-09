@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.plan.json",
+  "title": "task.plan (Core \u2192 Worker)",
+  "description": "Produce plan, steps, side-effect proposals, completion criteria. Side-effect class is advisory; Core uses the manifest.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "granted_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_cost_usd": {
+              "type": "number"
+            },
+            "max_iterations": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "max_cost_usd",
+            "max_iterations"
+          ]
+        }
+      },
+      "required": [
+        "objective",
+        "granted_tools",
+        "budget"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step_no": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "tool_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "proposed_side_effect": {
+                "enum": [
+                  "pure",
+                  "read",
+                  "write_idempotent",
+                  "write_external"
+                ]
+              }
+            },
+            "required": [
+              "step_no",
+              "description",
+              "tool_id"
+            ]
+          }
+        },
+        "completion_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "required": [
+        "steps",
+        "completion_criteria"
+      ]
+    }
+  }
+}

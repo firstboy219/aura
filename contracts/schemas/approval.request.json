@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/approval.request.json",
+  "title": "approval.request (Worker \u2192 Core)",
+  "description": "Request human approval. Core computes the canonical action hash (\u00a78.3); the worker cannot approve.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object"
+        },
+        "justification": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "tool_id",
+        "arguments",
+        "justification"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "ULID (ADR-0005)"
+        },
+        "action_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expires_unix_ms": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approval_id",
+        "action_hash",
+        "expires_unix_ms"
+      ]
+    }
+  }
+}

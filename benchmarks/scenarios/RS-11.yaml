@@ -1,0 +1,15 @@
+id: RS-11
+phase: "P3"
+status: placeholder
+scenario: "Tasks with explicit owner corrections; inspect and correct Owner Working Profile; repeat in a second workspace"
+proves: "Preference provenance, owner control, cross-workspace isolation"
+# Fields below are required before this test is executable (Blueprint D.1 P0).
+fixtures: TBD
+preconditions: TBD
+procedure: TBD
+assertions: TBD
+evidence_artifacts: TBD
+severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
+weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
+repetitions: TBD
+hard_gate: TBD_OWNER

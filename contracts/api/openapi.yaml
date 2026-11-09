@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: AURA Core API
+  version: 0.1.0-p1-contract
+  description: |
+    Phase 1 endpoints only (Master Blueprint §11). Bound to loopback by default.
+    Every request requires a bearer token read from a 0600 file outside the repository.
+    There is no shell or arbitrary-execution endpoint.
+servers:
+  - url: http://127.0.0.1:7400/api/v1
+security:
+  - bearer: []
+paths:
+  /tasks:
+    post:
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCreate' }
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: listTasks
+      parameters:
+        - { name: state, in: query, schema: { $ref: '#/components/schemas/TaskState' } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tasks]
+                properties:
+                  tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  next_cursor: { type: [string, 'null'] }
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /tasks/{id}/events:
+    get:
+      operationId: getTaskEvents
+      parameters:
+        - { $ref: '#/components/parameters/TaskId' }
+        - { name: after_seq, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200':
+          description: Task trace (append-only event log)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events: { type: array, items: { $ref: '#/components/schemas/TaskEvent' } }
+  /tasks/{id}/cancel:
+    post: { operationId: cancelTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
+  /tasks/{id}/pause:
+    post: { operationId: pauseTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
+  /tasks/{id}/resume:
+    post: { operationId: resumeTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
+  /approvals:
+    get:
+      operationId: listApprovals
+      responses:
+        '200':
+          description: Pending approvals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approvals]
+                properties:
+                  approvals: { type: array, items: { $ref: '#/components/schemas/Approval' } }
+  /approvals/{id}/approve:
+    post:
+      operationId: approve
+      parameters: [ { $ref: '#/components/parameters/ApprovalId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action_hash]
+              additionalProperties: false
+              properties:
+                action_hash: { type: string, pattern: '^[0-9a-f]{64}$', description: Must equal the pending approval's canonical hash }
+      responses:
+        '200': { description: Approved, content: { application/json: { schema: { $ref: '#/components/schemas/Approval' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '410': { $ref: '#/components/responses/Error' }
+  /approvals/{id}/reject:
+    post:
+      operationId: reject
+      parameters: [ { $ref: '#/components/parameters/ApprovalId' } ]
+      responses:
+        '200': { description: Rejected, content: { application/json: { schema: { $ref: '#/components/schemas/Approval' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /system/health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200': { description: Live and ready, content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+        '503': { description: Live but not ready, content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+  /system/resources:
+    get:
+      operationId: resources
+      responses:
+        '200':
+          description: Resource and worker state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  core_rss_bytes: { type: integer }
+                  worker: { type: object, properties: { state: { enum: [stopped, starting, idle, busy, crashed] }, pid: { type: [integer, 'null'] }, rss_bytes: { type: [integer, 'null'] } } }
+                  db: { type: object, properties: { wal_bytes: { type: integer }, write_queue_depth: { type: integer } } }
+                  budget_today: { type: object, properties: { reserved_usd: { type: number }, spent_usd: { type: number }, limit_usd: { type: number } } }
+  /system/stop:
+    post:
+      operationId: killSwitch
+      description: Cancels in-flight provider calls, stops worker and tool execution, blocks new calls, preserves recoverable state.
+      responses:
+        '202': { description: Stop accepted, content: { application/json: { schema: { type: object, properties: { stopped_tasks: { type: integer } } } } } }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  parameters:
+    TaskId: { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/Ulid' } }
+    ApprovalId: { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/Ulid' } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 } }
+  responses:
+    TaskOK: { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+    Error: { description: Structured error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  schemas:
+    Ulid: { type: string, pattern: '^[0-9A-HJKMNP-TV-Z]{26}$' }
+    TaskState:
+      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, PAUSED, SUCCEEDED, FAILED, CANCELLED, BUDGET_EXCEEDED]
+    TaskCreate:
+      type: object
+      additionalProperties: false
+      required: [objective]
+      properties:
+        objective: { type: string, minLength: 1, maxLength: 8000 }
+        tools: { type: array, items: { enum: [web.fetch, workspace.read, workspace.write] } }
+        allow_domains: { type: array, items: { type: string }, maxItems: 50 }
+        budget:
+          type: object
+          additionalProperties: false
+          properties:
+            max_cost_usd: { type: number, exclusiveMinimum: 0 }
+            max_iterations: { type: integer, minimum: 1 }
+            max_wall_seconds: { type: integer, minimum: 1 }
+    Task:
+      type: object
+      required: [id, state, objective, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        state: { $ref: '#/components/schemas/TaskState' }
+        reason: { type: [string, 'null'] }
+        objective: { type: string }
+        parent_task_id: { type: [string, 'null'] }
+        root_task_id: { $ref: '#/components/schemas/Ulid' }
+        agent_role: { type: string, default: main }
+        depth: { type: integer, default: 0 }
+        cost_usd: { type: number }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TaskEvent:
+      type: object
+      required: [seq, type, at]
+      properties:
+        seq: { type: integer }
+        type: { type: string, examples: [TASK_CREATED, STEP_STARTED, STEP_SUCCEEDED, APPROVAL_REQUESTED, OUTCOME_UNKNOWN] }
+        step_id: { type: [string, 'null'] }
+        at: { type: string, format: date-time }
+        data: { type: object, description: Redacted; never contains secrets or capability tokens }
+    Approval:
+      type: object
+      required: [id, task_id, status, action_hash, expires_at]
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        task_id: { $ref: '#/components/schemas/Ulid' }
+        step_id: { $ref: '#/components/schemas/Ulid' }
+        status: { enum: [pending, approved, rejected, expired, consumed, invalidated] }
+        tool_id: { type: string }
+        side_effect: { enum: [pure, read, write_idempotent, write_external] }
+        target: { type: string }
+        parameters: { type: object }
+        action_hash: { type: string }
+        expires_at: { type: string, format: date-time }
+    Health:
+      type: object
+      required: [live, ready]
+      properties:
+        live: { type: boolean }
+        ready: { type: boolean }
+        version: { type: string }
+        checks: { type: object, additionalProperties: { type: string } }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, examples: [invalid_input, unauthorized, not_found, conflict, rate_limited, approval_mismatch, approval_expired] }
+            message: { type: string }
+            request_id: { type: string }

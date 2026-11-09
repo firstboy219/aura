@@ -1,0 +1,15 @@
+id: RS-10
+phase: "P2"
+status: placeholder
+scenario: "Multi-step task waits for an external dependency, Core restarts, dependency satisfied, exactly one wake/resume"
+proves: "Persistent Supervisor durability, leases, deduplication"
+# Fields below are required before this test is executable (Blueprint D.1 P0).
+fixtures: TBD
+preconditions: TBD
+procedure: TBD
+assertions: TBD
+evidence_artifacts: TBD
+severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
+weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
+repetitions: TBD
+hard_gate: TBD_OWNER

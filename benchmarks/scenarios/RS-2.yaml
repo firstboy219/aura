@@ -1,0 +1,15 @@
+id: RS-2
+phase: "P2"
+status: placeholder
+scenario: "Research topic from >=4 allowlisted sources, draft report, verify outline, ask approval before writing to published/"
+proves: "Plan, verify, replan, A2 approval"
+# Fields below are required before this test is executable (Blueprint D.1 P0).
+fixtures: TBD
+preconditions: TBD
+procedure: TBD
+assertions: TBD
+evidence_artifacts: TBD
+severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
+weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
+repetitions: TBD
+hard_gate: TBD_OWNER

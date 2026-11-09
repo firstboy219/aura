@@ -1,0 +1,15 @@
+id: RS-5
+phase: "P5"
+status: placeholder
+scenario: "Live voice: start task, interrupt, ask status, approve by voice confirmation"
+proves: "Live Agent under governance"
+# Fields below are required before this test is executable (Blueprint D.1 P0).
+fixtures: TBD
+preconditions: TBD
+procedure: TBD
+assertions: TBD
+evidence_artifacts: TBD
+severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
+weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
+repetitions: TBD
+hard_gate: TBD_OWNER

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/worker.shutdown.json",
+  "title": "worker.shutdown (Core \u2192 Worker)",
+  "description": "Graceful stop; Core sends SIGTERM then SIGKILL after the grace period (\u00a79).",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grace_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "grace_ms"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ]
+    }
+  }
+}

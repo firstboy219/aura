@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.checkpoint.json",
+  "title": "task.checkpoint (Worker \u2192 Core)",
+  "description": "Persist intermediate worker state. Core stores it; the worker has no DB handle.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "object"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "state"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "ULID (ADR-0005)"
+        }
+      },
+      "required": [
+        "checkpoint_id"
+      ]
+    }
+  }
+}

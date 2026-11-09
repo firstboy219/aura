@@ -1,0 +1,15 @@
+id: RS-6
+phase: "P4"
+status: placeholder
+scenario: "Convert CSV in workspace into chart summary when no CSV tool exists"
+proves: "L2 tool evolution, test, sandbox, registration, capability approval"
+# Fields below are required before this test is executable (Blueprint D.1 P0).
+fixtures: TBD
+preconditions: TBD
+procedure: TBD
+assertions: TBD
+evidence_artifacts: TBD
+severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
+weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
+repetitions: TBD
+hard_gate: TBD_OWNER
