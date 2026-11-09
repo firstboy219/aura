@@ -15,7 +15,7 @@ import urllib.request
 
 BASE = "http://127.0.0.1:7400/api/v1"
 TOKEN = open("/var/lib/aura/api_token").read().strip()
-TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED"}
+TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED"}
 SPEC = globals().get("SPEC")
 RUN = globals().get("RUN", str(int(time.time())))
 TIMEOUT_S = 60 * 60
@@ -153,7 +153,7 @@ def main():
                     if ap["task_id"] == st["id"]:
                         api("POST", f"/approvals/{ap['id']}/approve", {"action_hash": ap["action_hash"]})
                         st["acts"]["approved"] = True
-            elif s == "WAITING" and t.get("event") and (task.get("wait_reason") or "").startswith("event:"):
+            elif s == "WAITING_EXTERNAL" and t.get("event") and (task.get("wait_reason") or "").startswith("event:"):
                 api("POST", "/events", {"key": fill(t["event"]), "dedup_id": "eval-" + RUN})
                 st["acts"]["event_sent"] = True
         if pending == 0:
