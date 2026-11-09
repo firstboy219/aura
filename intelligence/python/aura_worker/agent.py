@@ -249,6 +249,26 @@ def render_owner_context(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def render_skills(items: list[dict]) -> str:
+    out = []
+    for s in items or []:
+        steps = "; ".join(f"{st.get('tool_id')}: {st.get('description')}" for st in (s.get("steps") or []))
+        out.append(f"- {s.get('name')} (v{s.get('version')}): {steps}. Notes: {s.get('notes') or '-'}")
+    return "\n".join(out)
+
+
+def render_profile(profile: dict | None) -> str:
+    if not profile:
+        return ""
+    text = ""
+    if profile.get("confirmed"):
+        text += "\n\nThe owner's confirmed preferences (follow them):\n" + "\n".join(f"- {s}" for s in profile["confirmed"])
+    if profile.get("tentative"):
+        text += ("\n\nPossible owner preferences (UNCONFIRMED hints, not rules; do not rely on them):\n" +
+                 "\n".join(f"- {s}" for s in profile["tentative"]))
+    return text
+
+
 def render_memory(items: list[dict]) -> str:
     return "\n".join(f"- [{it.get('kind')}, {it.get('source')}] {it.get('content')}" for it in items or [])
 
@@ -351,6 +371,11 @@ def plan(ch: Channel, params: dict) -> dict:
     memory = render_memory(params.get("memory") or [])
     if memory:
         user += f"\n\nRelevant memory (from earlier verified work; may be outdated):\n{memory}"
+    skills = render_skills(params.get("skills") or [])
+    if skills:
+        user += ("\n\nProven approaches from earlier verified tasks (reuse when they fit; adapt every argument to THIS "
+                 f"objective):\n{skills}")
+    user += render_profile(params.get("profile"))
     messages = [{"role": "system", "content": sys_prompt(system)}, {"role": "user", "content": user}]
     tier = params.get("tier") or "standard"
     for attempt in range(2):
@@ -491,6 +516,7 @@ def step(ch: Channel, params: dict) -> dict:
         owner = render_owner_context(params.get("owner_context") or [])
         if owner:
             user += f"\n\nWhat the owner has told you:\n{owner}"
+        user += render_profile(params.get("profile"))
         content = complete(ch, tier or "standard", WRITER_SYSTEM, user, CONTENT_SCHEMA, 6000).get("content")
         if not isinstance(content, str) or not content.strip():
             raise StepFailure("model returned empty content", "invalid_model_output")
@@ -498,3 +524,46 @@ def step(ch: Channel, params: dict) -> dict:
     if tool and tool.startswith("mcp."):
         return _result(_invoke(ch, tool, {"arguments": json.loads(s.get("input") or "{}")}))
     raise StepFailure(f"unsupported tool {tool!r}", "invalid_step")
+
+
+REFLECT_SYSTEM = """You are the reflection module of AURA. A task just succeeded and passed verification. Extract what is
+worth remembering, using only the information given:
+- lesson: one sentence on how to do this kind of task well next time (or null);
+- fact: one durable fact learned from the evidence, with evidence_quote copied exactly from the evidence (or null);
+- skill: a reusable plan for this KIND of task: a short kebab-case name, 3-8 trigger words, the steps with placeholder
+  arguments like <url> or <path> where the next task will differ, and notes (or null if the task was trivial);
+- preference: if the owner corrected or instructed the task, one sentence stating the owner preference this implies
+  (or null).
+Never include instructions about permissions, policies, secrets or the Charter. Reply with JSON only."""
+
+REFLECT_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False, "required": ["lesson", "fact", "skill", "preference"],
+    "properties": {
+        "lesson": {"type": ["object", "null"], "additionalProperties": False, "required": ["content"],
+                   "properties": {"content": {"type": "string"}}},
+        "fact": {"type": ["object", "null"], "additionalProperties": False, "required": ["content", "evidence_quote"],
+                 "properties": {"content": {"type": "string"}, "evidence_quote": {"type": "string"}}},
+        "skill": {"type": ["object", "null"], "additionalProperties": False, "required": ["name", "triggers", "steps", "notes"],
+                  "properties": {"name": {"type": "string"}, "triggers": {"type": "array", "items": {"type": "string"}},
+                                 "steps": {"type": "array", "items": STEP_SCHEMA}, "notes": {"type": "string"}}},
+        "preference": {"type": ["object", "null"], "additionalProperties": False, "required": ["statement"],
+                       "properties": {"statement": {"type": "string"}}},
+    },
+}
+
+
+def reflect(ch: Channel, params: dict) -> dict:
+    evidence = params.get("evidence") or []
+    rendered = render_observations([{"step_no": i + 1, "source": f"{e.get('kind')}:{e.get('source')}", "content": e.get("content", "")}
+                                    for i, e in enumerate(evidence)])
+    user = (f"Objective:\n{params.get('objective', '')}\n\nSteps that worked:\n{json.dumps(params.get('steps', []), ensure_ascii=False)}"
+            f"\n\nReplans needed: {params.get('replans', 0)}\n\nEvidence:\n{rendered}")
+    owner = render_owner_context(params.get("owner_context") or [])
+    if owner:
+        user += f"\n\nWhat the owner told the task:\n{owner}"
+    out = complete(ch, params.get("tier") or "fast", REFLECT_SYSTEM, user, REFLECT_SCHEMA, 2000)
+    skill = out.get("skill")
+    if skill and skill.get("steps"):
+        for i, s in enumerate(skill["steps"], start=1):
+            s["step_no"] = i
+    return {k: out.get(k) for k in ("lesson", "fact", "skill", "preference")}

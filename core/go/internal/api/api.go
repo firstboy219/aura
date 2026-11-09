@@ -81,6 +81,16 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/tasks/{id}/files", auth(s.files))
 	mux.Handle("GET /api/v1/tasks/{id}/files/{path...}", auth(s.file))
 	mux.Handle("GET /api/v1/stream", auth(s.stream))
+	mux.Handle("GET /api/v1/memories", auth(s.listMemories))
+	mux.Handle("POST /api/v1/memories", auth(s.addMemory))
+	mux.Handle("POST /api/v1/memories/{id}/correct", auth(s.correctMemory))
+	mux.Handle("DELETE /api/v1/memories/{id}", auth(s.deleteMemory))
+	mux.Handle("GET /api/v1/skills", auth(s.listSkills))
+	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
+	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
+	mux.Handle("GET /api/v1/profile", auth(s.listProfile))
+	mux.Handle("POST /api/v1/profile", auth(s.addProfile))
+	mux.Handle("POST /api/v1/profile/{id}/{action}", auth(s.profileAction))
 	mux.Handle("POST /api/v1/tasks/{id}/context", auth(s.addContext))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
 	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
@@ -168,6 +178,8 @@ func (s *Server) mapErr(w http.ResponseWriter, r *http.Request, err error) {
 		s.fail(w, r, 409, "approval_mismatch", "action_hash does not match the pending approval")
 	case errors.Is(err, policy.ErrExpired):
 		s.fail(w, r, 410, "approval_expired", "approval expired")
+	case errors.Is(err, engine.ErrProtected):
+		s.fail(w, r, 422, "protected_topic", "content that targets policy, permissions, identity or the Charter is not accepted")
 	case errors.Is(err, policy.ErrNotPending):
 		s.fail(w, r, 409, "conflict", err.Error())
 	default:

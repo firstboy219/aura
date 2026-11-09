@@ -250,7 +250,12 @@ func (e *Engine) finish(ctx context.Context, id string, err error) {
 			return err
 		}
 		if !task.CanTransition(cur.State, to) {
-			return nil
+			// Never leave a task stuck in a runnable state (the scheduler would
+			// pick it again forever): fall back to FAILED with the reason.
+			if !task.CanTransition(cur.State, task.Failed) {
+				return nil
+			}
+			to, wait = task.Failed, ""
 		}
 		if _, err := task.Transition(ctx, tx, id, to, reason, wait, "core"); err != nil {
 			return err

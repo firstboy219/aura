@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -57,6 +58,9 @@ func usage(w io.Writer) {
   task priority <id> <n>        reprioritize (-100..100, higher runs first)
   task tree <id>                task with its subagents and rolled-up cost
   correct <id> "<text>"         owner correction; reaches every task in the tree
+  memory list [--q TEXT] | add "<fact>" [--private] | correct <id> "<text>" | delete <id>
+  skill list | show <id> [--diff FROM TO] | disable <id> | enable <id> | rollback <id> <version>
+  profile list [--all] | add "<preference>" | confirm|disable|enable|delete <id> | edit <id> "<text>"
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
@@ -82,7 +86,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return doctor(stdout)
 	case "console":
 		err = runConsole()
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct":
+	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -582,6 +586,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "stopped; %v task(s) paused\n", out["stopped_tasks"])
 		return nil
+	case "memory", "skill", "profile":
+		return ownerData(c, cmd, rest, stdout)
 	case "correct":
 		if len(rest) != 2 {
 			return usageErr(`correct <task-id> "<correction or added instruction>"`)
@@ -664,4 +670,111 @@ func runConsole() error {
 	base := strings.TrimSuffix(c.base, "/api/v1")
 	_, err = tea.NewProgram(console.New(apiclient.New(base, c.token)), tea.WithAltScreen()).Run()
 	return err
+}
+
+// ownerData implements the memory, skill and profile commands.
+func ownerData(c *apiClient, cmd string, rest []string, stdout io.Writer) error {
+	if len(rest) == 0 {
+		return usageErr(cmd + " needs a subcommand")
+	}
+	sub, args := rest[0], rest[1:]
+	var out any
+	var err error
+	switch cmd + " " + sub {
+	case "memory list":
+		fs := flag.NewFlagSet("memory list", flag.ContinueOnError)
+		q := fs.String("q", "", "search text")
+		if _, err := parse(fs, args); err != nil {
+			return err
+		}
+		path := "/memories"
+		if *q != "" {
+			path += "?q=" + url.QueryEscape(*q)
+		}
+		err = c.do("GET", path, nil, nil, &out)
+	case "memory add":
+		fs := flag.NewFlagSet("memory add", flag.ContinueOnError)
+		private := fs.Bool("private", false, "private fact")
+		pos, perr := parse(fs, args)
+		if perr != nil || len(pos) != 1 {
+			return usageErr(`memory add "<fact>" [--private]`)
+		}
+		err = c.do("POST", "/memories", map[string]any{"content": pos[0], "private": *private}, nil, &out)
+	case "memory correct":
+		if len(args) != 2 {
+			return usageErr(`memory correct <id> "<text>"`)
+		}
+		err = c.do("POST", "/memories/"+args[0]+"/correct", map[string]string{"content": args[1]}, nil, &out)
+	case "memory delete":
+		if len(args) != 1 {
+			return usageErr("memory delete <id>")
+		}
+		err = c.do("DELETE", "/memories/"+args[0], nil, nil, &out)
+	case "skill list":
+		err = c.do("GET", "/skills", nil, nil, &out)
+	case "skill show":
+		fs := flag.NewFlagSet("skill show", flag.ContinueOnError)
+		diff := fs.Bool("diff", false, "show a diff: --diff FROM TO")
+		pos, perr := parse(fs, args)
+		if perr != nil || len(pos) < 1 {
+			return usageErr("skill show <id> [--diff FROM TO]")
+		}
+		path := "/skills/" + pos[0]
+		if *diff && len(pos) == 3 {
+			path += "?diff_from=" + pos[1] + "&diff_to=" + pos[2]
+		}
+		var res map[string]any
+		if err = c.do("GET", path, nil, nil, &res); err == nil {
+			if d, ok := res["diff"].(string); ok {
+				fmt.Fprint(stdout, d)
+				return nil
+			}
+			out = res
+		}
+	case "skill disable", "skill enable":
+		if len(args) != 1 {
+			return usageErr("skill " + sub + " <id>")
+		}
+		err = c.do("POST", "/skills/"+args[0]+"/"+sub, nil, nil, &out)
+	case "skill rollback":
+		if len(args) != 2 {
+			return usageErr("skill rollback <id> <version>")
+		}
+		var v int
+		fmt.Sscan(args[1], &v)
+		err = c.do("POST", "/skills/"+args[0]+"/rollback", map[string]int{"version": v}, nil, &out)
+	case "profile list":
+		fs := flag.NewFlagSet("profile list", flag.ContinueOnError)
+		all := fs.Bool("all", false, "include deleted and superseded")
+		if _, err := parse(fs, args); err != nil {
+			return err
+		}
+		path := "/profile"
+		if *all {
+			path += "?all=true"
+		}
+		err = c.do("GET", path, nil, nil, &out)
+	case "profile add":
+		if len(args) != 1 {
+			return usageErr(`profile add "<preference>"`)
+		}
+		err = c.do("POST", "/profile", map[string]string{"statement": args[0]}, nil, &out)
+	case "profile confirm", "profile disable", "profile enable", "profile delete":
+		if len(args) != 1 {
+			return usageErr("profile " + sub + " <id>")
+		}
+		err = c.do("POST", "/profile/"+args[0]+"/"+sub, nil, nil, &out)
+	case "profile edit":
+		if len(args) != 2 {
+			return usageErr(`profile edit <id> "<text>"`)
+		}
+		err = c.do("POST", "/profile/"+args[0]+"/edit", map[string]string{"statement": args[1]}, nil, &out)
+	default:
+		return usageErr("unknown command " + cmd + " " + sub)
+	}
+	if err != nil {
+		return err
+	}
+	printJSON(stdout, out)
+	return nil
 }

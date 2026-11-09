@@ -21,6 +21,7 @@
         "task.step",
         "task.replan",
         "task.verify",
+        "task.reflect",
         "worker.health",
         "worker.shutdown",
         "llm.complete",

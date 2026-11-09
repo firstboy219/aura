@@ -85,6 +85,7 @@ func TestRS1FakeProvider(t *testing.T) {
 	if fetches != 3 {
 		t.Fatalf("fetches %d", fetches)
 	}
+	waitAnyEvent(t, h, tk.ID, "REFLECTED", "REFLECTION_SKIPPED") // reflection runs after success
 	var live int
 	h.st.R.QueryRow("select count(*) from capability_grants where task_id=? and revoked_at is null", tk.ID).Scan(&live)
 	if live != 0 {

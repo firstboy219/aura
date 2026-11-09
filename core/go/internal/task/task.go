@@ -33,7 +33,7 @@ const (
 )
 
 var transitions = map[State][]State{
-	Created:         {Planning, Cancelled, Paused, Failed},
+	Created:         {Planning, Cancelled, Paused, Failed, BudgetExceeded},
 	Planning:        {Running, WaitingInput, Failed, Cancelled, Paused, BudgetExceeded},
 	Running:         {WaitingApproval, WaitingInput, Waiting, Succeeded, Failed, Cancelled, Paused, BudgetExceeded},
 	WaitingApproval: {Running, Failed, Cancelled, Paused},

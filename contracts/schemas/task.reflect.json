@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.reflect.json",
+  "title": "task.reflect (Core \u2192 Worker)",
+  "description": "After a verified success: propose a lesson, an evidence-backed fact, a reusable skill, and (after owner corrections) an inferred preference. The Core gates every proposal (ADR-0023/0025/0026).",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "required": [
+        "objective",
+        "steps",
+        "evidence"
+      ],
+      "properties": {
+        "objective": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array"
+        },
+        "evidence": {
+          "type": "array"
+        },
+        "owner_context": {
+          "type": "array"
+        },
+        "replans": {
+          "type": "integer"
+        },
+        "tier": {
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "lesson",
+        "fact",
+        "skill",
+        "preference"
+      ],
+      "properties": {
+        "lesson": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          }
+        },
+        "fact": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "evidence_quote": {
+              "type": "string"
+            }
+          }
+        },
+        "skill": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "triggers": {
+              "type": "array"
+            },
+            "steps": {
+              "type": "array"
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        },
+        "preference": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "statement": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

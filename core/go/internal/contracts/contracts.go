@@ -6,6 +6,6 @@ package contracts
 
 // Methods are the Phase 1 JSON-RPC methods; each has contracts/schemas/<method>.json.
 var Methods = []string{
-	"task.plan", "task.review", "task.step", "task.replan", "task.verify", "worker.health", "worker.shutdown",
+	"task.plan", "task.review", "task.step", "task.replan", "task.verify", "task.reflect", "worker.health", "worker.shutdown",
 	"llm.complete", "tool.invoke", "task.checkpoint", "approval.request",
 }

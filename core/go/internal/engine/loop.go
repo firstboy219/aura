@@ -140,7 +140,8 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
 		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions && t.ParentTaskID == nil, "tier": tierFor(t),
-		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t)})
+		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
+		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t)})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -618,12 +619,16 @@ func (e *Engine) finalize(ctx context.Context, taskID string) (bool, error) {
 			return e.retryOrFail(ctx, t, "verification_failed", map[string]any{"kind": "verification_failed", "failures": failures})
 		}
 	}
-	return true, e.st.Write(ctx, func(tx *sql.Tx) error {
+	err = e.st.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := task.Transition(ctx, tx, taskID, task.Succeeded, "", "", "core"); err != nil {
 			return err
 		}
 		return policy.RevokeTask(ctx, tx, taskID)
 	})
+	if err == nil && len(criteria) > 0 {
+		e.reflect(ctx, taskID, evidence) // learning only from verified successes (ADR-0025)
+	}
+	return true, err
 }
 
 func (e *Engine) retryOrFail(ctx context.Context, t *task.Task, reason string, cause map[string]any) (bool, error) {

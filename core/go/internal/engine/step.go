@@ -117,7 +117,7 @@ func (e *Engine) workerStep(ctx context.Context, t *task.Task, st *task.Step, ps
 		return err
 	}
 	raw, err := e.callWorker(ctx, s, "task.step", map[string]any{"objective": t.Objective, "step": ps, "observations": obs,
-		"owner_context": octx, "tier": tierFor(t)})
+		"owner_context": octx, "tier": tierFor(t), "profile": e.profileContext(ctx, t)})
 	if s.fatal != nil {
 		return s.fatal
 	}
