@@ -159,6 +159,17 @@ func (s *Store) Conn(ctx context.Context, fn func(ctx context.Context, c *sql.Co
 	}
 }
 
+// CommitErr asks Write to commit the transaction and still return Err. It is
+// used when a denial must leave a durable trace (e.g. an approval marked
+// expired or invalidated) while the caller still sees the error.
+type CommitErr struct{ Err error }
+
+func (c *CommitErr) Error() string { return c.Err.Error() }
+func (c *CommitErr) Unwrap() error { return c.Err }
+
+// Commit wraps err so that Write commits before returning it.
+func Commit(err error) error { return &CommitErr{err} }
+
 // Write runs fn in one short IMMEDIATE transaction on the writer.
 // Note: once queued, the job completes even if ctx is cancelled mid-transaction.
 func (s *Store) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
@@ -168,6 +179,13 @@ func (s *Store) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			return err
 		}
 		if err := fn(tx); err != nil {
+			var ce *CommitErr
+			if errors.As(err, &ce) {
+				if cerr := tx.Commit(); cerr != nil {
+					return cerr
+				}
+				return ce.Err
+			}
 			tx.Rollback()
 			return err
 		}
