@@ -127,7 +127,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	e.st.R.QueryRowContext(ctx, "select count(*) from task_inputs where task_id=?", t.ID).Scan(&asked)
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
-		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions, "tier": tierFor(t),
+		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions && t.ParentTaskID == nil, "tier": tierFor(t),
 		"attachments": t.Scope.Attachments})
 	if s.fatal != nil {
 		return s.fatal
@@ -458,7 +458,14 @@ func (e *Engine) execute(ctx context.Context, t *task.Task) error {
 				return err
 			}
 		}
-		if err := e.runStep(ctx, cur, next, ps); err != nil {
+		var stepErr error
+		if next.State == task.StepFailed {
+			// Failed outside a worker call (e.g. a delegated subagent failed).
+			stepErr = fmt.Errorf("step_failed: step %d: %s", next.StepNo, deref(next.Reason))
+		} else {
+			stepErr = e.runStep(ctx, cur, next, ps)
+		}
+		if err := stepErr; err != nil {
 			if errors.Is(err, errStop) || !replannable(err) || cur.Replans >= maxReplans {
 				return err
 			}
@@ -617,6 +624,13 @@ func (e *Engine) retryOrFail(ctx context.Context, t *task.Task, reason string, c
 		}
 		return store.Commit(errStop) // commit, then stop driving the task
 	})
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // isFatal errors end the task instead of triggering a replan.

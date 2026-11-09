@@ -206,6 +206,7 @@ func (e *Engine) owner(ctx context.Context, id string, fn func(tx *sql.Tx, t *ta
 // Cancel moves a task to CANCELLED, revokes its grants, invalidates pending
 // approvals and interrupts it if it is running.
 func (e *Engine) Cancel(ctx context.Context, id string) (*task.Task, error) {
+	var cancelled []string
 	t, err := e.owner(ctx, id, func(tx *sql.Tx, t *task.Task) error {
 		if _, err := task.Transition(ctx, tx, id, task.Cancelled, "cancelled_by_owner", "", "owner"); err != nil {
 			return err
@@ -213,10 +214,18 @@ func (e *Engine) Cancel(ctx context.Context, id string) (*task.Task, error) {
 		if _, err := tx.ExecContext(ctx, "update approvals set status='invalidated' where task_id=? and status in ('pending','approved')", id); err != nil {
 			return err
 		}
+		ds, err := cancelDescendants(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		cancelled = ds
 		return policy.RevokeTask(ctx, tx, id)
 	})
 	if err == nil {
 		e.interrupt(id, "cancel")
+		for _, d := range cancelled {
+			e.interrupt(d, "cancel")
+		}
 	}
 	return t, err
 }

@@ -76,6 +76,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/tasks/{id}/input", auth(s.answer))
 	mux.Handle("POST /api/v1/tasks/{id}/priority", auth(s.priority))
 	mux.Handle("POST /api/v1/events", auth(s.event))
+	mux.Handle("GET /api/v1/tasks/{id}/tree", auth(s.tree))
+	mux.Handle("POST /api/v1/tasks/{id}/context", auth(s.addContext))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
 	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
 	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
@@ -335,6 +337,45 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	writeJSON(w, status, map[string]any{"id": id, "duplicate": dup})
+}
+
+func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Engine.Tree(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, treeOut(n))
+}
+
+type treeNode struct {
+	Task        Task       `json:"task"`
+	TreeCostUSD float64    `json:"tree_cost_usd"`
+	Children    []treeNode `json:"children"`
+}
+
+func treeOut(n *engine.TreeNode) treeNode {
+	out := treeNode{Task: toAPI(n.Task), TreeCostUSD: n.TreeCostUSD, Children: []treeNode{}}
+	for _, c := range n.Children {
+		out.Children = append(out.Children, treeOut(c))
+	}
+	return out
+}
+
+func (s *Server) addContext(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Content string `json:"content"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	t, err := s.Engine.AddContext(r.Context(), r.PathValue("id"), in.Content)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, toAPI(t))
 }
 
 func (s *Server) answer(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"aura.local/core/internal/ids"
@@ -134,7 +135,30 @@ func (e *Engine) wakeWait(ctx context.Context, waitID, eventID string) (bool, er
 		case "time":
 			content = "The waiting time has passed."
 		case "tasks":
-			content = "All delegated subtasks have finished."
+			state, text, sources, err := e.childFindings(ctx, tx, key.String)
+			if err != nil {
+				return err
+			}
+			content, source = text, "subagent:"+key.String
+			var root string
+			tx.QueryRowContext(ctx, "select root_task_id from tasks where id=?", taskID).Scan(&root)
+			if err := postContext(ctx, tx, root, key.String, "finding", "untrusted", text,
+				map[string]any{"child_task_id": key.String, "state": state, "sources": sources}); err != nil {
+				return err
+			}
+			if state != task.Succeeded && stepID.Valid {
+				// The delegated work failed: the parent's step fails, which the
+				// parent may replan around.
+				st, err := task.GetStep(ctx, tx, stepID.String)
+				if err != nil {
+					return err
+				}
+				if err := task.UpdateStep(ctx, tx, st, task.StepFailed, "", "", "subagent_"+strings.ToLower(string(state)), "STEP_FAILED",
+					map[string]any{"child_task_id": key.String}); err != nil {
+					return err
+				}
+				stepID.Valid = false
+			}
 		}
 		if stepID.Valid {
 			st, err := task.GetStep(ctx, tx, stepID.String)

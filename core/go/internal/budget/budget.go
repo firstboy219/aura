@@ -55,8 +55,12 @@ type Call struct {
 	APIModelID              string
 	EstimateUSD             float64
 	TaskLimitUSD            float64
-	MaxCalls                int  // per-task provider-call limit (max_iterations); 0 = none
-	Free                    bool // zero-price route: a 0 estimate is allowed
+	// RootTaskID / RootLimitUSD bound the whole task tree (subagents spend from
+	// the root's budget, ADR-0019). Empty RootTaskID = no tree check.
+	RootTaskID   string
+	RootLimitUSD float64
+	MaxCalls     int  // per-task provider-call limit (max_iterations); 0 = none
+	Free         bool // zero-price route: a 0 estimate is allowed
 }
 
 // dayStart is the start of the current UTC day in unix ms (daily budget window).
@@ -86,6 +90,16 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 		if err := tx.QueryRowContext(ctx, "select coalesce(sum("+spent+"),0) from usage_records where created_at>=?",
 			g.dayStart()).Scan(&daySpent); err != nil {
 			return err
+		}
+		if c.RootTaskID != "" {
+			var treeSpent float64
+			if err := tx.QueryRowContext(ctx, "select coalesce(sum("+spent+"),0) from usage_records where task_id in (select id from tasks where root_task_id=?)",
+				c.RootTaskID).Scan(&treeSpent); err != nil {
+				return err
+			}
+			if treeSpent+c.EstimateUSD > c.RootLimitUSD {
+				return ErrTaskBudget
+			}
 		}
 		if c.MaxCalls > 0 && calls >= c.MaxCalls {
 			return ErrIterations
@@ -143,6 +157,13 @@ func (g *Governor) Reconcile(ctx context.Context, r *Reservation, taskID string,
 			cost_actual_usd = cost_actual_usd + ? where id=?`, r.Amount, actual, taskID)
 		return err
 	})
+}
+
+// TreeSpent returns the spend (actual, or reserved when unknown) of a whole task tree.
+func (g *Governor) TreeSpent(ctx context.Context, rootTaskID string) (float64, error) {
+	var s float64
+	err := g.st.R.QueryRowContext(ctx, "select coalesce(sum("+spent+"),0) from usage_records where task_id in (select id from tasks where root_task_id=?)", rootTaskID).Scan(&s)
+	return s, err
 }
 
 // Today returns reserved-but-unreconciled and spent amounts for the current UTC day.

@@ -302,8 +302,14 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 	if s.t.Scope.IsPublic() {
 		p.DataClass = "public"
 	}
+	rootLimit := s.t.Budget.MaxCostUSD
+	if s.t.RootTaskID != s.t.ID {
+		if root, err := task.Get(ctx, e.st.R, s.t.RootTaskID); err == nil {
+			rootLimit = root.Budget.MaxCostUSD
+		}
+	}
 	res, err := e.gw.Complete(ctx, gateway.Budget{TaskID: s.t.ID, StepID: stepID(s), TaskLimitUSD: s.t.Budget.MaxCostUSD,
-		MaxCalls: s.t.Budget.MaxIterations}, p)
+		RootTaskID: s.t.RootTaskID, RootLimitUSD: rootLimit, MaxCalls: s.t.Budget.MaxIterations}, p)
 	if err != nil {
 		switch {
 		case errors.Is(err, budget.ErrTaskBudget), errors.Is(err, budget.ErrDailyBudget), errors.Is(err, budget.ErrIterations):
@@ -406,6 +412,17 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 		s.approvalID = ap.ID
 		return map[string]any{"status": "waiting_approval", "approval_id": ap.ID}, nil
 	}
+	if spec.ID == "agent.delegate" {
+		id, err := e.delegate(ctx, s.t, s.step, args)
+		if err != nil {
+			if errors.Is(err, errDelegationDenied) {
+				return nil, e.deny(ctx, s, req.Method, err.Error(), map[string]any{"tool_id": spec.ID})
+			}
+			return map[string]any{"status": "error", "reason_code": reasonCode(err)}, nil
+		}
+		s.waitID = id
+		return map[string]any{"status": "waiting", "reason_code": "subagent_running"}, nil
+	}
 	if spec.ID == "wait.event" || spec.ID == "wait.until" {
 		id, err := e.createWait(ctx, s.t, s.step, spec.ID, args)
 		if err != nil {
@@ -472,6 +489,29 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			return nil, "", "bad_path"
 		}
 		return map[string]any{"path": p}, p, ""
+	case "agent.delegate":
+		var a struct {
+			Brief string   `json:"brief"`
+			Tools []string `json:"tools"`
+		}
+		if strictDecode(c.Arguments, &a) != nil || strings.TrimSpace(a.Brief) == "" {
+			return nil, "", "invalid_arguments"
+		}
+		if s.plan == nil || s.plan.Brief == nil || *s.plan.Brief != a.Brief {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		child := a.Tools
+		if len(child) == 0 {
+			child = g.Scopes.Tools
+		}
+		var out []any
+		for _, tl := range child {
+			if !g.Scopes.HasTool(tl) {
+				return nil, "", "grant_widening" // a subagent gets at most the parent's tools
+			}
+			out = append(out, tl)
+		}
+		return map[string]any{"brief": a.Brief, "tools": out}, "subagent", ""
 	case "wait.event":
 		var a struct {
 			Key string `json:"key"`
@@ -569,7 +609,7 @@ func (e *Engine) hasProvenance(taskID, u string) bool {
 // outcome on the step. Writes are preceded by a durable intent (§8.1).
 func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
 	switch spec.ID {
-	case "wait.event", "wait.until":
+	case "wait.event", "wait.until", "agent.delegate":
 		return nil, errWaitTool // handled in serveTool before execution
 	case "web.search", "data.read", "calc":
 		return e.executeInfo(ctx, t, st, spec, args)

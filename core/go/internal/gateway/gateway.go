@@ -102,6 +102,8 @@ func (g *Gateway) Routes(tier string) []config.ModelRoute { return g.routes[tier
 type Budget struct {
 	TaskID, StepID string
 	TaskLimitUSD   float64
+	RootTaskID     string
+	RootLimitUSD   float64
 	MaxCalls       int
 }
 
@@ -196,7 +198,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 	est := Estimate(route, req)
 	for try := 0; ; try++ {
 		res, err := g.gov.Reserve(ctx, budget.Call{TaskID: b.TaskID, StepID: b.StepID, Tier: req.Tier, ProviderID: g.prov.ID(),
-			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, MaxCalls: b.MaxCalls,
+			Route: route.RouteID, APIModelID: route.APIModelID, EstimateUSD: est, TaskLimitUSD: b.TaskLimitUSD, RootTaskID: b.RootTaskID, RootLimitUSD: b.RootLimitUSD, MaxCalls: b.MaxCalls,
 			Free: route.Free})
 		if err != nil {
 			return nil, err

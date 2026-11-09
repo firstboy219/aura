@@ -73,6 +73,33 @@ paths:
         required: true
         content: { application/json: { schema: { type: object, additionalProperties: false, required: [answer], properties: { answer: { type: string, minLength: 1, maxLength: 4000 } } } } }
       responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } }
+  /tasks/{id}/priority:
+    post:
+      operationId: setPriority
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [priority], properties: { priority: { type: integer, minimum: -100, maximum: 100 } } } } } }
+      responses: { '200': { $ref: '#/components/responses/TaskOK' } }
+  /tasks/{id}/context:
+    post:
+      operationId: addOwnerContext
+      description: Owner correction or added instruction; reaches every task in the tree at its next step.
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [content], properties: { content: { type: string, minLength: 1, maxLength: 4000 } } } } } }
+      responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } }
+  /tasks/{id}/tree:
+    get:
+      operationId: getTaskTree
+      parameters: [ { $ref: '#/components/parameters/TaskId' } ]
+      responses:
+        '200': { description: Task with subagents and rolled-up cost, content: { application/json: { schema: { $ref: '#/components/schemas/TreeNode' } } } }
+  /events:
+    post:
+      operationId: postExternalEvent
+      description: External dependency signal for the supervisor; idempotent by (key, dedup_id).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [key], properties: { key: { type: string, pattern: '^[A-Za-z0-9._:-]{1,100}$' }, dedup_id: { type: string, maxLength: 128 }, payload: { type: object } } } } } }
+      responses:
+        '202': { description: Recorded, content: { application/json: { schema: { type: object, properties: { id: { type: string }, duplicate: { type: boolean } } } } } }
+        '200': { description: Duplicate (already recorded) }
   /tasks/{id}/cancel:
     post: { operationId: cancelTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
   /tasks/{id}/pause:
@@ -224,6 +251,13 @@ components:
         parameters: { type: object }
         action_hash: { type: string }
         expires_at: { type: string, format: date-time }
+    TreeNode:
+      type: object
+      required: [task, tree_cost_usd, children]
+      properties:
+        task: { $ref: '#/components/schemas/Task' }
+        tree_cost_usd: { type: number }
+        children: { type: array, items: { $ref: '#/components/schemas/TreeNode' } }
     Health:
       type: object
       required: [live, ready]

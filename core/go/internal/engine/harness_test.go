@@ -180,13 +180,6 @@ func (h *harness) wait(id string, states ...task.State) *task.Task {
 	return nil
 }
 
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 func (h *harness) events(id string) []task.Event {
 	evs, _ := task.Events(context.Background(), h.st.R, id, 0, true)
 	return evs

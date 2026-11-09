@@ -51,6 +51,8 @@ func usage(w io.Writer) {
   answer <task-id> "<answer>"   answer a task's clarification question
   event <key> [--dedup ID] [--payload JSON]   signal an external dependency (wakes waiting tasks)
   task priority <id> <n>        reprioritize (-100..100, higher runs first)
+  task tree <id>                task with its subagents and rolled-up cost
+  correct <id> "<text>"         owner correction; reaches every task in the tree
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
@@ -74,7 +76,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = serve(args[1:])
 	case "doctor":
 		return doctor(stdout)
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event":
+	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -421,6 +423,16 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 				fmt.Fprintf(stdout, "%s  %-16s $%.4f  %s\n", t.ID, t.State, t.CostUSD, obj)
 			}
 			return nil
+		case "tree":
+			if len(rest) != 1 {
+				return usageErr("task tree <id>")
+			}
+			var out treeJSON
+			if err := c.do("GET", "/tasks/"+rest[0]+"/tree", nil, nil, &out); err != nil {
+				return err
+			}
+			printTree(stdout, out, 0)
+			return nil
 		case "priority":
 			if len(rest) != 2 {
 				return usageErr("task priority <id> <-100..100>")
@@ -564,6 +576,16 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "stopped; %v task(s) paused\n", out["stopped_tasks"])
 		return nil
+	case "correct":
+		if len(rest) != 2 {
+			return usageErr(`correct <task-id> "<correction or added instruction>"`)
+		}
+		var out map[string]any
+		if err := c.do("POST", "/tasks/"+rest[0]+"/context", map[string]string{"content": rest[1]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s noted (reaches every task in its tree)\n", out["id"])
+		return nil
 	case "event":
 		fs := flag.NewFlagSet("event", flag.ContinueOnError)
 		dedup := fs.String("dedup", "", "dedup id (repeated sends with the same id count once)")
@@ -604,4 +626,26 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return nil
 	}
 	return usageErr("unknown command " + cmd)
+}
+
+type treeJSON struct {
+	Task struct {
+		ID, State, Objective string
+		AgentRole            string  `json:"agent_role"`
+		CostUSD              float64 `json:"cost_usd"`
+	} `json:"task"`
+	TreeCostUSD float64    `json:"tree_cost_usd"`
+	Children    []treeJSON `json:"children"`
+}
+
+func printTree(w io.Writer, n treeJSON, depth int) {
+	obj := strings.ReplaceAll(n.Task.Objective, "\n", " ")
+	if len(obj) > 60 {
+		obj = obj[:60] + "…"
+	}
+	fmt.Fprintf(w, "%s%s %-16s %-10s $%.4f (tree $%.4f)  %s\n", strings.Repeat("  ", depth), n.Task.ID, n.Task.State, n.Task.AgentRole,
+		n.Task.CostUSD, n.TreeCostUSD, obj)
+	for _, c := range n.Children {
+		printTree(w, c, depth+1)
+	}
 }

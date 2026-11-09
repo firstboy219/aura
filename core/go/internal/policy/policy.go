@@ -52,6 +52,7 @@ var Manifest = map[string]ToolSpec{
 	"calc":           {ID: "calc", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.event":     {ID: "wait.event", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.until":     {ID: "wait.until", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
+	"agent.delegate": {ID: "agent.delegate", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.read": {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.write": {ID: "workspace.write", Version: "1", SideEffect: "write_idempotent", Tier: func(a map[string]any) Tier {
 		p, _ := a["path"].(string)
