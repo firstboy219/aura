@@ -1,0 +1,270 @@
+// Package config loads and validates the Core configuration (ADR-0002).
+// Config holds paths to secrets, never secret values.
+package config
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Tiers are the logical model tiers (Blueprint §8.5).
+var Tiers = []string{"fast", "standard", "deep"}
+
+type TaskBudget struct {
+	MaxCostUSD     float64 `yaml:"max_cost_usd" json:"max_cost_usd"`
+	MaxIterations  int     `yaml:"max_iterations" json:"max_iterations"`
+	MaxWallSeconds int     `yaml:"max_wall_seconds" json:"max_wall_seconds"`
+}
+
+// ModelRoute is one OpenRouter route for a tier. Display name, provider API
+// model ID and route ID are distinct values (Blueprint §13 model identity).
+type ModelRoute struct {
+	DisplayName     string  `yaml:"display_name" json:"display_name"`
+	APIModelID      string  `yaml:"api_model_id" json:"api_model_id"`
+	RouteID         string  `yaml:"route_id" json:"route_id"`
+	ReasoningEffort string  `yaml:"reasoning_effort" json:"reasoning_effort"`
+	PriceInPerMTok  float64 `yaml:"price_in_per_mtok" json:"price_in_per_mtok"`
+	PriceOutPerMTok float64 `yaml:"price_out_per_mtok" json:"price_out_per_mtok"`
+	MaxOutputTokens int     `yaml:"max_output_tokens" json:"max_output_tokens"`
+}
+
+type Config struct {
+	ConfigVersion int `yaml:"config_version" json:"config_version"`
+	Server        struct {
+		Bind      string `yaml:"bind" json:"bind"`
+		TokenFile string `yaml:"token_file" json:"token_file"`
+		RatePerS  int    `yaml:"rate_per_second" json:"rate_per_second"`
+	} `yaml:"server" json:"server"`
+	Database struct {
+		Path      string `yaml:"path" json:"path"`
+		BackupDir string `yaml:"backup_dir" json:"backup_dir"`
+	} `yaml:"database" json:"database"`
+	Workspace struct {
+		Root string `yaml:"root" json:"root"`
+	} `yaml:"workspace" json:"workspace"`
+	Worker struct {
+		Command            []string `yaml:"command" json:"command"`
+		IdleTimeoutSeconds int      `yaml:"idle_timeout_seconds" json:"idle_timeout_seconds"`
+		MaxWorkers         int      `yaml:"max_workers" json:"max_workers"`
+		MaxConcurrentTasks int      `yaml:"max_concurrent_tasks" json:"max_concurrent_tasks"`
+		ScratchRoot        string   `yaml:"scratch_root" json:"scratch_root"`
+		CallTimeoutSeconds int      `yaml:"call_timeout_seconds" json:"call_timeout_seconds"`
+	} `yaml:"worker" json:"worker"`
+	Budgets struct {
+		TaskDefault TaskBudget `yaml:"task_default" json:"task_default"`
+		Global      struct {
+			DailyCostUSD float64 `yaml:"daily_cost_usd" json:"daily_cost_usd"`
+		} `yaml:"global" json:"global"`
+	} `yaml:"budgets" json:"budgets"`
+	Providers struct {
+		OpenRouter struct {
+			BaseURL        string `yaml:"base_url" json:"base_url"`
+			KeyFile        string `yaml:"key_file" json:"key_file"`
+			TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeout_seconds"`
+		} `yaml:"openrouter" json:"openrouter"`
+	} `yaml:"providers" json:"providers"`
+	Models map[string][]ModelRoute `yaml:"models" json:"models"`
+	Tools  struct {
+		WebFetch struct {
+			AllowDomains   []string `yaml:"allow_domains" json:"allow_domains"`
+			MaxBytes       int64    `yaml:"max_bytes" json:"max_bytes"`
+			TimeoutSeconds int      `yaml:"timeout_seconds" json:"timeout_seconds"`
+		} `yaml:"web.fetch" json:"web.fetch"`
+	} `yaml:"tools" json:"tools"`
+	Approvals struct {
+		TTLSeconds int `yaml:"ttl_seconds" json:"ttl_seconds"`
+	} `yaml:"approvals" json:"approvals"`
+}
+
+// Default returns a config with every Blueprint default filled in.
+func Default() *Config {
+	c := &Config{ConfigVersion: 1}
+	c.Server.Bind = "127.0.0.1:7400"
+	c.Server.TokenFile = "/var/lib/aura/api_token"
+	c.Server.RatePerS = 20
+	c.Database.Path = "/var/lib/aura/aura.db"
+	c.Database.BackupDir = "/var/lib/aura/backups"
+	c.Workspace.Root = "/var/lib/aura/workspace"
+	c.Worker.Command = []string{"python3", "-I", "-m", "aura_worker"}
+	c.Worker.IdleTimeoutSeconds = 60
+	c.Worker.MaxWorkers = 1
+	c.Worker.MaxConcurrentTasks = 1
+	c.Worker.ScratchRoot = "/tmp/aura-scratch"
+	c.Worker.CallTimeoutSeconds = 300
+	c.Budgets.TaskDefault = TaskBudget{MaxCostUSD: 0.50, MaxIterations: 20, MaxWallSeconds: 900}
+	c.Budgets.Global.DailyCostUSD = 5.00
+	c.Providers.OpenRouter.BaseURL = "https://openrouter.ai/api/v1"
+	c.Providers.OpenRouter.TimeoutSeconds = 120
+	c.Tools.WebFetch.MaxBytes = 2_000_000
+	c.Tools.WebFetch.TimeoutSeconds = 20
+	c.Approvals.TTLSeconds = 1800
+	return c
+}
+
+// Load reads YAML strictly (unknown keys are errors), applies env overrides and validates.
+func Load(path string) (*Config, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	return Parse(b, os.Getenv)
+}
+
+// Parse is Load without the file read; getenv is injectable for tests.
+func Parse(b []byte, getenv func(string) string) (*Config, error) {
+	c := Default()
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(c); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if err := applyEnv(c, getenv); err != nil {
+		return nil, err
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// applyEnv supports AURA_<SECTION>_<KEY> overrides for scalar values only.
+func applyEnv(c *Config, getenv func(string) string) error {
+	str := map[string]*string{
+		"AURA_SERVER_BIND":                   &c.Server.Bind,
+		"AURA_SERVER_TOKEN_FILE":             &c.Server.TokenFile,
+		"AURA_DATABASE_PATH":                 &c.Database.Path,
+		"AURA_DATABASE_BACKUP_DIR":           &c.Database.BackupDir,
+		"AURA_WORKSPACE_ROOT":                &c.Workspace.Root,
+		"AURA_WORKER_SCRATCH_ROOT":           &c.Worker.ScratchRoot,
+		"AURA_PROVIDERS_OPENROUTER_KEY_FILE": &c.Providers.OpenRouter.KeyFile,
+		"AURA_PROVIDERS_OPENROUTER_BASE_URL": &c.Providers.OpenRouter.BaseURL,
+	}
+	for k, p := range str {
+		if v := getenv(k); v != "" {
+			*p = v
+		}
+	}
+	num := map[string]*float64{
+		"AURA_BUDGETS_GLOBAL_DAILY_COST_USD": &c.Budgets.Global.DailyCostUSD,
+	}
+	for k, p := range num {
+		if v := getenv(k); v != "" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Errorf("config: %s: %w", k, err)
+			}
+			*p = f
+		}
+	}
+	return nil
+}
+
+// Validate refuses configurations that would make the Core unsafe or ambiguous.
+func (c *Config) Validate() error {
+	var errs []string
+	add := func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) }
+	if c.ConfigVersion != 1 {
+		add("config_version must be 1")
+	}
+	if c.Server.Bind == "" {
+		add("server.bind is required")
+	}
+	if c.Database.Path == "" || c.Workspace.Root == "" {
+		add("database.path and workspace.root are required")
+	}
+	if len(c.Worker.Command) == 0 {
+		add("worker.command is required")
+	}
+	if c.Worker.MaxWorkers != 1 || c.Worker.MaxConcurrentTasks != 1 {
+		add("worker.max_workers and worker.max_concurrent_tasks must be 1 in Phase 1 (ADR-0003)")
+	}
+	tb := c.Budgets.TaskDefault
+	if tb.MaxCostUSD <= 0 || tb.MaxIterations <= 0 || tb.MaxWallSeconds <= 0 {
+		add("budgets.task_default values must be positive")
+	}
+	if c.Budgets.Global.DailyCostUSD <= 0 {
+		add("budgets.global.daily_cost_usd must be positive")
+	}
+	for tier, routes := range c.Models {
+		if !validTier(tier) {
+			add("models: unknown tier %q", tier)
+		}
+		for i, r := range routes {
+			if r.RouteID == "" || r.APIModelID == "" || r.DisplayName == "" {
+				add("models.%s[%d]: display_name, api_model_id and route_id are required", tier, i)
+			}
+			if r.PriceInPerMTok <= 0 || r.PriceOutPerMTok <= 0 {
+				add("models.%s[%d]: prices must be set (unknown cost fails closed)", tier, i)
+			}
+			switch r.ReasoningEffort {
+			case "", "low", "medium", "high":
+			default:
+				add("models.%s[%d]: reasoning_effort must be low|medium|high", tier, i)
+			}
+		}
+	}
+	if c.Approvals.TTLSeconds <= 0 {
+		add("approvals.ttl_seconds must be positive")
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("config invalid: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func validTier(t string) bool {
+	for _, x := range Tiers {
+		if x == t {
+			return true
+		}
+	}
+	return false
+}
+
+// Hash is a stable hash of the effective config (secret paths, never values).
+func (c *Config) Hash() string {
+	b, _ := json.Marshal(c)
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// ReadSecret reads a secret file after checking it is a regular file (not a
+// symlink), owned by the current user, with mode no wider than 0440.
+// Errors name the path, never the content.
+func ReadSecret(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("secret path is empty")
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("secret %s: %w", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("secret %s: must be a regular file, not a symlink", path)
+	}
+	if perm := fi.Mode().Perm(); perm&^0o440 != 0 {
+		return "", fmt.Errorf("secret %s: mode %04o is wider than 0440", path, perm)
+	}
+	if uid, ok := ownerUID(fi); ok && uid != os.Getuid() {
+		return "", fmt.Errorf("secret %s: not owned by the Core user", path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("secret %s: %w", path, err)
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return "", fmt.Errorf("secret %s: empty", path)
+	}
+	return s, nil
+}

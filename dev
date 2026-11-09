@@ -1,27 +1,29 @@
 #!/usr/bin/env bash
 # AURA task runner (Blueprint E.1 "Makefile or equivalent"). `make` is not installed on the host.
-# Every command runs in a throwaway container. Caches use AURA-only volumes (aura-gomod, aura-uvcache).
-# Usage: ./dev <build|test|test-go|test-py|lint|image|clean>   (prefix with sudo if docker needs it)
+# Every command runs in a throwaway container from the dev image (Python 3.12 + Go 1.26 + uv, deploy/dev.Dockerfile).
+# Caches use AURA-only volumes (aura-gomod, aura-uvcache), never Jarvis volumes.
+# Usage: ./dev <build|test|test-go|test-py|lint|lock|image|clean> [go test args]   (prefix with sudo if docker needs it)
 set -euo pipefail
 cd "$(dirname "$0")"
-GO_IMAGE=${GO_IMAGE:-golang:1.26-bookworm}
-PY_IMAGE=${PY_IMAGE:-python:3.12-slim}
+DEV_IMAGE=${DEV_IMAGE:-aura-dev:local}
 VERSION=${VERSION:-$(git describe --always --dirty 2>/dev/null || echo dev)}
-run_go() { docker run --rm -v "$PWD":/src -v aura-gomod:/go/pkg/mod -w /src/core/go "$GO_IMAGE" sh -c "$1"; }
-run_py() {
-  docker run --rm -v "$PWD":/src -v aura-uvcache:/root/.cache -w /src/intelligence/python \
-    -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_DISABLE_PIP_VERSION_CHECK=1 "$PY_IMAGE" \
-    sh -c "pip install -q --root-user-action=ignore uv && uv sync -q --locked && $1"
+docker image inspect "$DEV_IMAGE" >/dev/null 2>&1 || docker build -q -f deploy/dev.Dockerfile -t "$DEV_IMAGE" deploy >/dev/null
+run() {
+  docker run --rm -v "$PWD":/src -v aura-gomod:/root/go/pkg/mod -v aura-uvcache:/root/.cache \
+    -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e AURA_REAL_PROVIDER="${AURA_REAL_PROVIDER:-}" \
+    -w /src "$DEV_IMAGE" bash -c "$1"
 }
+PYENV='(cd intelligence/python && uv sync -q --locked) && export PATH=/tmp/venv/bin:$PATH'
+shift_args="${*:2}"
 case "${1:-}" in
-  build)   run_go "go vet ./... && CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags '-X main.Version=$VERSION' -o /tmp/aura ./cmd/aura && /tmp/aura version" ;;
-  test-go) run_go "go test ./..." ;;
-  test-py) run_py "uv run pytest -q" ;;
-  test)    "$0" test-go && "$0" test-py ;;
-  lint)    run_go 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }' && run_py "uv run ruff check ." ;;
-  lock)    docker run --rm -v "$PWD":/src -v aura-uvcache:/root/.cache -w /src/intelligence/python -e PIP_DISABLE_PIP_VERSION_CHECK=1 "$PY_IMAGE" \
-             sh -c "pip install -q --root-user-action=ignore uv && uv lock" ;;
+  build)   run "cd core/go && go vet ./... && go build -trimpath -ldflags '-X main.Version=$VERSION' -o /tmp/aura ./cmd/aura && /tmp/aura version" ;;
+  test-go) run "$PYENV && cd core/go && go test ${shift_args:-./...}" ;;
+  test-py) run "$PYENV && cd intelligence/python && pytest -q" ;;
+  test)    run "$PYENV && (cd core/go && go test ./...) && (cd intelligence/python && pytest -q)" ;;
+  lint)    run "$PYENV && cd core/go && test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }; cd /src/intelligence/python && ruff check ." ;;
+  fmt)     run "$PYENV && cd core/go && gofmt -w . && cd /src/intelligence/python && ruff check --fix . ; chown -R $(id -u):$(id -g) /src" ;;
+  lock)    run "cd intelligence/python && uv lock" ;;
   image)   docker build -f deploy/Dockerfile --build-arg VERSION="$VERSION" -t aura-core:local . ;;
   clean)   docker volume rm -f aura-gomod aura-uvcache ;;
-  *) echo "usage: ./dev <build|test|test-go|test-py|lint|lock|image|clean>" >&2; exit 2 ;;
+  *) echo "usage: ./dev <build|test|test-go|test-py|lint|fmt|lock|image|clean>" >&2; exit 2 ;;
 esac

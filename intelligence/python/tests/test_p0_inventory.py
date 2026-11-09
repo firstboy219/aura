@@ -1,6 +1,5 @@
-"""P0 consistency checks: benchmark inventory and the Phase 1 data model."""
+"""P0/P1 consistency checks: benchmark inventory and the Phase 1 schema (migration 0001)."""
 import pathlib
-import re
 import sqlite3
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -15,8 +14,8 @@ def test_benchmark_inventory_has_rs1_to_rs12():
 
 
 def _data_model_sql():
-    md = (ROOT / "docs" / "DATA_MODEL.md").read_text()
-    return re.search(r"```sql\n(.*?)```", md, re.DOTALL).group(1)
+    sql = (ROOT / "core" / "go" / "internal" / "store" / "migrations" / "0001_init.sql").read_text()
+    return "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, checksum TEXT, applied_at INTEGER);" + sql
 
 
 def test_data_model_sql_creates_only_phase1_tables():
@@ -25,7 +24,7 @@ def test_data_model_sql_creates_only_phase1_tables():
     tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
     assert tables == {
         "schema_migrations", "tasks", "task_steps", "task_events", "checkpoints", "capability_grants",
-        "approvals", "providers", "model_tiers", "usage_records", "audit_events",
+        "approvals", "providers", "model_tiers", "usage_records", "audit_events", "instance",
     }
 
 
