@@ -1,0 +1,211 @@
+package gateway_test
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"aura.local/core/internal/budget"
+	"aura.local/core/internal/config"
+	"aura.local/core/internal/gateway"
+	"aura.local/core/internal/gateway/gatewaytest"
+	"aura.local/core/internal/obs"
+	"aura.local/core/internal/store"
+	"aura.local/core/internal/task"
+)
+
+var routes = map[string][]config.ModelRoute{
+	"standard": {
+		{DisplayName: "A", APIModelID: "a", RouteID: "route/a", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000},
+		{DisplayName: "B", APIModelID: "b", RouteID: "route/b", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000},
+	},
+}
+
+const schema = `{"type":"object","additionalProperties":false,"required":["answer"],"properties":{"answer":{"type":"string"}}}`
+
+func setup(t *testing.T, p gateway.Provider) (*gateway.Gateway, *store.Store, string) {
+	t.Helper()
+	d := t.TempDir()
+	s, err := store.Open(context.Background(), filepath.Join(d, "a.db"), filepath.Join(d, "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	tk := &task.Task{Objective: "x", ConfigHash: "h"}
+	s.Write(context.Background(), func(tx *sql.Tx) error { return task.Insert(context.Background(), tx, tk) })
+	g := gateway.New(p, routes, budget.New(s, 10))
+	g.SetBackoff(func(int) time.Duration { return time.Millisecond })
+	return g, s, tk.ID
+}
+
+func req() gateway.Request {
+	return gateway.Request{Tier: "standard", Messages: []gateway.Message{{Role: "user", Content: "hi"}}, ResponseSchema: json.RawMessage(schema)}
+}
+
+func usageRows(s *store.Store) int {
+	var n int
+	s.R.QueryRow("select count(*) from usage_records where cost_actual_usd is not null").Scan(&n)
+	return n
+}
+
+func TestRetryIsBoundedThenFallback(t *testing.T) {
+	transient := &gateway.ProviderError{Status: 503, Transient: true, Msg: "busy"}
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Err: transient}, {Err: transient}, {Err: transient}, {Content: `{"answer":"ok"}`}}}
+	g, s, id := setup(t, f)
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RouteID != "route/b" || string(res.Structured) != `{"answer":"ok"}` {
+		t.Fatalf("%+v", res)
+	}
+	if strings.Join(f.Routes, ",") != "route/a,route/a,route/a,route/b" {
+		t.Fatalf("routes %v", f.Routes)
+	}
+	if usageRows(s) != 4 {
+		t.Fatalf("every attempt must be reconciled, got %d", usageRows(s))
+	}
+}
+
+func TestInvalidOutputRepairOnceThenFail(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Content: `{"wrong":1}`}, {Content: `{"answer":"fixed"}`}}}
+	g, _, id := setup(t, f)
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req())
+	if err != nil || string(res.Structured) != `{"answer":"fixed"}` {
+		t.Fatalf("%v %+v", err, res)
+	}
+	last := f.Calls[1].Messages
+	if !strings.Contains(last[len(last)-1].Content, "did not match") {
+		t.Fatal("repair prompt missing validation error")
+	}
+
+	f2 := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Content: `nope`}, {Content: `{"answer":5}`}, {Content: `{"answer":"x"}`}}}
+	g2, _, id2 := setup(t, f2)
+	_, err = g2.Complete(context.Background(), gateway.Budget{TaskID: id2, TaskLimitUSD: 1}, req())
+	if !errors.Is(err, gateway.ErrInvalidOutput) || f2.CallCount() != 2 {
+		t.Fatalf("want invalid output after exactly 2 calls, got %v after %d", err, f2.CallCount())
+	}
+}
+
+func TestNonTransientErrorFallsBackWithoutRetry(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Err: &gateway.ProviderError{Status: 404, Msg: "no model"}}, {Content: `{"answer":"b"}`}}}
+	g, _, id := setup(t, f)
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req()); err != nil {
+		t.Fatal(err)
+	}
+	if f.CallCount() != 2 {
+		t.Fatalf("calls %d", f.CallCount())
+	}
+}
+
+func TestBudgetStopsBeforeCall(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Content: `{"answer":"x"}`}}}
+	g, _, id := setup(t, f)
+	_, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 0.000001}, req())
+	if !errors.Is(err, budget.ErrTaskBudget) || f.CallCount() != 0 {
+		t.Fatalf("%v calls=%d", err, f.CallCount())
+	}
+}
+
+func TestCancelStopsInFlightCall(t *testing.T) {
+	f := &gatewaytest.Fake{Script: []gatewaytest.Reply{{Content: `{"answer":"x"}`, Delay: 10 * time.Second}}}
+	g, s, id := setup(t, f)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	start := time.Now()
+	_, err := g.Complete(ctx, gateway.Budget{TaskID: id, TaskLimitUSD: 1}, req())
+	if !errors.Is(err, context.Canceled) || time.Since(start) > 2*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+	var outcome string
+	s.R.QueryRow("select outcome from usage_records").Scan(&outcome)
+	if outcome != "cancelled" {
+		t.Fatalf("outcome %q", outcome)
+	}
+}
+
+// The OpenRouter adapter sends the key only in the Authorization header and
+// never logs it; it requests native structured output and usage accounting.
+func TestOpenRouterAdapter(t *testing.T) {
+	const key = "sk-or-v1-test-key-0123456789"
+	obs.RegisterSecret(key)
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(401)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &got)
+		w.Write([]byte(`{"id":"gen-1","choices":[{"message":{"content":"{\"answer\":\"hi\"}"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.0003}}`))
+	}))
+	defer srv.Close()
+	or := gateway.NewOpenRouter(srv.URL, key, 5*time.Second)
+	at, err := or.Complete(context.Background(), routes["standard"][0], req())
+	if err != nil || at.Content != `{"answer":"hi"}` || *at.CostUSD != 0.0003 {
+		t.Fatalf("%v %+v", err, at)
+	}
+	rf := got["response_format"].(map[string]any)
+	if rf["type"] != "json_schema" || got["model"] != "route/a" {
+		t.Fatalf("%v", got)
+	}
+	var buf bytes.Buffer
+	slog.New(obs.Handler{Handler: slog.NewJSONHandler(&buf, nil)}).Info("req", "auth", "Bearer "+key)
+	if strings.Contains(buf.String(), key) {
+		t.Fatal("key leaked to log")
+	}
+}
+
+func TestOpenRouterErrorsClassified(t *testing.T) {
+	status := 429
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		w.Write([]byte(`{"error":{"code":429,"message":"rate limited"}}`))
+	}))
+	defer srv.Close()
+	or := gateway.NewOpenRouter(srv.URL, "k", 5*time.Second)
+	_, err := or.Complete(context.Background(), routes["standard"][0], req())
+	var pe *gateway.ProviderError
+	if !errors.As(err, &pe) || !pe.Transient {
+		t.Fatalf("429 should be transient: %v", err)
+	}
+	status = 400
+	_, err = or.Complete(context.Background(), routes["standard"][0], req())
+	if !errors.As(err, &pe) || pe.Transient {
+		t.Fatalf("400 should be permanent: %v", err)
+	}
+}
+
+func TestVerifyRoutes(t *testing.T) {
+	cat := map[string]gateway.ModelInfo{
+		"route/a": {RouteID: "route/a", StructuredOutput: true, PriceInPerMTok: 1, PriceOutPerMTok: 2},
+		"route/b": {RouteID: "route/b", StructuredOutput: true, PriceInPerMTok: 5, PriceOutPerMTok: 2},
+	}
+	checks := gateway.VerifyRoutes(routes, cat)
+	if checks[0].Health != "ok" || checks[1].Health != "price_changed" {
+		t.Fatalf("%+v", checks)
+	}
+	if gateway.VerifyRoutes(routes, nil)[0].Health != "unknown" {
+		t.Fatal("nil catalog must be unknown")
+	}
+	_, s, _ := setup(t, &gatewaytest.Fake{})
+	if err := gateway.SyncRegistry(context.Background(), s, "https://x", "/run/k", routes, checks); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.R.QueryRow("select count(*) from model_tiers where tier='standard'").Scan(&n)
+	if n != 2 {
+		t.Fatal(n)
+	}
+}

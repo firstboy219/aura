@@ -125,7 +125,8 @@ type Actual struct {
 // cost is unknown, the reservation stays as the spend (fail closed) and the
 // record is flagged cost_uncertain.
 func (g *Governor) Reconcile(ctx context.Context, r *Reservation, taskID string, a Actual) error {
-	return g.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
+	ctx = context.WithoutCancel(ctx) // a cancelled call must still be accounted
+	return g.st.Write(ctx, func(tx *sql.Tx) error {
 		actual := r.Amount
 		uncertain := 1
 		if a.CostUSD != nil {
