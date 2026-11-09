@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AURA task runner (Blueprint E.1 "Makefile or equivalent"). `make` is not installed on the host.
 # Every command runs in a throwaway container from the dev image (Python 3.12 + Go 1.26 + uv, deploy/dev.Dockerfile).
-# Caches use AURA-only volumes (aura-gomod, aura-uvcache), never Jarvis volumes.
+# Caches use AURA-only volumes (aura-gomod, aura-uvcache); nothing is shared with other products.
 # Usage: ./dev <build|test|test-go|test-py|lint|lock|image|clean> [go test args]   (prefix with sudo if docker needs it)
 set -euo pipefail
 cd "$(dirname "$0")"

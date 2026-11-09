@@ -1,10 +1,10 @@
-# ADR-0014 — Deployment as a Docker stack separate from Jarvis
+# ADR-0014 — Deployment as an independent Docker stack
 
 Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
 
 ## Context
-Owner: implement AURA "tanpa mengganggu Jarvis yang ada saat ini dengan membuat docker yang terpisah". Blueprint §12:
-co-resident services must be measured and AURA must enforce its own quotas; §14: never modify Jarvis.
+Owner: run AURA in its own Docker stack so it disturbs nothing else on the host. Blueprint §12: co-resident services must be
+measured and AURA must enforce its own quotas; §15: AURA is independent of every other product.
 
 ## Decision
 - Compose project `aura` (`deploy/docker-compose.yml`): one service `aura-core` (Go Core; spawns the Python worker
@@ -16,5 +16,5 @@ co-resident services must be measured and AURA must enforce its own quotas; §14
 - Starting/restarting `aura-core` happens only on an explicit owner command.
 
 ## Consequences
-No shared failure domain with Jarvis except host CPU/RAM/disk and the shared OpenRouter key (A-04). Docker isolation
+No shared failure domain with other products except host CPU/RAM/disk. **Open conflict (see ASSUMPTIONS A-04):** the OpenRouter key currently in use is a copy of a key owned by another product, which Blueprint §15 / AGENTS rule 9 do not allow; the owner should give AURA its own key. Docker isolation
 is a deployment boundary, not the P4 sandbox.

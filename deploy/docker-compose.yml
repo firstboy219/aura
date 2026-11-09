@@ -1,5 +1,5 @@
-# AURA — its own Compose project. Shares nothing with Jarvis:
-# no jarvis_jarvis-network, no Jarvis volumes, no Jarvis ports, no proxy registration.
+# AURA — its own Compose project (Blueprint §15, independence): own network, own volume, loopback-only port,
+# no other product's networks, volumes or proxy registration.
 # Start only on an explicit owner command (AGENTS.md "Deployment").
 name: aura
 

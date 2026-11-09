@@ -1,4 +1,4 @@
-# AURA runtime image. Separate from every Jarvis image; built only from this repo.
+# AURA runtime image; built only from this repository.
 FROM golang:1.26-bookworm AS core
 WORKDIR /src/core/go
 COPY core/go/go.mod core/go/go.sum ./

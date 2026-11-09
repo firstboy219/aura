@@ -1,17 +1,17 @@
 # AURA — Autonomous Universal Runtime Agent
 
 Proprietary agent runtime: Go Core (hands + keys) + Python worker (brain, no keys) + SQLite.
-Product direction: `docs/MASTER_BLUEPRINT.md` (v1.3.9, owner-controlled). Rules: `AGENTS.md`.
+Product direction: `docs/MASTER_BLUEPRINT.md` (v1.3.11, owner-controlled). Rules: `AGENTS.md`.
 
-**Status: Phase 1 (Core Runtime + Vertical Slice)** — durable tasks end to end: plan → sequential tool steps →
-deterministic completion check, with capability grants, A0/A2/A3 approvals, budget governor, kill switch, crash
-recovery, OpenRouter gateway with structured output, `web.fetch` / `workspace.read` / `workspace.write`, REST API
-and CLI. Evidence: `benchmarks/reports/P1-2026-11-09.md`.
+**Status:** P1 accepted; P2 (agent loop, tools, supervisor, subagents, MCP, console) and most of P3 (memory, identity/Charter
+framework, learning, owner profile, self-model, Limitation Ledger, triggers, proactive watch) are implemented and tested;
+the P2a/P2b/P3a/P3b owner gates are waived by the owner's decision (docs/ASSUMPTIONS.md A-21). Conformance with the v1.3.11
+blueprint and its open gaps: `docs/CONFORMANCE_v1.3.11.md`.
 
-## Separate from Jarvis
+## Independent product
 AURA is its own repository and its own Docker Compose project (`aura`): container `aura-core`, network `aura-net`,
-volume `aura-data`, port `127.0.0.1:7400`. It does not use or modify any Jarvis container, network, volume,
-database, or code. See `docs/ADR/0014-separate-docker-deployment.md`.
+volume `aura-data`, port `127.0.0.1:7400`. It has no dependency on any other product (Blueprint §15): it does not use or modify any other product's container, network,
+volume, database, code or credentials. See `docs/ADR/0014-separate-docker-deployment.md`.
 
 ## Deploy (owner)
 ```

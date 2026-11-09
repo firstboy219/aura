@@ -59,6 +59,6 @@ provider JSON-schema response format; invalid output → one repair attempt → 
 | github.com/charmbracelet/bubbletea, lipgloss, bubbles (+ deps) | Console TUI (ADR-0022) | MIT |
 | Python: none at runtime; dev: pytest (MIT), ruff (MIT), jsonschema (MIT) | | |
 
-## 7. Isolation from Jarvis
-See ADR-0014 and ASSUMPTIONS A-05. Nothing in AURA reads from or writes to Jarvis code, containers, networks,
-volumes, databases, Qdrant, n8n, or Hermes. Jarvis integration is P5 (adapter only, §15).
+## 7. Independence (Blueprint §15)
+See ADR-0014 and ASSUMPTIONS A-05. AURA has no runtime, data, code or credential dependency on any other product. Any future
+integration with an external product is a new owner decision made after the relevant phase (not on the roadmap).

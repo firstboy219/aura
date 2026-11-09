@@ -5,8 +5,8 @@ Status: written in P0 from Master Blueprint §3, §5.1, §7, §8.1–8.5, §8.8,
 Evidence level: **design-reviewed**. Security does not rely on source secrecy (§3.3).
 
 ## 1. Assets
-Provider key (shared with Jarvis, A-04); API bearer token; task data, workspace files, event/audit log; budget; host
-resources shared with Jarvis.
+Provider key (**currently a copy of another product's key — conflicts with Blueprint §15, A-04**); API bearer token; task data, workspace files, event/audit log; budget; host
+resources shared with other workloads on the host.
 
 ## 2. Trust zones (Blueprint §7)
 | Zone | Trust | P1 enforcement |
@@ -15,7 +15,7 @@ resources shared with Jarvis.
 | Owner via CLI/REST | Trusted for granted actions | Bearer token, loopback bind, rate limit, audit |
 | Python worker | Semi-trusted | No keys/DB/network by architecture; every request checked against grant (ADR-0006) |
 | Model output, fetched content, workspace files | Untrusted | Data only; schema-validated before any action |
-| Host / Jarvis | Out of scope for AURA authority | AURA never touches it (ADR-0014) |
+| Host and co-resident products | Out of scope for AURA authority | AURA never touches them (ADR-0014, Blueprint §15) |
 
 ## 3. Threats and P1 controls
 | # | Threat | Control | Test (D.1 P1) |
@@ -30,13 +30,13 @@ resources shared with Jarvis.
 | T8 | Approval tampering / replay | Canonical action hash, expiry, single-use, invalidation on change | approval integrity (SEC-08) |
 | T9 | Runaway task / need to stop everything | Kill switch: cancel contexts of in-flight HTTP, SIGTERM→SIGKILL worker, block new calls, persist state | kill-switch test |
 | T10 | API abuse | Loopback bind, 256-bit token in 0400 file, constant-time compare, per-token rate limit, request size caps, request IDs, structured errors without internals | API tests |
-| T11 | Noisy neighbour with Jarvis | Container CPU/RAM/pids limits, one worker, one task at a time | resource baseline |
+| T11 | Noisy neighbour (other workloads on the host) | Container CPU/RAM/pids limits, one worker, one task at a time | resource baseline |
 
 ## 4. Honest limits in P1
 - The worker is **not OS-sandboxed** and shares the Core uid inside the container (ADR-0007). Mitigated by
   architecture and tests; OS isolation is P4.
-- Docker is a deployment boundary from Jarvis, not a hostile-code sandbox.
-- The provider key is shared with Jarvis (A-04): AURA's budget bounds AURA's calls, not Jarvis's.
+- Docker is a deployment boundary from co-resident products, not a hostile-code sandbox.
+- The provider key is a copy of another product's key (A-04, open conflict with §15): AURA's budget bounds AURA's calls, not the other product's.
 - No encryption at rest for secrets in P1 (file permissions only); encrypted storage and rotation are P4.
 
 ## 5. Permanent prohibitions (§3.1)
