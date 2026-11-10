@@ -443,7 +443,7 @@ func requiredArgs(ps *plannedStep) error {
 		if strings.HasPrefix(*ps.ToolID, "browser.") {
 			return nil
 		}
-		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") {
+		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") || strings.HasPrefix(*ps.ToolID, "connector.") {
 			var m map[string]any
 			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
 				return errors.New("input must be a JSON object with the tool's arguments")

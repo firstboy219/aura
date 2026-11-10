@@ -602,6 +602,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	if strings.HasPrefix(c.ToolID, "browser.") {
 		return e.validateBrowserArgs(s, c)
 	}
+	if strings.HasPrefix(c.ToolID, "connector.") {
+		return validateMCPArgs(s, c) // planned input, decided at planning time
+	}
 	return nil, "", "unknown_tool"
 }
 
@@ -646,6 +649,9 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	}
 	if strings.HasPrefix(spec.ID, "browser.") {
 		return e.executeBrowser(ctx, t, st, spec, args)
+	}
+	if spec.ID == ConnectorGitHubTool {
+		return e.executeGitHub(ctx, t, st, spec, args)
 	}
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":

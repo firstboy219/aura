@@ -27,6 +27,7 @@ import (
 	"aura.local/core/internal/api"
 	"aura.local/core/internal/browser"
 	"aura.local/core/internal/budget"
+	"aura.local/core/internal/channel"
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/egress"
 	"aura.local/core/internal/engine"
@@ -218,6 +219,15 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
 		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Secret: a.secret, Vault: a.Vault, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
+	if gh := cfg.Connectors.GitHub; gh.Enabled {
+		tok, err := a.secret(ctx, gh.TokenRef)
+		if err != nil {
+			st.Close()
+			return nil, fmt.Errorf("connectors.github: %w", err)
+		}
+		obs.RegisterSecret(tok)
+		a.Engine.SetGitHubConnector(&engine.GitHubConnector{Token: tok, Repos: gh.Repos})
+	}
 	if cfg.Browser.Socket != "" {
 		a.Egress = egress.New(tools.NewGuard(), log)
 		a.Egress.OnDeny = a.Engine.RecordEgressDenial
@@ -476,6 +486,15 @@ func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
 	engineDone := make(chan error, 1)
 	go func() { engineDone <- a.Engine.Run(ectx) }()
 	go a.maintain(ectx)
+	if tg := a.Cfg.Channels.Telegram; tg.Enabled {
+		if tok, err := a.secret(ectx, tg.TokenRef); err != nil {
+			a.Log.Error("telegram channel disabled: token unavailable", "err", err)
+		} else {
+			bot := channel.NewTelegram(channel.TelegramConfig{Token: tok, AllowedUserIDs: tg.AllowedUserIDs, DefaultTools: tg.DefaultTools,
+				DefaultDomains: tg.DefaultDomains, WebOrigin: a.Cfg.Web.Origin}, a.Engine, a.Store, a.Log)
+			go bot.Run(ectx)
+		}
+	}
 	if a.Egress != nil {
 		go func() {
 			if err := a.Egress.Serve(ectx, a.Cfg.Browser.ProxyListen); err != nil {

@@ -50,6 +50,7 @@ type Engine struct {
 	charter     string            // owner Charter text ("" = not provided)
 	sbx         *sandbox.Runtime  // nil: L2 tools unavailable
 	brs         *browserState     // nil: browser automation unavailable
+	github      *GitHubConnector  // nil: the GitHub connector is not configured
 	secret      func(ctx context.Context, ref string) (string, error)
 	vault       *vault.Vault
 	ledgerCfg   LedgerConfig

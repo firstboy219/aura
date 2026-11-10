@@ -37,6 +37,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "l2_tools",  # migration 0006, ADR-0038
         "web_owner", "web_sessions", "web_setup",  # migration 0007, ADR-0041
         "members", "settings",  # migration 0008, ADR-0043
+        "channel_deliveries",  # migration 0009, ADR-0044
     }
 
 

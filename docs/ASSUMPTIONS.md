@@ -75,3 +75,13 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 | docs/MODEL_ASSIGNMENT.md | 1.2 | 2bd1f81ed60f04c2 | installed verbatim |
 | docs/ISLAMIC_CHARTER.md | 0.1 owner draft | e045e2357b5ec4a4 | installed verbatim; not approved for enforcement |
 | SECURITY_MODEL.md, DATA_MODEL.md, API_SPEC.md, ARCHITECTURE.md, IMPLEMENTATION_SPEC.md | written by Claude Code | — | for owner review; `docs/CONFORMANCE_v1.3.11.md` lists where they trail the code |
+
+### ASSUMPTION-0028: P5a acceptance gate waived for P5b
+- Context: Blueprint D.1 P5 says not to start messaging/integration work until P5a (OCA + Web) passes owner acceptance.
+- Decision: the owner instructed on 2026-11-10 to "continue to the last phase"; P5b (one channel, one connector pilot) is built
+  while voice (OCA) is deferred by the owner and the Web App is not yet reachable publicly (DNS records pending in Cloudflare).
+- Alternatives considered: stop at P5a and wait for acceptance.
+- Risk if wrong: P5b work may need changes after P5a review.
+- Reversibility: easy (channels and connectors are off unless configured).
+- Needs owner approval: N (instructed)
+- Status: approved

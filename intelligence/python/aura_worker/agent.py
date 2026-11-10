@@ -155,7 +155,7 @@ _L2_TOOL = re.compile(r"^l2\.[a-z][a-z0-9_]{1,38}$")
 
 
 def is_known_tool(t: str) -> bool:
-    return t in TOOLS or (t.startswith("mcp.") and t.count(".") >= 2) or bool(_L2_TOOL.match(t))
+    return t in TOOLS or (t.startswith("mcp.") and t.count(".") >= 2) or bool(_L2_TOOL.match(t)) or t == "connector.github.read"
 
 
 # ---------------------------------------------------------------- prompts
@@ -405,6 +405,9 @@ def tool_docs(granted: list[str], domains: list[str], extra: dict | None = None)
         elif t.startswith("mcp."):
             desc = (extra or {}).get(t, "an external tool")
             lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments.')
+        elif t.startswith("connector."):
+            desc = (extra or {}).get(t, "a read-only connector")
+            lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string).')
         elif t.startswith("l2."):
             desc = (extra or {}).get(t, "an approved AURA tool")
             lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments; to give it a workspace '
@@ -521,7 +524,7 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
             raise StepFailure(f"step {i}: calc expression {str(s.get('expression'))[:80]!r} is not plain arithmetic; use only "
                               "numbers, + - * / ^ ( ) and round/abs/min/max/sqrt, or set expression to null to compute it "
                               "from the observations at step time", "invalid_plan")
-        if tool.startswith(("mcp.", "l2.")) and not _json_object(s.get("input")):
+        if tool.startswith(("mcp.", "l2.", "connector.")) and not _json_object(s.get("input")):
             raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan")
         if tool == "browser.upload" and not s.get("path"):
             raise StepFailure(f"step {i}: browser.upload needs path", "invalid_plan")
@@ -746,7 +749,7 @@ def step(ch: Channel, params: dict) -> dict:
         if not isinstance(content, str) or not content.strip():
             raise StepFailure("model returned empty content", "invalid_model_output")
         return _result(_invoke(ch, tool, {"path": s.get("path"), "content": content}))
-    if tool and tool.startswith("mcp."):
+    if tool and tool.startswith(("mcp.", "connector.")):
         return _result(_invoke(ch, tool, {"arguments": json.loads(s.get("input") or "{}")}))
     if tool == "browser.open":
         url = s.get("url")

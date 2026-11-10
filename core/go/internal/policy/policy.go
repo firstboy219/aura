@@ -130,6 +130,16 @@ func RegisterL2Tool(id string, version int) {
 	Manifest[id] = ToolSpec{ID: id, Version: fmt.Sprintf("l2-%d", version), SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }}
 }
 
+// RegisterConnectorTool registers a read-only connector tool (ADR-0045): A0, read.
+func RegisterConnectorTool(id string) {
+	if !strings.HasPrefix(id, "connector.") {
+		panic("policy: connector tool ids start with connector.")
+	}
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+	Manifest[id] = ToolSpec{ID: id, Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }}
+}
+
 // UnregisterL2Tool removes an L2 tool (disabled or rolled back).
 func UnregisterL2Tool(id string) {
 	if !strings.HasPrefix(id, "l2.") {

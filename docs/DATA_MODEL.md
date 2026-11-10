@@ -28,6 +28,7 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 | tasks rebuilt | states `WAITING_INPUT`, `WAITING`; columns `priority`, `replans`, `tier_override` (SQLite table-rebuild procedure with foreign keys off and `foreign_key_check`) |
 | task_steps.plan_json | planned arguments per step (replanning, provenance checks) |
 | task_waits | supervisor waits: event / time / child tasks; exactly-once wake (ADR-0018) |
+| channel_deliveries | owner notifications delivered per channel, once each (0009, ADR-0044, OL-11) |
 | members, settings | workspace members with roles viewer/operator/approver and their own API tokens (by hash); owner runtime settings such as the daily budget (0008, ADR-0043) |
 | web_owner, web_sessions, web_setup | Web App owner: argon2id password hash, TOTP replay step, lockout; sessions by hash with CSRF token; one-time setup links by hash (0007, ADR-0041) |
 | secrets | encrypted secret values: AES-256-GCM ciphertext + nonce, key id; never plaintext (0005, ADR-0036) |

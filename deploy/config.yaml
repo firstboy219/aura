@@ -74,6 +74,11 @@ browser: { socket: /run/aura-browser/browser.sock, proxy_listen: ":7480" }
 # api_hosts serve the bearer-token API only.
 # web: { enabled: true, origin: "https://aura.example.com", api_hosts: ["aurax.example.com"], session_hours: 12,
 #        trusted_proxy_cidrs: ["172.21.0.0/16"] }
+# Messaging channel (ADR-0044): a Telegram bot that serves only your user id. Token: aura admin credential set telegram --stdin
+# channels: { telegram: { enabled: true, token_ref: "vault:connector.telegram", allowed_user_ids: [123456789],
+#             default_tools: [web.search, web.fetch, workspace.write], default_domains: ["*.wikipedia.org"] } }
+# Connector pilot (ADR-0045): GitHub read-only, fine-grained token limited to chosen repos; the Core re-checks the allowlist.
+# connectors: { github: { enabled: true, token_ref: "vault:connector.github", repos: ["owner/repo"] } }
 # Login profiles, downloads and uploads (ADR-0040). Example (disabled):
 # browser:
 #   downloads: true            # quarantined; only download_types enter the workspace

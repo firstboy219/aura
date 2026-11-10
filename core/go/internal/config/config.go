@@ -152,6 +152,24 @@ type Config struct {
 		// TrustedProxyCIDRs: requests from these addresses (the tunnel connector) carry the client IP in CF-Connecting-IP.
 		TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs" json:"trusted_proxy_cidrs"`
 	} `yaml:"web" json:"web"`
+	// Connectors are integration pilots (ADR-0045).
+	Connectors struct {
+		GitHub struct {
+			Enabled  bool     `yaml:"enabled" json:"enabled"`
+			TokenRef string   `yaml:"token_ref" json:"token_ref"` // vault:connector.github (fine-grained, read-only)
+			Repos    []string `yaml:"repos" json:"repos"`         // owner/name allowlist checked by the Core
+		} `yaml:"github" json:"github"`
+	} `yaml:"connectors" json:"connectors"`
+	// Channels are messaging channels to the owner (ADR-0044).
+	Channels struct {
+		Telegram struct {
+			Enabled        bool     `yaml:"enabled" json:"enabled"`
+			TokenRef       string   `yaml:"token_ref" json:"token_ref"` // vault:connector.telegram
+			AllowedUserIDs []int64  `yaml:"allowed_user_ids" json:"allowed_user_ids"`
+			DefaultTools   []string `yaml:"default_tools" json:"default_tools"`
+			DefaultDomains []string `yaml:"default_domains" json:"default_domains"`
+		} `yaml:"telegram" json:"telegram"`
+	} `yaml:"channels" json:"channels"`
 	// Browser configures browser automation v1 (ADR-0039): the isolated browser
 	// host's socket and the Core's egress proxy (the browser's only way out).
 	Browser struct {
@@ -478,6 +496,9 @@ func (c *Config) Validate() error {
 		if _, err := netip.ParsePrefix(x); err != nil {
 			add("web.trusted_proxy_cidrs: %s is not a CIDR", x)
 		}
+	}
+	if tg := c.Channels.Telegram; tg.Enabled && (tg.TokenRef == "" || len(tg.AllowedUserIDs) == 0) {
+		add("channels.telegram: token_ref and at least one allowed_user_ids entry are required")
 	}
 	profiles := map[string]bool{}
 	for _, l := range c.Browser.Logins {
