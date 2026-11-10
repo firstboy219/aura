@@ -108,7 +108,6 @@ func (e *Engine) Run(ctx context.Context) error {
 	if err := e.Recover(ctx); err != nil {
 		return err
 	}
-	e.CloseAllBrowserSessions() // sessions of a previous Core run are not resumable
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {

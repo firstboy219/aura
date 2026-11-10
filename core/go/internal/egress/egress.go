@@ -72,6 +72,13 @@ func (p *Proxy) Remove(id string) {
 	p.mu.Unlock()
 }
 
+// Session returns a registered session (nil if none).
+func (p *Proxy) Session(id string) *Session {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.sessions[id]
+}
+
 // RemoveAll ends every session (kill switch).
 func (p *Proxy) RemoveAll() {
 	p.mu.Lock()

@@ -31,6 +31,14 @@ const I18N = {
     "tools.title": "Alat L2 buatan AURA", "tools.empty": "Belum ada alat.", "tools.source": "Kode sumber", "tools.tests": "Test",
     "tools.report": "Laporan sandbox", "tools.approve": "Setujui kode persis ini", "tools.reject": "Tolak", "tools.disable": "Nonaktifkan",
     "self.title": "Tentang AURA", "err": "Gagal: ", "saved": "Tersimpan.",
+    "nav.browser": "Browser", "br.title": "Browser", "br.profiles": "Profil login", "br.sessions": "Sesi terbuka",
+    "br.noProfiles": "Belum ada profil login (browser.logins di config).", "br.noSessions": "Tidak ada sesi browser yang terbuka.",
+    "br.saved": "sesi tersimpan", "br.start": "Login sendiri", "br.startUrl": "Halaman awal (URL login situs)",
+    "br.extra": "Domain tambahan untuk proses login (mis. accounts.google.com, *.gstatic.com)", "br.view": "Lihat",
+    "br.takeover": "Ambil alih browser", "br.screenHint": "Ketuk gambar untuk mengklik. AURA berhenti bertindak selama Anda memegang kontrol.",
+    "br.type": "Ketik teks (tidak dicatat)", "br.send": "Ketik", "br.refresh": "Segarkan", "br.back": "Kembali", "br.up": "Gulir atas",
+    "br.down": "Gulir bawah", "br.return": "Kembalikan kontrol ke AURA", "br.saveClose": "Simpan sesi login & tutup",
+    "br.closeOnly": "Tutup tanpa menyimpan", "br.goto": "Buka URL", "br.returned": "Kontrol dikembalikan; AURA membaca ulang halaman.",
   },
   en: {
     loading: "Loading…", "nav.tasks": "Tasks", "nav.approvals": "Approvals", "nav.notifications": "Notifications",
@@ -60,6 +68,14 @@ const I18N = {
     "tools.title": "AURA-built L2 tools", "tools.empty": "No tools yet.", "tools.source": "Source", "tools.tests": "Tests",
     "tools.report": "Sandbox report", "tools.approve": "Approve exactly this source", "tools.reject": "Reject", "tools.disable": "Disable",
     "self.title": "About AURA", "err": "Failed: ", "saved": "Saved.",
+    "nav.browser": "Browser", "br.title": "Browser", "br.profiles": "Login profiles", "br.sessions": "Open sessions",
+    "br.noProfiles": "No login profiles yet (browser.logins in the config).", "br.noSessions": "No open browser sessions.",
+    "br.saved": "session saved", "br.start": "Sign in myself", "br.startUrl": "Start page (the site's login URL)",
+    "br.extra": "Extra domains the sign-in needs (e.g. accounts.google.com, *.gstatic.com)", "br.view": "View",
+    "br.takeover": "Take over the browser", "br.screenHint": "Tap the picture to click. AURA stops acting while you have control.",
+    "br.type": "Type text (not recorded)", "br.send": "Type", "br.refresh": "Refresh", "br.back": "Back", "br.up": "Scroll up",
+    "br.down": "Scroll down", "br.return": "Return control to AURA", "br.saveClose": "Save the login session & close",
+    "br.closeOnly": "Close without saving", "br.goto": "Open URL", "br.returned": "Control returned; AURA reads the page again.",
   },
 };
 
@@ -237,6 +253,12 @@ async function routeTask(id) {
     el("dt", { text: t("task.cost") }), el("dd", { text: "$" + Number(tk.cost_usd || 0).toFixed(4) }))));
   for (const a of mine) parts.push(el("div", { class: "card" }, el("strong", { text: t("task.approvalPending") + ": " + a.tool_id }), " ",
     el("a", { href: "#/approvals", text: t("task.open") })));
+  const sess = (await guard(() => api("GET", "/browser/sessions"))) || { sessions: [] };
+  if ((sess.sessions || []).some((x) => x.key === id)) {
+    parts.push(el("div", { class: "row" }, el("button", { type: "button", on: { click: async () => {
+      if (await guard(() => api("POST", "/tasks/" + encodeURIComponent(id) + "/browser/takeover"))) location.hash = "#/screen/" + encodeURIComponent(id);
+    } }, text: t("br.takeover") })));
+  }
   // A pending question.
   if (full && full.question) {
     const ans = el("textarea", { id: "ans", required: true, maxlength: 4000 });
@@ -358,6 +380,77 @@ async function routeTools() {
   render(el("h1", { text: t("tools.title") }), cards.length ? cards : el("p", { class: "muted", text: t("tools.empty") }));
 }
 
+// ---------------------------------------------------------------- browser: profiles, sessions, remote view (ADR-0042)
+async function routeBrowser() {
+  const pr = await guard(() => api("GET", "/browser/profiles"));
+  const ss = await guard(() => api("GET", "/browser/sessions"));
+  if (!pr || !ss) return;
+  const split = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
+  const profiles = (pr.profiles || []).map((p) => {
+    const u = el("input", { type: "url", placeholder: "https://" + (p.domains[0] || "") + "/login", id: "u-" + p.name });
+    const x = el("input", { type: "text", id: "x-" + p.name });
+    return el("form", { class: "card", on: { submit: async (ev) => {
+      ev.preventDefault();
+      const r = await guard(() => api("POST", "/browser/profiles/" + encodeURIComponent(p.name) + "/login", { url: u.value, extra_domains: split(x.value) }));
+      if (r) location.hash = "#/screen/" + encodeURIComponent(r.session);
+    } } }, el("div", { class: "row" }, el("strong", { text: p.name }), el("span", { class: "muted", text: p.domains.join(", ") + (p.session_saved ? " · " + t("br.saved") : "") })),
+      el("label", { for: "u-" + p.name, text: t("br.startUrl") }), u, el("label", { for: "x-" + p.name, text: t("br.extra") }), x,
+      el("p", {}, el("button", { type: "submit", text: t("br.start") })));
+  });
+  const sessions = (ss.sessions || []).map((s) => el("div", { class: "card row" }, el("span", { text: s.key }),
+    el("span", { class: "muted", text: s.url || "" }), el("a", { href: "#/screen/" + encodeURIComponent(s.key), text: t("br.view") })));
+  render(el("h1", { text: t("br.title") }), el("h2", { text: t("br.profiles") }), profiles.length ? profiles : el("p", { class: "muted", text: t("br.noProfiles") }),
+    el("h2", { text: t("br.sessions") }), sessions.length ? sessions : el("p", { class: "muted", text: t("br.noSessions") }));
+}
+
+let screenURL = "";
+async function routeScreen(key) {
+  const img = el("img", { alt: "", width: 1280, height: 800, class: "screen" });
+  const urlLine = el("p", { class: "muted" });
+  const base = "/browser/sessions/" + encodeURIComponent(key);
+  const refresh = async () => {
+    try {
+      const r = await fetch("/api/v1" + base + "/screen", { credentials: "same-origin" });
+      if (!r.ok) throw new Error(String(r.status));
+      urlLine.textContent = r.headers.get("X-Page-URL") || "";
+      const b = await r.blob();
+      if (screenURL) URL.revokeObjectURL(screenURL);
+      screenURL = URL.createObjectURL(b);
+      img.src = screenURL;
+    } catch (e) { toast(t("err") + e.message); }
+  };
+  const input = async (body) => { if (await guard(() => api("POST", base + "/input", body))) setTimeout(refresh, 400); };
+  img.addEventListener("click", (ev) => {
+    const r = img.getBoundingClientRect();
+    input({ action: "click", x: Math.round((ev.clientX - r.left) * 1280 / r.width), y: Math.round((ev.clientY - r.top) * 800 / r.height) });
+  });
+  const text = el("input", { type: "text", id: "rt", autocomplete: "off" });
+  const go = el("input", { type: "url", id: "rg" });
+  const owner = key.startsWith("owner-");
+  const profile = owner ? key.slice(6) : "";
+  const finish = (save) => async () => {
+    if (await guard(() => api("POST", "/browser/profiles/" + encodeURIComponent(profile) + "/login/finish", { save }))) { toast(t("saved")); location.hash = "#/browser"; }
+  };
+  render(el("h1", { text: key }), el("p", { class: "muted", text: t("br.screenHint") }), urlLine, img,
+    el("form", { class: "row", on: { submit: (ev) => { ev.preventDefault(); const v = text.value; text.value = ""; if (v) input({ action: "type", text: v }); } } },
+      el("label", { for: "rt", text: t("br.type") }), text, el("button", { type: "submit", text: t("br.send") })),
+    el("div", { class: "row" },
+      ["Enter", "Tab", "Backspace", "Escape"].map((k) => el("button", { type: "button", on: { click: () => input({ action: "key", key: k }) }, text: k })),
+      el("button", { type: "button", on: { click: () => input({ action: "scroll", direction: "up" }) }, text: t("br.up") }),
+      el("button", { type: "button", on: { click: () => input({ action: "scroll", direction: "down" }) }, text: t("br.down") }),
+      el("button", { type: "button", on: { click: () => input({ action: "back" }) }, text: t("br.back") }),
+      el("button", { type: "button", on: { click: refresh }, text: t("br.refresh") })),
+    el("form", { class: "row", on: { submit: (ev) => { ev.preventDefault(); if (go.value) input({ action: "goto", url: go.value }); } } },
+      el("label", { for: "rg", text: t("br.goto") }), go, el("button", { type: "submit", text: t("br.goto") })),
+    owner ? el("div", { class: "row" }, el("button", { class: "primary", type: "button", on: { click: finish(true) }, text: t("br.saveClose") }),
+      el("button", { type: "button", on: { click: finish(false) }, text: t("br.closeOnly") }))
+      : el("p", {}, el("button", { class: "primary", type: "button", on: { click: async () => {
+        if (await guard(() => api("POST", base + "/return"))) { toast(t("br.returned")); location.hash = "#/task/" + encodeURIComponent(key); }
+      } }, text: t("br.return") })));
+  refresh();
+  timer = setInterval(() => { if (location.hash === "#/screen/" + encodeURIComponent(key) || location.hash === "#/screen/" + key) refresh(); }, 3000);
+}
+
 async function routeSelf() {
   const data = await guard(() => api("GET", "/self"));
   if (data) render(el("h1", { text: t("self.title") }), pretty(data));
@@ -365,7 +458,7 @@ async function routeSelf() {
 
 // ---------------------------------------------------------------- router
 async function route() {
-  if (timer) { clearTimeout(timer); timer = null; }
+  if (timer) { clearTimeout(timer); clearInterval(timer); timer = null; }
   const h = location.hash || "#/";
   if (h.startsWith("#/setup/")) { routeSetup(decodeURIComponent(h.slice(8))); return; }
   const info = await fetch("/api/v1/web/session", { credentials: "same-origin" }).then((r) => r.json()).catch(() => null);
@@ -375,6 +468,8 @@ async function route() {
   if (h === "#/approvals") return routeApprovals();
   if (h === "#/notifications") return routeNotifications();
   if (h === "#/tools") return routeTools();
+  if (h === "#/browser") return routeBrowser();
+  if (h.startsWith("#/screen/")) return routeScreen(decodeURIComponent(h.slice(9)));
   if (h === "#/self") return routeSelf();
   return routeTasks();
 }

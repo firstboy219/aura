@@ -35,6 +35,8 @@ type brSession struct {
 	elements []browser.Element
 	typed    []map[string]any // type/select on the current page since the last navigation
 	loggedIn string           // login profile used successfully in this session (ADR-0040)
+	// ownerControl: the owner has taken over (ADR-0042); AURA's browser tools are refused.
+	ownerControl, pausedByTakeover bool
 }
 
 type browserState struct {
@@ -52,6 +54,7 @@ var ErrBrowserUnavailable = errors.New("tool_failed: browser automation is not c
 // SetBrowser enables browser tools (app wiring).
 func (e *Engine) SetBrowser(c *browser.Client, p *egress.Proxy) {
 	e.brs = &browserState{client: c, proxy: p, sessions: map[string]*brSession{}}
+	e.CloseAllBrowserSessions() // sessions of a previous Core run are not resumable
 }
 
 func randomToken() string {
@@ -136,6 +139,14 @@ func findElement(s *brSession, ref string) (browser.Element, bool) {
 func (e *Engine) validateBrowserArgs(s *session, c toolCall) (map[string]any, string, string) {
 	if e.brs == nil {
 		return nil, "", "browser_unavailable"
+	}
+	if bs := e.existingBrowserSession(s.t.ID); bs != nil {
+		bs.mu.Lock()
+		owner := bs.ownerControl
+		bs.mu.Unlock()
+		if owner {
+			return nil, "", "owner_has_control" // AURA does not act while the owner controls the page
+		}
 	}
 	switch c.ToolID {
 	case "browser.download", "browser.upload", "browser.login", "browser.mfa":

@@ -32,3 +32,4 @@ dl { display:grid; grid-template-columns:max-content 1fr; gap:.3rem 1rem; margin
 .ev .t { font-size:.8rem; color:var(--muted); }
 #toast { position:fixed; bottom:1rem; left:50%; transform:translateX(-50%); background:var(--panel); border:1px solid var(--line); padding:.6rem 1rem; border-radius:8px; display:none; max-width:90vw; }
 @media (max-width:600px) { body { font-size:15px; } dl { grid-template-columns:1fr; } dt { margin-top:.4rem; } }
+img.screen { max-width:100%; height:auto; border:1px solid var(--line); border-radius:8px; cursor:crosshair; display:block; margin:.5rem 0; }

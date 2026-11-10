@@ -426,7 +426,7 @@ func (s *Server) stepUp(r *http.Request, code string) bool {
 }
 
 // appCSP forbids inline script, remote code, framing and plugin content.
-const appCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
+const appCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; " +
 	"base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 // webApp serves the embedded single-page app (Blueprint 13A.7 rule 10).

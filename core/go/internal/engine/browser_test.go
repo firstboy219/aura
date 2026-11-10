@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
 	"aura.local/core/internal/tools"
+	"aura.local/core/internal/vault"
 )
 
 // fakeHost speaks the browser host protocol: a search page (e1 = query box,
@@ -123,6 +125,16 @@ func (h *fakeHost) handle(method string, p map[string]any) (any, any) {
 	case "page.click":
 		h.sessions[sid] = strings.TrimSuffix(h.sessions[sid], "/") + "/results"
 		return map[string]any{"url": h.sessions[sid], "title": "Results", "status": 200}, nil
+	case "page.screenshot":
+		return map[string]any{"url": h.sessions[sid], "png_base64": "iVBORw0KGgo="}, nil
+	case "page.mouse_click", "page.key", "page.wait", "page.scroll", "page.back":
+		return map[string]any{"url": h.sessions[sid]}, nil
+	case "page.keyboard_type":
+		h.typed[sid] = p["text"].(string)
+		return map[string]any{"url": h.sessions[sid]}, nil
+	case "session.export":
+		return map[string]any{"storage_state": map[string]any{"cookies": []any{
+			map[string]any{"name": "sid", "value": "handoff-cookie", "domain": "fixture.test", "path": "/", "expires": -1}}, "origins": []any{}}}, nil
 	}
 	return nil, map[string]any{"code": "unknown_method", "message": method}
 }
@@ -292,4 +304,80 @@ func TestKillSwitchClosesBrowserSessions(t *testing.T) {
 		t.Fatal("kill switch left a browser session open")
 	}
 	_ = px
+}
+
+// D.1 P5 workspace handoff: the owner takes over (the task pauses and AURA's
+// browser tools are refused), acts on the page (typed text never recorded),
+// returns control (refs invalidated) and the task resumes.
+func TestBrowserTakeoverAndReturn(t *testing.T) {
+	h, fh, _ := browserHarness(t)
+	ctx := context.Background()
+	tk := h.submitTools("Search the catalogue at http://fixture.test/search for aura and write reports/result.md", browserTools...)
+	h.wait(tk.ID, task.WaitingApproval)
+	if err := h.eng.BrowserTakeover(ctx, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := task.Get(ctx, h.st.R, tk.ID); cur.State != task.Paused {
+		t.Fatalf("task not paused during takeover: %s", cur.State)
+	}
+	s := &session{t: &task.Task{ID: tk.ID, Scope: task.Scope{AllowDomains: []string{"fixture.test"}}}}
+	if _, _, why := h.eng.validateBrowserArgs(s, toolCall{ToolID: "browser.inspect", Arguments: json.RawMessage(`{}`)}); why != "owner_has_control" {
+		t.Fatalf("AURA acted during takeover: %q", why)
+	}
+	if _, err := h.eng.BrowserInput(ctx, tk.ID, OwnerInput{Action: "type", Text: "owner-secret-text"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.BrowserInput(ctx, tk.ID, OwnerInput{Action: "goto", URL: "https://evil.test/"}); err == nil {
+		t.Fatal("owner navigation outside the session's domains accepted")
+	}
+	if png, _, err := h.eng.BrowserScreen(ctx, tk.ID); err != nil || len(png) == 0 {
+		t.Fatalf("screen: %v", err)
+	}
+	if hits := dbContains(t, h, "owner-secret-text"); len(hits) > 0 {
+		t.Fatalf("owner-typed text recorded in %v", hits)
+	}
+	if err := h.eng.BrowserReturn(ctx, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	bs := h.eng.existingBrowserSession(tk.ID)
+	if bs == nil || bs.ownerControl || len(bs.elements) != 0 {
+		t.Fatal("control not returned or refs not invalidated")
+	}
+	if cur, _ := task.Get(ctx, h.st.R, tk.ID); cur.State == task.Paused {
+		t.Fatal("task still paused after control was returned")
+	}
+	if err := h.eng.BrowserReturn(ctx, tk.ID); err == nil {
+		t.Fatal("return accepted without a takeover")
+	}
+	_ = fh
+}
+
+// The owner signs in to a login profile by hand; the session is saved encrypted.
+func TestOwnerProfileLogin(t *testing.T) {
+	h, _, _ := browserHarness(t)
+	ctx := context.Background()
+	h.eng.cfg.Browser.Logins = []config.LoginProfile{{Name: "shop", Domains: []string{"fixture.test"}, Username: "u", PasswordRef: "vault:p"}}
+	v, _ := vault.New(bytes.Repeat([]byte{5}, 32))
+	h.eng.vault = v
+	if _, err := h.eng.StartProfileLogin(ctx, "shop", "https://other.test/login", nil); err == nil {
+		t.Fatal("start URL outside the profile's domains accepted")
+	}
+	key, err := h.eng.StartProfileLogin(ctx, "shop", "https://fixture.test/login", []string{"accounts.example-idp.test"})
+	if err != nil || key != "owner-shop" {
+		t.Fatalf("%q %v", key, err)
+	}
+	if _, err := h.eng.BrowserInput(ctx, key, OwnerInput{Action: "click", X: 100, Y: 200}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := h.eng.FinishProfileLogin(ctx, "shop", true)
+	if err != nil || !saved {
+		t.Fatalf("saved=%v %v", saved, err)
+	}
+	st, _ := json.Marshal(h.eng.savedState(ctx, "shop"))
+	if !strings.Contains(string(st), "handoff-cookie") {
+		t.Fatalf("session not saved: %s", st)
+	}
+	if h.eng.existingBrowserSession(key) != nil {
+		t.Fatal("owner session not closed")
+	}
 }

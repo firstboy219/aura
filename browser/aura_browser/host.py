@@ -263,6 +263,32 @@ class Host:
                 pass
         return {"url": s["page"].url, "uploaded_bytes": len(data), "filename": name}
 
+    # ---------------------------------------------------------------- owner takeover (raw input; Core-authorized)
+    def mouse_click(self, p: dict) -> dict:
+        s = self._s(p)
+        x, y = float(p["x"]), float(p["y"])
+        if not (0 <= x <= 1280 and 0 <= y <= 800):
+            raise HostError("bad_params", "click outside the viewport")
+        s["page"].mouse.click(x, y)
+        s["page"].wait_for_timeout(300)
+        s["refs"], s["gen"] = [], s["gen"] + 1
+        return {"url": s["page"].url}
+
+    def key(self, p: dict) -> dict:
+        s = self._s(p)
+        k = str(p.get("key", ""))
+        if k not in ("Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Delete"):
+            raise HostError("bad_params", "key not allowed")
+        s["page"].keyboard.press(k)
+        s["page"].wait_for_timeout(300)
+        s["refs"], s["gen"] = [], s["gen"] + 1
+        return {"url": s["page"].url}
+
+    def keyboard_type(self, p: dict) -> dict:
+        s = self._s(p)
+        s["page"].keyboard.type(str(p.get("text", ""))[:2000], delay=20)
+        return {"url": s["page"].url}
+
     def export_state(self, p: dict) -> dict:
         """The session's cookies and storage, for the Core to encrypt (owner-approved login reuse)."""
         s = self._s(p)
@@ -276,7 +302,8 @@ class Host:
                "page.goto": goto, "page.inspect": inspect, "page.describe": describe, "page.click": click,
                "page.type": type_text, "page.select": select, "page.scroll": scroll, "page.wait": wait, "page.back": back,
                "page.screenshot": screenshot, "page.download": download, "page.upload": upload,
-               "session.export": export_state, "host.health": health}
+               "session.export": export_state, "page.mouse_click": mouse_click, "page.key": key,
+               "page.keyboard_type": keyboard_type, "host.health": health}
 
     def handle(self, msg: dict) -> dict:
         fn = self.METHODS.get(str(msg.get("method")))

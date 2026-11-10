@@ -107,6 +107,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/browser/profiles/{name}/session", auth(s.importBrowserSession))
 	mux.Handle("DELETE /api/v1/browser/profiles/{name}/session", auth(s.deleteBrowserSession))
 	mux.Handle("POST /api/v1/tasks/{id}/browser-code", auth(s.browserCode))
+	mux.Handle("POST /api/v1/tasks/{id}/browser/takeover", auth(s.browserTakeover))
+	mux.Handle("GET /api/v1/browser/sessions", auth(s.browserSessions))
+	mux.Handle("GET /api/v1/browser/sessions/{key}/screen", auth(s.browserScreen))
+	mux.Handle("POST /api/v1/browser/sessions/{key}/input", auth(s.browserInput))
+	mux.Handle("POST /api/v1/browser/sessions/{key}/return", auth(s.browserReturn))
+	mux.Handle("POST /api/v1/browser/profiles/{name}/login", auth(s.profileLoginStart))
+	mux.Handle("POST /api/v1/browser/profiles/{name}/login/finish", auth(s.profileLoginFinish))
 	mux.Handle("GET /api/v1/tools", auth(s.listL2))
 	mux.Handle("GET /api/v1/tools/{id}", auth(s.getL2))
 	mux.Handle("POST /api/v1/tools/{id}/{action}", auth(s.l2Action))
@@ -221,7 +228,7 @@ func (s *Server) mapErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, engine.ErrInvalid):
 		s.fail(w, r, 400, "invalid_input", strings.TrimPrefix(err.Error(), "invalid_input: "))
-	case errors.Is(err, task.ErrNotFound), errors.Is(err, policy.ErrApprovalMissing):
+	case errors.Is(err, task.ErrNotFound), errors.Is(err, policy.ErrApprovalMissing), errors.Is(err, engine.ErrNoBrowserSession):
 		s.fail(w, r, 404, "not_found", "not found")
 	case errors.Is(err, task.ErrInvalidTransition):
 		s.fail(w, r, 409, "invalid_transition", err.Error())

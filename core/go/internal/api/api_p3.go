@@ -456,3 +456,95 @@ func (s *Server) browserCode(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"entered": true}) // the code itself is not echoed
 }
+
+// Workspace handoff (ADR-0042): the owner takes over a browser session, sees
+// it, acts on it and returns control; or signs in to a login profile by hand.
+func (s *Server) browserTakeover(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.BrowserTakeover(r.Context(), r.PathValue("id")); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"session": r.PathValue("id"), "owner_control": true})
+}
+
+func (s *Server) browserSessions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"sessions": s.Engine.BrowserSessions()})
+}
+
+func (s *Server) browserScreen(w http.ResponseWriter, r *http.Request) {
+	png, u, err := s.Engine.BrowserScreen(r.Context(), r.PathValue("key"))
+	if err != nil {
+		if errors.Is(err, engine.ErrNoBrowserSession) {
+			s.mapErr(w, r, err)
+			return
+		}
+		s.fail(w, r, 502, "browser_failed", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("X-Page-URL", u)
+	w.Write(png)
+}
+
+func (s *Server) browserInput(w http.ResponseWriter, r *http.Request) {
+	var in engine.OwnerInput
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	u, err := s.Engine.BrowserInput(r.Context(), r.PathValue("key"), in)
+	if err != nil {
+		if errors.Is(err, engine.ErrInvalid) || errors.Is(err, task.ErrInvalidTransition) || errors.Is(err, engine.ErrNoBrowserSession) {
+			s.mapErr(w, r, err)
+			return
+		}
+		s.fail(w, r, 502, "browser_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"url": u})
+}
+
+func (s *Server) browserReturn(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.BrowserReturn(r.Context(), r.PathValue("key")); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"owner_control": false})
+}
+
+func (s *Server) profileLoginStart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL          string   `json:"url"`
+		ExtraDomains []string `json:"extra_domains"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	key, err := s.Engine.StartProfileLogin(r.Context(), r.PathValue("name"), in.URL, in.ExtraDomains)
+	if err != nil {
+		if errors.Is(err, engine.ErrInvalid) {
+			s.mapErr(w, r, err)
+			return
+		}
+		s.fail(w, r, 502, "browser_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"session": key})
+}
+
+func (s *Server) profileLoginFinish(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Save bool `json:"save"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	saved, err := s.Engine.FinishProfileLogin(r.Context(), r.PathValue("name"), in.Save)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"saved": saved})
+}
