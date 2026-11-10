@@ -47,6 +47,8 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", "inline")
+	// Workspace files can come from the web (downloads): never active content on the app's origin.
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	w.Write([]byte(content))
 }
 

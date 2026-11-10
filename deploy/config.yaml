@@ -70,6 +70,10 @@ approvals:
 # Browser automation v1 (ADR-0039): the isolated browser host and the Core's egress proxy (the browser's only way out).
 browser: { socket: /run/aura-browser/browser.sock, proxy_listen: ":7480" }
 # and set server.deny_cidrs: ["172.31.250.0/24"] so the browser network can never reach the API.
+# Workspace Web App (ADR-0041), reached through the Cloudflare Tunnel. Session cookies count only on the origin;
+# api_hosts serve the bearer-token API only.
+# web: { enabled: true, origin: "https://aura.example.com", api_hosts: ["aurax.example.com"], session_hours: 12,
+#        trusted_proxy_cidrs: ["172.21.0.0/16"] }
 # Login profiles, downloads and uploads (ADR-0040). Example (disabled):
 # browser:
 #   downloads: true            # quarantined; only download_types enter the workspace

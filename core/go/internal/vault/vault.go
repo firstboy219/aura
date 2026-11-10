@@ -222,3 +222,27 @@ func GenerateKeyFile(path string) (string, error) {
 	}
 	return KeyID(k), f.Sync()
 }
+
+// Seal encrypts a value for name without storing it (for a value that is
+// stored elsewhere until confirmed, e.g. a pending TOTP secret).
+func (v *Vault) Seal(name, value string) (string, error) {
+	id, nonce, ct, err := v.seal(name, value)
+	if err != nil {
+		return "", err
+	}
+	return id + ":" + base64.StdEncoding.EncodeToString(nonce) + ":" + base64.StdEncoding.EncodeToString(ct), nil
+}
+
+// Open decrypts a value produced by Seal for the same name.
+func (v *Vault) Open(name, sealed string) (string, error) {
+	parts := strings.SplitN(sealed, ":", 3)
+	if len(parts) != 3 {
+		return "", errors.New("sealed value: bad format")
+	}
+	nonce, err1 := base64.StdEncoding.DecodeString(parts[1])
+	ct, err2 := base64.StdEncoding.DecodeString(parts[2])
+	if err1 != nil || err2 != nil {
+		return "", errors.New("sealed value: bad encoding")
+	}
+	return v.open(name, parts[0], nonce, ct)
+}

@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"aura.local/core/internal/api"
 	"aura.local/core/internal/app"
 	apiclient "aura.local/core/internal/client"
 	"aura.local/core/internal/config"
@@ -78,6 +79,7 @@ func usage(w io.Writer) {
                                 login profiles (ADR-0040); one-time codes go straight into the page
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
+  web setup-link [--ttl 30m] | sessions-revoke   Workspace Web App owner access (ADR-0041)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
   worker-host [--socket P]      (isolated worker container) serve workers over a Unix socket
   worker-connect [--socket P]   (Core) bridge the worker supervisor to the worker host
@@ -101,6 +103,47 @@ func vaultSecret(cfg *config.Config, name string) (string, error) {
 	}
 	defer db.Close()
 	return v.Get(context.Background(), db, name)
+}
+
+// webCmd manages Web App owner access (ADR-0041); it runs where the Core runs.
+func webCmd(args []string, stdout io.Writer) error {
+	if len(args) == 0 || (args[0] != "setup-link" && args[0] != "sessions-revoke") {
+		return usageErr("web setup-link [--ttl 30m] | sessions-revoke")
+	}
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return err
+	}
+	if !cfg.Web.Enabled {
+		return errors.New("web.enabled is false in the config")
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, cfg.Database.Path, cfg.Database.BackupDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if args[0] == "sessions-revoke" {
+		err := st.Write(ctx, func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, "delete from web_sessions"); return err })
+		if err == nil {
+			fmt.Fprintln(stdout, "every Web App session is signed out")
+		}
+		return err
+	}
+	fs := flag.NewFlagSet("web setup-link", flag.ContinueOnError)
+	ttl := fs.Duration("ttl", 30*time.Minute, "how long the link works (single use)")
+	if _, err := parse(fs, args[1:]); err != nil {
+		return err
+	}
+	if *ttl < time.Minute || *ttl > 24*time.Hour {
+		return usageErr("--ttl must be 1m..24h")
+	}
+	link, err := api.CreateSetupLink(ctx, st, cfg.Web.Origin, *ttl)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "one-time owner setup link (works once, for %s; it also resets the password and the authenticator):\n%s\n", *ttl, link)
+	return nil
 }
 
 // secretsCmd manages the encrypted secret store (ADR-0036). It runs where the
@@ -357,6 +400,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runConsole()
 	case "secrets":
 		err = secretsCmd(args[1:], stdin, stdout)
+	case "web":
+		err = webCmd(args[1:], stdout)
 	case "release":
 		err = releaseCmd(args[1:], stdout)
 	case "worker-host":

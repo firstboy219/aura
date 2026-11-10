@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>AURA</title>
+<link rel="stylesheet" href="/app/app.css">
+<script src="/app/app.js" defer></script>
+</head>
+<body>
+<header>
+  <a href="#/" class="brand" id="brand">AURA</a>
+  <nav id="nav" hidden>
+    <a href="#/" data-i18n="nav.tasks"></a>
+    <a href="#/approvals" data-i18n="nav.approvals"></a>
+    <a href="#/notifications" data-i18n="nav.notifications"></a>
+    <a href="#/tools" data-i18n="nav.tools"></a>
+    <a href="#/self" data-i18n="nav.self"></a>
+  </nav>
+  <div class="right">
+    <button id="lang" type="button" aria-label="Language">EN</button>
+    <button id="logout" type="button" hidden data-i18n="logout"></button>
+  </div>
+</header>
+<main id="main" tabindex="-1"><p data-i18n="loading"></p></main>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

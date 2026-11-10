@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -141,6 +142,16 @@ type Config struct {
 		Manifest  string `yaml:"manifest" json:"manifest"`
 		Required  bool   `yaml:"required" json:"required"` // refuse to start when verification fails
 	} `yaml:"release" json:"release"`
+	// Web configures the Workspace Web App (ADR-0041).
+	Web struct {
+		Enabled bool   `yaml:"enabled" json:"enabled"`
+		Origin  string `yaml:"origin" json:"origin"` // e.g. https://aura.example.com — the only host where session cookies count
+		// APIHosts are hosts that serve the bearer-token API only (no cookies), e.g. a separate API subdomain.
+		APIHosts     []string `yaml:"api_hosts" json:"api_hosts"`
+		SessionHours int      `yaml:"session_hours" json:"session_hours"`
+		// TrustedProxyCIDRs: requests from these addresses (the tunnel connector) carry the client IP in CF-Connecting-IP.
+		TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs" json:"trusted_proxy_cidrs"`
+	} `yaml:"web" json:"web"`
 	// Browser configures browser automation v1 (ADR-0039): the isolated browser
 	// host's socket and the Core's egress proxy (the browser's only way out).
 	Browser struct {
@@ -247,6 +258,7 @@ func Default() *Config {
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
 	c.Release.Manifest = "/usr/local/share/aura/release.json"
+	c.Web.SessionHours = 12
 	c.Browser.ProxyListen = ":7480"
 	c.Browser.Downloads, c.Browser.MaxDownloadMB = true, 20
 	c.Browser.DownloadTypes = []string{"pdf", "csv", "txt", "json", "xlsx", "xls", "docx", "png", "jpg", "jpeg", "gif", "webp", "xml", "html", "md"}
@@ -452,6 +464,19 @@ func (c *Config) Validate() error {
 	for _, c := range c.Server.DenyCIDRs {
 		if _, err := netip.ParsePrefix(c); err != nil {
 			add("server.deny_cidrs: %s is not a CIDR", c)
+		}
+	}
+	if c.Web.Enabled {
+		if u, err := url.Parse(c.Web.Origin); err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" {
+			add("web.origin must be an https origin like https://aura.example.com")
+		}
+		if c.Web.SessionHours < 1 || c.Web.SessionHours > 168 {
+			add("web.session_hours must be 1..168")
+		}
+	}
+	for _, x := range c.Web.TrustedProxyCIDRs {
+		if _, err := netip.ParsePrefix(x); err != nil {
+			add("web.trusted_proxy_cidrs: %s is not a CIDR", x)
 		}
 	}
 	profiles := map[string]bool{}

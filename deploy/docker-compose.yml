@@ -102,6 +102,28 @@ services:
       retries: 3
       start_period: 20s
 
+  # Workspace Web App exposure (ADR-0041): Cloudflare Tunnel, outbound only — no port is opened on the host and no other
+  # product's proxy is used. Started only with the "tunnel" profile (COMPOSE_PROFILES=tunnel in deploy/.env) once the
+  # owner's tunnel token is in /opt/aura/secrets/cloudflare_tunnel_token. Only that one file is mounted.
+  aura-tunnel:
+    image: cloudflare/cloudflared:2025.4.0
+    container_name: aura-tunnel
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
+    user: "10001:10001"
+    restart: unless-stopped
+    networks: [aura-net]
+    volumes:
+      - /opt/aura/secrets/cloudflare_tunnel_token:/run/secrets/tunnel_token:ro
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    depends_on:
+      aura-core: { condition: service_healthy }
+
 networks:
   aura-browser-net:
     name: aura-browser-net

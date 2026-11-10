@@ -226,7 +226,11 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		log.Info("L2 tools registered", "count", n)
 	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
-		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{}}
+		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
+		Vault: a.Vault, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+	for _, c := range cfg.Web.TrustedProxyCIDRs {
+		a.API.Web.TrustedProxy = append(a.API.Web.TrustedProxy, netip.MustParsePrefix(c))
+	}
 	for _, h := range cfg.Webhooks {
 		secret, err := a.secret(ctx, h.SecretFile)
 		if err != nil || len(secret) < 32 {

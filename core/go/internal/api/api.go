@@ -24,6 +24,7 @@ import (
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
+	"aura.local/core/internal/vault"
 	"aura.local/core/internal/worker"
 )
 
@@ -47,6 +48,10 @@ type Server struct {
 	AcceptTasks func() string
 	// Webhooks are the configured inbound webhooks by name (ADR-0034).
 	Webhooks map[string]Webhook
+	// Web is the Workspace Web App configuration (ADR-0041); Vault holds its TOTP secret.
+	Web      WebConfig
+	Vault    *vault.Vault
+	loginLim loginLimiter
 
 	once sync.Once
 	lim  *limiter
@@ -91,6 +96,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/skills", auth(s.listSkills))
 	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
 	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
+	mux.HandleFunc("POST /api/v1/web/login", s.webOnly(s.webLogin))
+	mux.HandleFunc("POST /api/v1/web/logout", s.webOnly(s.webLogout))
+	mux.HandleFunc("GET /api/v1/web/session", s.webOnly(s.webSessionInfo))
+	mux.HandleFunc("POST /api/v1/web/setup/start", s.webOnly(s.webSetupStart))
+	mux.HandleFunc("POST /api/v1/web/setup/confirm", s.webOnly(s.webSetupConfirm))
+	mux.HandleFunc("GET /app/", s.webOnly(s.webApp))
 	mux.Handle("POST /api/v1/browser/check", auth(s.browserCheck))
 	mux.Handle("GET /api/v1/browser/profiles", auth(s.browserProfiles))
 	mux.Handle("POST /api/v1/browser/profiles/{name}/session", auth(s.importBrowserSession))
@@ -121,7 +132,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
 	mux.Handle("GET /api/v1/system/resources", auth(s.resources))
 	mux.Handle("POST /api/v1/system/stop", auth(s.stop))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.fail(w, r, 404, "not_found", "no such endpoint") })
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" && s.isWebHost(r) {
+			http.Redirect(w, r, "/app/", http.StatusFound)
+			return
+		}
+		s.fail(w, r, 404, "not_found", "no such endpoint")
+	})
 	return s.middleware(mux)
 }
 
@@ -153,10 +170,16 @@ func (s *Server) authed(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := r.Header.Get("Authorization")
 		tok, ok := strings.CutPrefix(h, "Bearer ")
-		if !ok || s.Token == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
-			s.audit(r, "AUTH_FAILED", map[string]any{"path": r.URL.Path, "remote": r.RemoteAddr})
-			s.fail(w, r, 401, "unauthorized", "missing or invalid bearer token")
-			return
+		bearer := ok && s.Token != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) == 1
+		if !bearer {
+			// The Web App's session cookie counts only on the web origin, with a CSRF
+			// token and a matching Origin on every state-changing request (ADR-0041).
+			if why := s.webSession(w, r); why != "" {
+				s.audit(r, "AUTH_FAILED", map[string]any{"path": r.URL.Path, "remote": s.clientIP(r), "why": why})
+				s.fail(w, r, 401, "unauthorized", "missing or invalid credentials")
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), webKey, true))
 		}
 		if !s.lim.allow() {
 			s.fail(w, r, 429, "rate_limited", "too many requests")
@@ -504,10 +527,33 @@ type approvalOut struct {
 	*policy.Approval
 	ExpiresAt string `json:"expires_at"`
 	CreatedAt string `json:"created_at"`
+	// Blueprint 13A.7 rule 4: everything the owner needs to decide.
+	Tier          string  `json:"tier,omitempty"`
+	TaskObjective string  `json:"task_objective,omitempty"`
+	StepNo        int     `json:"step_no,omitempty"`
+	Why           string  `json:"why,omitempty"` // the step's description from the plan
+	EstimatedCost string  `json:"estimated_cost,omitempty"`
+	TaskCostUSD   float64 `json:"task_cost_usd"`
 }
 
 func apOut(ap *policy.Approval) approvalOut {
 	return approvalOut{Approval: ap, ExpiresAt: ts(ap.ExpiresAt), CreatedAt: ts(ap.CreatedAt)}
+}
+
+// apFull adds the task, step, tier and cost context to an approval.
+func (s *Server) apFull(ctx context.Context, ap *policy.Approval) approvalOut {
+	o := apOut(ap)
+	if spec, ok := policy.Lookup(ap.ToolID); ok {
+		o.Tier = string(spec.Tier(ap.Parameters))
+	}
+	if t, err := task.Get(ctx, s.Store.R, ap.TaskID); err == nil {
+		o.TaskObjective, o.TaskCostUSD = t.Objective, t.CostUSD+t.CostReservedUSD
+	}
+	if st, err := task.GetStep(ctx, s.Store.R, ap.StepID); err == nil {
+		o.StepNo, o.Why = st.StepNo, st.Description
+	}
+	o.EstimatedCost = "no model cost for the action itself; it runs a tool"
+	return o
 }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +564,7 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []approvalOut{}
 	for _, ap := range aps {
-		out = append(out, apOut(ap))
+		out = append(out, s.apFull(r.Context(), ap))
 	}
 	writeJSON(w, 200, map[string]any{"approvals": out})
 }
@@ -531,14 +577,28 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 	case "approve":
 		var in struct {
 			ActionHash string `json:"action_hash"`
+			Code       string `json:"code"` // web: step-up TOTP code (Blueprint 13A.7 rule 4)
 		}
 		if err := decodeStrict(r, &in); err != nil || len(in.ActionHash) != 64 {
 			s.fail(w, r, 400, "invalid_input", "body must be {\"action_hash\": \"<64 hex>\"}")
 			return
 		}
-		ap, err = s.Engine.Approve(r.Context(), id, in.ActionHash, "owner")
+		by := "owner"
+		if viaWeb(r) {
+			if !s.stepUp(r, in.Code) {
+				s.audit(r, "WEB_STEP_UP_FAILED", map[string]any{"approval_id": id, "remote": s.clientIP(r)})
+				s.fail(w, r, 401, "step_up_required", "enter a current code from your authenticator app to approve")
+				return
+			}
+			by = "owner(web, step-up)"
+		}
+		ap, err = s.Engine.Approve(r.Context(), id, in.ActionHash, by)
 	case "reject":
-		ap, err = s.Engine.Reject(r.Context(), id, "owner")
+		by := "owner"
+		if viaWeb(r) {
+			by = "owner(web)"
+		}
+		ap, err = s.Engine.Reject(r.Context(), id, by) // rejecting never needs step-up
 	default:
 		s.fail(w, r, 404, "not_found", "no such decision")
 		return

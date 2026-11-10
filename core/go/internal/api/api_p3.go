@@ -351,6 +351,7 @@ func (s *Server) l2Action(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		SHA256 string `json:"sha256"`
 		Reason string `json:"reason"`
+		Code   string `json:"code"` // web: step-up TOTP code
 	}
 	if r.ContentLength != 0 {
 		if err := decodeStrict(r, &in); err != nil {
@@ -362,7 +363,15 @@ func (s *Server) l2Action(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch r.PathValue("action") {
 	case "approve":
-		t, err = s.Engine.DecideL2(r.Context(), id, true, in.SHA256, "owner")
+		by := "owner"
+		if viaWeb(r) {
+			if !s.stepUp(r, in.Code) {
+				s.fail(w, r, 401, "step_up_required", "enter a current code from your authenticator app to approve")
+				return
+			}
+			by = "owner(web, step-up)"
+		}
+		t, err = s.Engine.DecideL2(r.Context(), id, true, in.SHA256, by)
 	case "reject":
 		t, err = s.Engine.DecideL2(r.Context(), id, false, "", "owner")
 	case "disable":

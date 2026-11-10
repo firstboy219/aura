@@ -35,6 +35,7 @@ def test_migrations_create_exactly_the_planned_tables():
         # P4 (migration 0005, ADR-0036)
         "secrets",
         "l2_tools",  # migration 0006, ADR-0038
+        "web_owner", "web_sessions", "web_setup",  # migration 0007, ADR-0041
     }
 
 
