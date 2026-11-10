@@ -18,7 +18,7 @@ New capabilities, engines, integrations or scope additions are recorded here ins
 - Proposal: the owner creates a key for AURA alone (own credit limit) and replaces `/opt/aura/secrets/openrouter_key`; AURA's daily budget then bounds a dedicated account.
 - Blueprint sections affected: §15 (conformance, no change to the text).
 - Risk / cost: none beyond creating the key.
-- Status: proposed
+- Status: **rejected by the owner 2026-11-10** — the key is shared on purpose (ASSUMPTIONS A-04).
 
 ### PROPOSAL-0002: Task-class definition beyond the tool set
 - Date / author: 2026-11-09, Claude Code

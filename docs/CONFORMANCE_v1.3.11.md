@@ -151,3 +151,12 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 | Dependency/license audit | ✔ implementation-verified | `./dev audit`: 34/34 OK |
 | Workspace isolation verification, metering correctness | ◐ single-workspace tests exist (budget, usage attribution); multi-workspace not built | — |
 | VM recovery, license/offline, subscription lifecycle, Enterprise package, AURA-hosted ops, benchmark publication | blocked: owner decisions (billing, licensing, cloud, publication) | ADR-0051 |
+
+## P7 progress (owner 2026-11-10: "dibuild langsung pakai gradle")
+
+| D.1 P7 item | Status | Evidence |
+|---|---|---|
+| Sensor permissions explicit, visible, immediately stoppable | ✔ implementation-verified (unit) / device check pending | ADR-0052, `SensorPolicy` tests, banner + stop |
+| No raw media retained by default | ✔ by construction | on-device recognizer returns text only; no camera/screen permission |
+| Android background behaviour respects OS restrictions | ✔ by construction | JobScheduler only, no foreground service |
+| Live voice/camera/screen perception | ◐ dictation + TTS only; camera/screen need a vision-model decision | — |
