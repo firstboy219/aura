@@ -32,6 +32,10 @@ type CreateInput struct {
 	BrowserProfile string // owner login profile for browser tasks (ADR-0040)
 	// Attachments are owner-provided input files (workspace path → text content).
 	Attachments map[string]string
+	// Reply is "none" to skip the owner reply (ADR-0055); empty means the default.
+	Reply string
+	// CreatedBy is the principal that asked (member id); recorded with the task.
+	CreatedBy string
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -49,6 +53,11 @@ func (e *Engine) Submit(ctx context.Context, in CreateInput) (*task.Task, bool, 
 	err = e.st.Write(ctx, func(tx *sql.Tx) error {
 		if err := task.Insert(ctx, tx, t); err != nil {
 			return err
+		}
+		if in.CreatedBy != "" {
+			if _, err := tx.ExecContext(ctx, "update tasks set created_by=? where id=?", in.CreatedBy, t.ID); err != nil {
+				return err
+			}
 		}
 		if len(in.Attachments) == 0 {
 			return nil
@@ -135,6 +144,9 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	default:
 		return nil, bad("recovery must be auto, manual or never")
 	}
+	if in.Reply != "" && in.Reply != "none" {
+		return nil, bad("reply must be empty or none")
+	}
 	rec := in.Recovery
 	if rec == "auto" {
 		rec = ""
@@ -145,7 +157,7 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 		}
 	}
 	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec,
-		BrowserProfile: in.BrowserProfile}, ConfigHash: e.cfg.Hash()}
+		BrowserProfile: in.BrowserProfile, Reply: in.Reply}, ConfigHash: e.cfg.Hash()}
 	switch in.Tier {
 	case "":
 	case "fast", "standard", "deep":

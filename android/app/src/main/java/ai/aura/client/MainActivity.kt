@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private var foreground = false
     private var tab = "tasks"
     private var pendingMic: (() -> Unit)? = null
+    private var lastPublic = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,12 +121,16 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- tasks
     private fun renderTasks() {
         if (store.token.isEmpty()) { content.addView(label("Masuk dulu di Pengaturan.")); return }
-        content.addView(label("Tugas baru", bold = true))
-        val objective = EditText(this).apply { hint = "Apa yang harus AURA kerjakan?"; minLines = 3; gravity = Gravity.TOP }
+        content.addView(label("Tanya AURA", bold = true))
+        val objective = EditText(this).apply { hint = "Tulis permintaan Tuan…"; minLines = 3; gravity = Gravity.TOP }
         content.addView(objective)
         val domains = EditText(this).apply { hint = "Domain yang boleh diakses (pisahkan dengan koma, opsional)"; isSingleLine = true }
         content.addView(domains)
-        val public = CheckBox(this).apply { text = "Publik (boleh memakai model gratis; jangan untuk data pribadi)" }
+        val public = CheckBox(this).apply {
+            text = "Publik (boleh memakai model gratis; jangan untuk data pribadi)"
+            isChecked = lastPublic
+            setOnCheckedChangeListener { _, on -> lastPublic = on }
+        }
         content.addView(public)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(button("🎤 Bicara") { startMic { objective.append(if (objective.text.isEmpty()) it else " $it") } })
@@ -133,10 +138,7 @@ class MainActivity : Activity() {
             val text = objective.text.toString().trim()
             if (text.isEmpty()) return@button
             val ds = domains.text.toString().split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            bg({ api().createTask(text, listOf("web.search", "web.fetch", "workspace.write"), ds, public.isChecked) }) {
-                toast("Tugas dibuat: ${it.id}")
-                render()
-            }
+            ask(text, ds, public.isChecked)
         })
         content.addView(row)
         content.addView(label("Tugas terakhir", bold = true))
@@ -147,8 +149,35 @@ class MainActivity : Activity() {
                     setOnClickListener { showTask(t.id) }
                     if (t.state == "WAITING_INPUT" || t.state == "WAITING_APPROVAL") setTextColor(Color.rgb(230, 81, 0))
                 })
+                t.reply?.let { r ->
+                    content.addView(label(r.text.take(220) + if (r.text.length > 220) "…" else "", size = 13f).apply {
+                        setTextColor(Color.GRAY)
+                        setOnClickListener { showTask(t.id) }
+                    })
+                }
             }
         }
+    }
+
+    /** Sends a request and stays with it until AURA has answered. */
+    private fun ask(text: String, domains: List<String>, public: Boolean) {
+        bg({ api().createTask(text, listOf("web.search", "web.fetch", "workspace.write"), domains, public) }) {
+            toast("AURA sedang mengerjakan…")
+            render()
+            follow(it.id, 0)
+        }
+    }
+
+    private fun follow(id: String, n: Int) {
+        content.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            bg({ api().task(id) }) { t ->
+                when {
+                    t.state in ACTIVE && n < 90 -> follow(id, n + 1)
+                    foreground -> { if (tab == "tasks") render(); showTask(id) }
+                }
+            }
+        }, 2000)
     }
 
     private fun showTask(id: String) {
@@ -157,6 +186,8 @@ class MainActivity : Activity() {
             box.addView(label(t.objective, bold = true))
             box.addView(label("Status: ${stateText(t)} · biaya \$${"%.4f".format(t.costUsd)}", size = 13f))
             explain(t.reasonCode)?.let { box.addView(label(it, size = 13f).apply { setTextColor(Color.rgb(183, 28, 28)) }) }
+            var dialog: AlertDialog? = null
+            t.reply?.let { r -> box.addView(ReplyView.build(this, r) { next -> dialog?.dismiss(); ask(next, emptyList(), t.public) }) }
             val question = evs.lastOrNull { it.type == "INPUT_REQUESTED" }?.data
             var answerBox: EditText? = null
             if (t.state == "WAITING_INPUT" && question != null) {
@@ -165,14 +196,19 @@ class MainActivity : Activity() {
                 box.addView(answerBox)
                 box.addView(button("🎤 Jawab dengan suara") { startMic { answerBox.setText(it) } })
             }
-            evs.takeLast(25).forEach { box.addView(label("${it.seq}. ${it.type}", size = 12f)) }
-            if (store.speakResults && t.state == "COMPLETED") voice.speak("Tugas selesai: ${t.objective}")
+            val trail = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = if (t.reply == null) View.VISIBLE else View.GONE }
+            evs.takeLast(25).forEach { trail.addView(label("${it.seq}. ${it.type}", size = 12f)) }
+            if (t.reply != null) box.addView(label("▸ Rincian teknis", size = 12f).apply {
+                setOnClickListener { trail.visibility = if (trail.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+            })
+            box.addView(trail)
+            if (store.speakResults && t.state == "COMPLETED") voice.speak(t.reply?.text?.take(600) ?: "Tugas selesai: ${t.objective}")
             val d = AlertDialog.Builder(this).setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Tutup", null)
             if (answerBox != null) d.setPositiveButton("Kirim jawaban") { _, _ ->
                 val a = answerBox.text.toString().trim()
                 if (a.isNotEmpty()) bg({ api().answer(id, a) }) { toast("Jawaban terkirim"); render() }
             }
-            d.show()
+            dialog = d.show()
         }
     }
 
@@ -321,5 +357,6 @@ class MainActivity : Activity() {
     private companion object {
         const val REQ_MIC = 1
         const val REQ_NOTIFY = 2
+        val ACTIVE = setOf("CREATED", "PLANNING", "RUNNING", "SCHEDULED", "WAITING_EXTERNAL")
     }
 }

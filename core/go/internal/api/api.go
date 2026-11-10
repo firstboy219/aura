@@ -294,30 +294,31 @@ func decodeStrict(r *http.Request, v any) error {
 
 // Task is the API representation (openapi Task).
 type Task struct {
-	ID           string      `json:"id"`
-	State        task.State  `json:"state"`
-	Reason       *string     `json:"reason"`
-	ReasonCode   *string     `json:"reason_code"`
-	TaskClass    *string     `json:"task_class"`
-	WaitReason   *string     `json:"wait_reason"`
-	Objective    string      `json:"objective"`
-	ParentTaskID *string     `json:"parent_task_id"`
-	RootTaskID   string      `json:"root_task_id"`
-	AgentRole    string      `json:"agent_role"`
-	Depth        int         `json:"depth"`
-	CostUSD      float64     `json:"cost_usd"`
-	Budget       task.Budget `json:"budget"`
-	Tools        []string    `json:"tools"`
-	AllowDomains []string    `json:"allow_domains"`
-	DataClass    string      `json:"data_class"`
-	Recovery     string      `json:"recovery"`
-	Attachments  []string    `json:"attachments,omitempty"`
-	Priority     int         `json:"priority"`
-	Replans      int         `json:"replans"`
-	Tier         *string     `json:"tier"`
-	Question     *string     `json:"question,omitempty"`
-	CreatedAt    string      `json:"created_at"`
-	UpdatedAt    string      `json:"updated_at"`
+	ID           string        `json:"id"`
+	State        task.State    `json:"state"`
+	Reason       *string       `json:"reason"`
+	ReasonCode   *string       `json:"reason_code"`
+	TaskClass    *string       `json:"task_class"`
+	WaitReason   *string       `json:"wait_reason"`
+	Objective    string        `json:"objective"`
+	ParentTaskID *string       `json:"parent_task_id"`
+	RootTaskID   string        `json:"root_task_id"`
+	AgentRole    string        `json:"agent_role"`
+	Depth        int           `json:"depth"`
+	CostUSD      float64       `json:"cost_usd"`
+	Budget       task.Budget   `json:"budget"`
+	Tools        []string      `json:"tools"`
+	AllowDomains []string      `json:"allow_domains"`
+	DataClass    string        `json:"data_class"`
+	Recovery     string        `json:"recovery"`
+	Attachments  []string      `json:"attachments,omitempty"`
+	Priority     int           `json:"priority"`
+	Replans      int           `json:"replans"`
+	Tier         *string       `json:"tier"`
+	Question     *string       `json:"question,omitempty"`
+	Reply        *engine.Reply `json:"reply,omitempty"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
 }
 
 func recoveryOf(t *task.Task) string {
@@ -344,6 +345,7 @@ type createReq struct {
 	DataClass    string            `json:"data_class"`
 	Tier         string            `json:"tier"`
 	Recovery     string            `json:"recovery"`
+	Reply        string            `json:"reply"`
 	BrowserProf  string            `json:"browser_profile"`
 	Attachments  map[string]string `json:"attachments"`
 	Budget       *struct {
@@ -366,7 +368,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Recovery: in.Recovery, BrowserProfile: in.BrowserProf, Attachments: in.Attachments,
-		IdempotencyKey: r.Header.Get("Idempotency-Key")}
+		Reply: in.Reply, CreatedBy: PrincipalOf(r).ID, IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}
 	}
@@ -415,9 +417,16 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		id := ts[limit-1].ID
 		next = &id
 	}
+	ids := make([]string, len(ts))
+	for i, t := range ts {
+		ids[i] = t.ID
+	}
+	replies, _ := s.Engine.Replies(r.Context(), ids)
 	out := []Task{}
 	for _, t := range ts {
-		out = append(out, toAPI(t))
+		at := toAPI(t)
+		at.Reply = replies[t.ID]
+		out = append(out, at)
 	}
 	writeJSON(w, 200, map[string]any{"tasks": out, "next_cursor": next})
 }
@@ -432,6 +441,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	if t.State == task.WaitingInput {
 		out.Question = s.Engine.PendingQuestion(r.Context(), t.ID)
 	}
+	out.Reply, _ = s.Engine.GetReply(r.Context(), t.ID)
 	writeJSON(w, 200, out)
 }
 

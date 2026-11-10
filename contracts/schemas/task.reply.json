@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/task.reply.json",
+  "title": "task.reply (Core → Worker)",
+  "description": "Write the owner reply for a finished task and propose an adaptive view. The Core sanitises the view, checks numbers against the evidence and stores the reply (ADR-0055).",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "required": [
+        "objective",
+        "basis",
+        "evidence",
+        "view_schema",
+        "view_types"
+      ],
+      "properties": {
+        "objective": {
+          "type": "string"
+        },
+        "basis": {
+          "enum": [
+            "evidence",
+            "model_knowledge"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "owner_context": {
+          "type": "array"
+        },
+        "conversation": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "self": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "guidance": {
+          "type": "object"
+        },
+        "view_schema": {
+          "type": "object",
+          "description": "JSON Schema of one view block, owned by the Core."
+        },
+        "view_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "view"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "view": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

@@ -15,7 +15,13 @@ const I18N = {
     "tasks.title": "Tugas", "tasks.new": "Tugas baru", "tasks.objective": "Apa yang harus dikerjakan AURA?",
     "tasks.tools": "Alat (pisahkan dengan koma)", "tasks.domains": "Domain yang boleh dibuka (pisahkan dengan koma)",
     "tasks.public": "Konten publik (boleh memakai model gratis yang mungkin mencatat prompt)", "tasks.profile": "Profil login browser (opsional)",
-    "tasks.create": "Buat tugas", "tasks.empty": "Belum ada tugas.", "tasks.cost": "biaya",
+    "tasks.create": "Buat tugas", "tasks.empty": "Belum ada tugas.",
+    "ask.title": "Tanya AURA", "ask.placeholder": "Tulis permintaan Tuan…", "ask.send": "Kirim", "ask.options": "Opsi lanjutan", "ask.working": "AURA sedang mengerjakan…",
+    "reply.title": "Jawaban AURA", "reply.files": "File yang ditulis", "reply.details": "Rincian teknis",
+    "note.model_knowledge": "Dijawab dari pengetahuan model, tanpa alat — belum diperiksa terhadap sumber.",
+    "note.core_summary": "Model penulis jawaban tidak tersedia; ini ringkasan apa adanya dari Core.",
+    "note.ungrounded_numbers": "Angka berikut tidak ditemukan di bukti tugas — periksa dulu:",
+    "note.view_trimmed": "Sebagian tampilan dibuang oleh Core karena tidak aman atau tidak sah.", "tasks.cost": "biaya",
     "task.back": "← Semua tugas", "task.objective": "Tujuan", "task.state": "Status", "task.reason": "Alasan", "task.cost": "Biaya",
     "task.question": "AURA bertanya", "task.answer": "Jawaban", "task.send": "Kirim", "task.correct": "Koreksi / arahan tambahan",
     "task.correctHint": "Berlaku untuk tugas ini dan subagennya.", "task.cancel": "Batalkan", "task.pause": "Jeda", "task.resume": "Lanjutkan",
@@ -52,7 +58,13 @@ const I18N = {
     "tasks.title": "Tasks", "tasks.new": "New task", "tasks.objective": "What should AURA do?",
     "tasks.tools": "Tools (comma-separated)", "tasks.domains": "Domains it may open (comma-separated)",
     "tasks.public": "Public content (free models that may log prompts are allowed)", "tasks.profile": "Browser login profile (optional)",
-    "tasks.create": "Create task", "tasks.empty": "No tasks yet.", "tasks.cost": "cost",
+    "tasks.create": "Create task", "tasks.empty": "No tasks yet.",
+    "ask.title": "Ask AURA", "ask.placeholder": "Write your request…", "ask.send": "Send", "ask.options": "Advanced options", "ask.working": "AURA is working…",
+    "reply.title": "AURA's reply", "reply.files": "Files written", "reply.details": "Technical details",
+    "note.model_knowledge": "Answered from the model's own knowledge, without tools — not checked against a source.",
+    "note.core_summary": "No model could write the reply; this is a plain summary from the Core.",
+    "note.ungrounded_numbers": "These figures were not found in the task's evidence — check them first:",
+    "note.view_trimmed": "Part of the view was removed by the Core because it was unsafe or malformed.", "tasks.cost": "cost",
     "task.back": "← All tasks", "task.objective": "Objective", "task.state": "State", "task.reason": "Reason", "task.cost": "Cost",
     "task.question": "AURA asks", "task.answer": "Answer", "task.send": "Send", "task.correct": "Correction / extra guidance",
     "task.correctHint": "Applies to this task and its subagents.", "task.cancel": "Cancel", "task.pause": "Pause", "task.resume": "Resume",
@@ -205,6 +217,104 @@ function setupStep2(token, r) {
   render(el("h1", { text: t("setup.title") }), form);
 }
 
+// ---------------------------------------------------------------- owner reply + adaptive view (ADR-0055)
+// A view is declarative data sanitised by the Core. Every block is drawn with text nodes and SVG attributes; nothing in it is HTML.
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, ...children) {
+  const n = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+  for (const c of children) if (c) n.append(typeof c === "string" ? document.createTextNode(c) : c);
+  return n;
+}
+const PALETTE = ["#5aa9ff", "#3ecf8e", "#ffb454", "#ff6b6b", "#b48cff", "#4dd0e1", "#f48fb1", "#c0ca33"];
+function fmtNum(n) { return Number(n).toLocaleString(lang === "id" ? "id-ID" : "en-GB", { maximumFractionDigits: 2 }); }
+function chartBlock(b) {
+  const pts = (b.items || []).filter((it) => typeof it.number === "number").slice(0, 30);
+  if (pts.length < 2) return null;
+  const W = 640, H = 260, L = 8, R = 8, T = 14, B = 46;
+  const root = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": b.title || "chart" });
+  if (b.chart === "pie") {
+    const total = pts.reduce((a, p) => a + Math.max(p.number, 0), 0);
+    if (total <= 0) return null;
+    let a0 = -Math.PI / 2;
+    const cx = 130, cy = H / 2, r = 105;
+    pts.forEach((p, i) => {
+      const frac = Math.max(p.number, 0) / total, a1 = a0 + frac * 2 * Math.PI;
+      const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0), x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+      const d = frac >= 0.9999 ? "M " + (cx - r) + " " + cy + " a " + r + " " + r + " 0 1 0 " + 2 * r + " 0 a " + r + " " + r + " 0 1 0 " + -2 * r + " 0"
+        : "M " + cx + " " + cy + " L " + x0 + " " + y0 + " A " + r + " " + r + " 0 " + (frac > 0.5 ? 1 : 0) + " 1 " + x1 + " " + y1 + " Z";
+      root.append(svg("path", { d, fill: PALETTE[i % PALETTE.length] }));
+      if (i < 10) {
+        root.append(svg("rect", { x: 270, y: 20 + i * 23, width: 12, height: 12, fill: PALETTE[i % PALETTE.length] }));
+        root.append(svg("text", { x: 290, y: 31 + i * 23, class: "ct" }, p.label.slice(0, 34) + " — " + fmtNum(p.number) + " (" + Math.round(frac * 100) + "%)"));
+      }
+      a0 = a1;
+    });
+    return root;
+  }
+  const max = Math.max(...pts.map((p) => p.number), 0), min = Math.min(...pts.map((p) => p.number), 0);
+  const span = max - min || 1, pw = (W - L - R) / pts.length;
+  const y = (v) => T + (H - T - B) * (1 - (v - min) / span);
+  root.append(svg("line", { x1: L, x2: W - R, y1: y(0), y2: y(0), class: "axis" }));
+  const line = [];
+  pts.forEach((p, i) => {
+    const cx = L + pw * i + pw / 2;
+    if (b.chart === "line") {
+      line.push(cx + "," + y(p.number));
+      root.append(svg("circle", { cx, cy: y(p.number), r: 3.5, fill: PALETTE[0] }));
+    } else {
+      const top = Math.min(y(p.number), y(0)), h = Math.max(Math.abs(y(p.number) - y(0)), 1);
+      root.append(svg("rect", { x: cx - pw * 0.35, y: top, width: pw * 0.7, height: h, rx: 3, fill: PALETTE[0] }));
+    }
+    if (pts.length <= 14) {
+      root.append(svg("text", { x: cx, y: Math.max(y(p.number) - 5, 11), class: "ct mid" }, fmtNum(p.number)));
+      root.append(svg("text", { x: cx, y: H - B + 16, class: "ct mid" }, p.label.slice(0, Math.max(4, Math.floor(pw / 7)))));
+    }
+  });
+  if (b.chart === "line") root.insertBefore(svg("polyline", { points: line.join(" "), fill: "none", stroke: PALETTE[0], "stroke-width": 2.5 }), root.children[1]);
+  const wrap = el("div", {}, root);
+  if (pts.length > 14) wrap.append(el("p", { class: "muted", text: pts[0].label + " … " + pts[pts.length - 1].label }));
+  return wrap;
+}
+function viewBlock(b, onAction) {
+  const items = b.items || [];
+  let body = null;
+  switch (b.type) {
+    case "text": body = el("p", { class: "pre", text: b.text }); break;
+    case "code": body = el("pre", { text: b.text }); break;
+    case "callout": body = el("div", { class: "callout tone-" + (["info", "success", "warning", "danger"].includes(b.tone) ? b.tone : "info"), text: b.text }); break;
+    case "metrics": body = el("div", { class: "metrics" }, items.map((it) => el("div", { class: "metric" },
+      el("div", { class: "muted", text: it.label }), el("div", { class: "big", text: it.value }), it.note ? el("div", { class: "muted", text: it.note }) : null))); break;
+    case "kv": body = el("dl", {}, items.map((it) => [el("dt", { text: it.label }), el("dd", { text: it.value + (it.note ? " — " + it.note : "") })])); break;
+    case "table": body = el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, (b.columns || []).map((c) => el("th", { text: c })))),
+      el("tbody", {}, (b.rows || []).map((r) => el("tr", {}, r.map((c) => el("td", { text: c }))))))); break;
+    case "list": body = el("ul", {}, items.map((it) => el("li", {}, it.label, it.value ? ": " + it.value : "", it.note ? el("div", { class: "muted", text: it.note }) : null))); break;
+    case "steps": body = el("ol", {}, items.map((it) => el("li", {}, it.label, it.note ? el("div", { class: "muted", text: it.note }) : null))); break;
+    case "chart": body = chartBlock(b); break;
+    case "links": body = el("ul", {}, items.filter((it) => /^https?:\/\//.test(it.url || "")).map((it) => el("li", {},
+      el("a", { href: it.url, target: "_blank", rel: "noopener noreferrer", text: it.label || it.url })))); break;
+    case "actions": body = onAction ? el("div", { class: "row" }, items.map((it) => el("button", { type: "button", title: it.value,
+      on: { click: () => onAction(it.value) }, text: it.label }))) : null; break;
+  }
+  if (!body) return null;
+  return el("section", { class: "vb" }, b.title ? el("h3", { text: b.title }) : null, body);
+}
+function replyCard(tk, onAction) {
+  const r = tk.reply;
+  if (!r) return null;
+  const notes = (r.notes || []).map((n) => el("p", { class: "note", text: "ⓘ " + t("note." + n.code) + (n.code === "ungrounded_numbers" && n.detail ? " " + n.detail : "") }));
+  const files = (r.files || []).length ? el("p", { class: "muted" }, t("reply.files") + ": ", (r.files || []).map((f, i) => [i ? ", " : "",
+    el("a", { href: "/api/v1/tasks/" + encodeURIComponent(tk.id) + "/files/" + String(f).split("/").map(encodeURIComponent).join("/"), target: "_blank", rel: "noopener noreferrer", text: f })])) : null;
+  return el("div", { class: "card reply" }, el("p", { class: "pre lead", text: r.text }),
+    (r.view || []).map((b) => viewBlock(b, onAction)), files, notes);
+}
+async function ask(objective, pub, extra) {
+  const body = Object.assign({ objective, data_class: pub ? "public" : "private" }, extra || {});
+  const r = await guard(() => api("POST", "/tasks", body));
+  if (r) location.hash = "#/task/" + encodeURIComponent(r.id);
+}
+
 // ---------------------------------------------------------------- tasks
 async function routeTasks() {
   const data = await guard(() => api("GET", "/tasks?limit=50"));
@@ -215,25 +325,29 @@ async function routeTasks() {
   const profile = el("input", { type: "text", id: "profile" });
   const pub = el("input", { type: "checkbox", id: "pub" });
   const split = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
+  objective.setAttribute("placeholder", t("ask.placeholder"));
+  try { pub.checked = localStorage.getItem("aura.public") === "1"; } catch (e) { /* storage may be blocked */ }
   const form = el("form", { class: "card", on: { submit: async (ev) => {
     ev.preventDefault();
-    const body = { objective: objective.value, tools: split(tools.value), allow_domains: split(domains.value), data_class: pub.checked ? "public" : "private" };
-    if (profile.value.trim()) body.browser_profile = profile.value.trim();
-    const r = await guard(() => api("POST", "/tasks", body));
-    if (r) location.hash = "#/task/" + encodeURIComponent(r.id);
+    try { localStorage.setItem("aura.public", pub.checked ? "1" : "0"); } catch (e) { /* ignore */ }
+    const extra = { tools: split(tools.value), allow_domains: split(domains.value) };
+    if (profile.value.trim()) extra.browser_profile = profile.value.trim();
+    await ask(objective.value, pub.checked, extra);
   } } },
-    el("label", { for: "obj", text: t("tasks.objective") }), objective,
-    el("label", { for: "tools", text: t("tasks.tools") }), tools,
-    el("label", { for: "domains", text: t("tasks.domains") }), domains,
-    el("label", { for: "profile", text: t("tasks.profile") }), profile,
+    el("label", { for: "obj", text: t("ask.title") }), objective,
     el("label", {}, pub, " ", t("tasks.public")),
-    el("p", {}, el("button", { class: "primary", type: "submit", text: t("tasks.create") })));
+    el("details", {}, el("summary", { text: t("ask.options") }),
+      el("label", { for: "tools", text: t("tasks.tools") }), tools,
+      el("label", { for: "domains", text: t("tasks.domains") }), domains,
+      el("label", { for: "profile", text: t("tasks.profile") }), profile),
+    el("p", {}, el("button", { class: "primary", type: "submit", text: t("ask.send") })));
   const list = (data.tasks || []).map((tk) => el("div", { class: "card" },
     el("a", { class: "task", href: "#/task/" + encodeURIComponent(tk.id) },
       el("div", { class: "row" }, stateBadge(tk.state), el("span", { class: "muted", text: fmtTime(tk.created_at) }),
         el("span", { class: "muted", text: t("tasks.cost") + " $" + Number(tk.cost_usd || 0).toFixed(4) })),
-      el("div", { class: "obj", text: tk.objective }))));
-  render(el("h1", { text: t("tasks.title") }), el("details", {}, el("summary", { text: t("tasks.new") }), form),
+      el("div", { class: "obj", text: tk.objective }),
+      tk.reply ? el("div", { class: "preview", text: String(tk.reply.text).slice(0, 280) }) : null)));
+  render(el("h1", { text: t("tasks.title") }), form,
     list.length ? list : el("p", { class: "muted", text: t("tasks.empty") }));
 }
 
@@ -251,6 +365,10 @@ async function routeTask(id) {
     el("dt", { text: t("task.objective") }), el("dd", { text: tk.objective }),
     tk.reason ? [el("dt", { text: t("task.reason") }), el("dd", { text: (tk.reason_code ? tk.reason_code + " — " : "") + tk.reason })] : null,
     el("dt", { text: t("task.cost") }), el("dd", { text: "$" + Number(tk.cost_usd || 0).toFixed(4) }))));
+  const terminalNow = ["COMPLETED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED"].includes(tk.state);
+  const card = full && replyCard(full, (text) => ask(text, full.data_class === "public"));
+  if (card) parts.push(el("h2", { text: t("reply.title") }), card);
+  else if (!terminalNow) parts.push(el("p", { class: "muted", text: t("ask.working") }));
   for (const a of mine) parts.push(el("div", { class: "card" }, el("strong", { text: t("task.approvalPending") + ": " + a.tool_id }), " ",
     el("a", { href: "#/approvals", text: t("task.open") })));
   const sess = (await guard(() => api("GET", "/browser/sessions"))) || { sessions: [] };
@@ -306,7 +424,7 @@ async function routeTask(id) {
   const list = ((evs && evs.events) || []).slice(-120).reverse().map((e) => el("div", { class: "ev" },
     el("div", { class: "t", text: fmtTime(e.at) + " · " + e.actor + " · " + e.type }),
     e.data ? el("pre", { text: JSON.stringify(e.data, null, 1).slice(0, 2500) }) : null));
-  parts.push(el("h2", { text: t("task.events") }), el("div", {}, list));
+  parts.push(el("details", {}, el("summary", { text: t("reply.details") + " · " + t("task.events") }), el("div", {}, list)));
   render(...parts);
   if (!terminal) timer = setTimeout(() => { if (location.hash === "#/task/" + id) route(); }, 6000);
 }

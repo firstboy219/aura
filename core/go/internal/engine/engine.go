@@ -57,6 +57,7 @@ type Engine struct {
 	vault       *vault.Vault
 	ledgerCfg   LedgerConfig
 	version     string
+	replies     bool // every root task ends with an owner reply (ADR-0055)
 	lastImprove time.Time
 	improveMu   sync.Mutex // one improvement cycle at a time
 	log         *slog.Logger
@@ -99,7 +100,9 @@ type Deps struct {
 	// MoreWorkers are extra worker supervisors for concurrent tasks (ADR-0047);
 	// with none, tasks run one at a time on Worker.
 	MoreWorkers []*worker.Supervisor
-	Log         *slog.Logger
+	// Replies makes every root task end with an owner reply (ADR-0055).
+	Replies bool
+	Log     *slog.Logger
 }
 
 func New(d Deps) *Engine {
@@ -107,7 +110,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	e := &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), replies: d.Replies, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
 		driving: map[string]*drivingTask{}, taskSup: map[string]*worker.Supervisor{}}
 	e.sups = append([]*worker.Supervisor{d.Worker}, d.MoreWorkers...)
 	e.pool = make(chan *worker.Supervisor, len(e.sups))

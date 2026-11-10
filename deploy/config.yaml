@@ -113,3 +113,7 @@ inputs: { remind_after_seconds: 14400, timeout_seconds: 172800, on_timeout: fail
 # providers:
 #   openai_compatible:
 #     - { id: groq, base_url: "https://api.groq.com/openai/v1", key_file: /run/aura-secrets/groq_key }
+# Adaptive routing (ADR-0054): on by default. Set no_tier_rescue: true to keep a call inside its own tier.
+# routing: { no_tier_rescue: false }
+# Owner reply with adaptive view (ADR-0055): on by default.
+# reply: { disabled: false }

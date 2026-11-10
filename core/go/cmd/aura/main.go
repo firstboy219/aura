@@ -56,6 +56,7 @@ func usage(w io.Writer) {
   doctor                        check config, secrets, database, worker and provider
   version                       print version
   task create "<objective>" [--tool T]... [--allow-domain D]... [--max-cost USD] [--public] [--tier T] [--attach ws/path=file]...
+  ask "<request>" [--public] [--tool T]... [--allow-domain D]... [--tier T] [--json]   ask, wait, and print AURA's reply
   task list [--state S] | show <id> | cancel <id> | pause <id> | resume <id>
   trace <id> [--follow]         print a task's event log
   approve <approval-id> [--yes] show the full action and approve its exact hash
@@ -414,7 +415,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = workerHost(args[1:])
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
-	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
+	case "task", "ask", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
 		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin", "brain", "workflow":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
@@ -846,6 +847,67 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			return nil
 		}
 		return usageErr("unknown task subcommand " + sub)
+	case "ask":
+		fs := flag.NewFlagSet("ask", flag.ContinueOnError)
+		var toolsF, domains multiFlag
+		fs.Var(&toolsF, "tool", "granted tool (repeatable)")
+		fs.Var(&domains, "allow-domain", "allowlisted domain (repeatable)")
+		public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
+		tier := fs.String("tier", "", "force a model tier: fast | standard | deep")
+		asJSON := fs.Bool("json", false, "print the finished task as JSON")
+		wait := fs.Duration("wait", 10*time.Minute, "how long to wait for the reply")
+		pos, err := parse(fs, rest)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr(`ask "<request>"`)
+		}
+		body := map[string]any{"objective": pos[0], "tools": []string(toolsF), "allow_domains": []string(domains)}
+		if *public {
+			body["data_class"] = "public"
+		}
+		if *tier != "" {
+			body["tier"] = *tier
+		}
+		var out askTask
+		if err := c.do("POST", "/tasks", body, nil, &out); err != nil {
+			return err
+		}
+		id, deadline, last := out.ID, time.Now().Add(*wait), ""
+		for {
+			if err := c.do("GET", "/tasks/"+id, nil, nil, &out); err != nil {
+				return err
+			}
+			if out.State != last && !*asJSON {
+				fmt.Fprintf(os.Stderr, "[%s] %s\n", id, out.State)
+				last = out.State
+			}
+			switch out.State {
+			case "COMPLETED", "FAILED", "CANCELLED", "BUDGET_EXCEEDED":
+				if *asJSON {
+					var raw map[string]any
+					if err := c.do("GET", "/tasks/"+id, nil, nil, &raw); err != nil {
+						return err
+					}
+					printJSON(stdout, raw)
+					return nil
+				}
+				printReply(stdout, &out)
+				if out.State != "COMPLETED" {
+					return fmt.Errorf("task %s %s", id, out.State)
+				}
+				return nil
+			case "WAITING_INPUT":
+				return fmt.Errorf("AURA asks: %s\nanswer with: aura answer %s \"<answer>\"", out.Question, id)
+			case "WAITING_APPROVAL":
+				return fmt.Errorf("task %s waits for an approval: aura approvals", id)
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("task %s is still %s; see: aura trace %s", id, out.State, id)
+			}
+			time.Sleep(time.Second)
+		}
 	case "trace":
 		fs := flag.NewFlagSet("trace", flag.ContinueOnError)
 		follow := fs.Bool("follow", false, "keep polling until the task stops")
@@ -1705,4 +1767,76 @@ func triggerCmd(c *apiClient, rest []string, stdout io.Writer) error {
 	}
 	printJSON(stdout, out)
 	return nil
+}
+
+// askTask is the part of a task `aura ask` prints.
+type askTask struct {
+	ID       string  `json:"id"`
+	State    string  `json:"state"`
+	Reason   *string `json:"reason"`
+	Question string  `json:"question"`
+	CostUSD  float64 `json:"cost_usd"`
+	Reply    *struct {
+		Text  string `json:"text"`
+		Basis string `json:"basis"`
+		View  []struct {
+			Type, Title, Text, Tone, Chart string
+			Columns                        []string
+			Rows                           [][]string
+			Items                          []struct{ Label, Value, Note, URL string }
+		} `json:"view"`
+		Notes []struct{ Code, Detail string } `json:"notes"`
+		Files []string                        `json:"files"`
+	} `json:"reply"`
+}
+
+// printReply draws an owner reply and its view as plain text (the terminal is one more client of the view).
+func printReply(w io.Writer, t *askTask) {
+	if t.Reply == nil {
+		if t.Reason != nil {
+			fmt.Fprintf(w, "No reply. Reason: %s\n", *t.Reason)
+		}
+		return
+	}
+	fmt.Fprintf(w, "%s\n", t.Reply.Text)
+	for _, b := range t.Reply.View {
+		fmt.Fprintln(w)
+		if b.Title != "" {
+			fmt.Fprintf(w, "## %s\n", b.Title)
+		}
+		switch b.Type {
+		case "text", "code":
+			fmt.Fprintln(w, b.Text)
+		case "callout":
+			fmt.Fprintf(w, "[%s] %s\n", b.Tone, b.Text)
+		case "table":
+			fmt.Fprintln(w, strings.Join(b.Columns, " | "))
+			for _, r := range b.Rows {
+				fmt.Fprintln(w, strings.Join(r, " | "))
+			}
+		default:
+			for i, it := range b.Items {
+				line := it.Label
+				if b.Type == "steps" {
+					line = fmt.Sprintf("%d. %s", i+1, it.Label)
+				} else if b.Type == "list" || b.Type == "links" || b.Type == "actions" {
+					line = "- " + it.Label
+				}
+				for _, extra := range []string{it.Value, it.URL, it.Note} {
+					if extra != "" {
+						line += "  " + extra
+					}
+				}
+				fmt.Fprintln(w, line)
+			}
+		}
+	}
+	fmt.Fprintln(w)
+	for _, f := range t.Reply.Files {
+		fmt.Fprintf(w, "file: %s\n", f)
+	}
+	for _, n := range t.Reply.Notes {
+		fmt.Fprintf(w, "note: %s %s\n", n.Code, n.Detail)
+	}
+	fmt.Fprintf(w, "basis: %s  cost: $%.4f  task: %s\n", t.Reply.Basis, t.CostUSD, t.ID)
 }

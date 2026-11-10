@@ -83,6 +83,21 @@
         },
         "profile": {
           "description": "context added in P3 (memory, skills, profile) and P4 (tool docs)"
+        },
+        "may_answer": {
+          "type": "boolean",
+          "description": "The plan may have no steps: the owner is then answered from the model's own knowledge, labelled as such (ADR-0055)."
+        },
+        "conversation": {
+          "type": "array",
+          "description": "Recent owner/AURA exchanges, oldest first (ADR-0055).",
+          "items": {
+            "type": "object"
+          }
+        },
+        "self": {
+          "type": "string",
+          "description": "The Core's deterministic self brief (ADR-0055)."
         }
       },
       "required": [

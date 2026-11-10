@@ -112,7 +112,15 @@ type Config struct {
 		} `yaml:"openai_compatible" json:"openai_compatible"`
 	} `yaml:"providers" json:"providers"`
 	Models map[string][]ModelRoute `yaml:"models" json:"models"`
-	Tools  struct {
+	// Routing tunes adaptive routing (ADR-0054). Tier rescue is on by default.
+	Routing struct {
+		NoTierRescue bool `yaml:"no_tier_rescue" json:"no_tier_rescue"`
+	} `yaml:"routing" json:"routing"`
+	// Reply: every owner task ends with a reply and an adaptive view (ADR-0055).
+	Reply struct {
+		Disabled bool `yaml:"disabled" json:"disabled"`
+	} `yaml:"reply" json:"reply"`
+	Tools struct {
 		WebFetch struct {
 			AllowDomains   []string `yaml:"allow_domains" json:"allow_domains"`
 			MaxBytes       int64    `yaml:"max_bytes" json:"max_bytes"`

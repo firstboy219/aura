@@ -286,6 +286,7 @@ components:
         data_class: { enum: [private, public], default: private, description: Only public tasks may use model routes that may log prompts (free endpoints) }
         tier: { enum: [fast, standard, deep], description: Owner override of the cascade policy for the whole task }
         recovery: { enum: [auto, manual, never], default: auto, description: "What a Core restart does with the interrupted task: resume, PAUSED for the owner, or FAILED. An unknown external outcome always waits for the owner." }
+        reply: { enum: ['', none], default: '', description: "Owner reply (ADR-0055): by default every root task ends with a reply; 'none' turns it off for this task." }
         budget:
           type: object
           additionalProperties: false
@@ -317,9 +318,51 @@ components:
         replans: { type: integer }
         tier: { type: [string, 'null'] }
         question: { type: string, description: Pending clarification question (WAITING_INPUT only) }
+        reply: { $ref: '#/components/schemas/Reply' }
         wait_reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    Reply:
+      type: object
+      description: What AURA told the owner about a finished task, with an adaptive view the client draws natively (ADR-0055).
+      required: [task_id, text, view, basis, notes, files, created_at]
+      properties:
+        task_id: { $ref: '#/components/schemas/Ulid' }
+        text: { type: string }
+        basis: { enum: [evidence, model_knowledge, summary], description: "evidence: written from what the task read, computed or wrote. model_knowledge: no tool was used, not checked. summary: composed by the Core without a model." }
+        view: { type: array, maxItems: 12, items: { $ref: '#/components/schemas/ViewBlock' } }
+        notes:
+          type: array
+          items:
+            type: object
+            required: [code]
+            properties:
+              code: { enum: [model_knowledge, core_summary, ungrounded_numbers, view_trimmed] }
+              detail: { type: string }
+        files: { type: array, items: { type: string } }
+        created_at: { type: integer, description: Unix milliseconds }
+    ViewBlock:
+      type: object
+      description: One declarative block. Data only - never HTML or script. Sanitised by the Core.
+      required: [type]
+      properties:
+        type: { enum: [text, callout, metrics, kv, table, list, steps, chart, links, code, actions] }
+        title: { type: string }
+        text: { type: string }
+        tone: { enum: [info, success, warning, danger] }
+        chart: { enum: [bar, line, pie] }
+        columns: { type: array, items: { type: string } }
+        rows: { type: array, items: { type: array, items: { type: string } } }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              value: { type: string }
+              note: { type: string }
+              url: { type: string }
+              number: { type: number }
     TaskEvent:
       type: object
       required: [seq, type, at]

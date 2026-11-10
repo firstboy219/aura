@@ -12,7 +12,19 @@ class Api(private val base: String, private val token: String) {
 
     class ApiError(val status: Int, val code: String, message: String) : IOException(message)
 
-    data class Task(val id: String, val objective: String, val state: String, val reasonCode: String?, val waitReason: String?, val costUsd: Double)
+    data class Task(
+        val id: String, val objective: String, val state: String, val reasonCode: String?, val waitReason: String?, val costUsd: Double,
+        val public: Boolean = false, val reply: Reply? = null,
+    )
+
+    /** AURA's answer to the owner (ADR-0055). The view is declarative data already sanitised by the Core; the app draws it natively. */
+    data class Reply(val text: String, val view: List<Block>, val basis: String, val notes: List<Note>, val files: List<String>)
+    data class Note(val code: String, val detail: String)
+    data class Item(val label: String, val value: String, val note: String, val url: String, val number: Double?)
+    data class Block(
+        val type: String, val title: String, val text: String, val tone: String, val chart: String,
+        val columns: List<String>, val rows: List<List<String>>, val items: List<Item>,
+    )
     data class Approval(
         val id: String, val taskId: String, val toolId: String, val target: String, val actionHash: String,
         val why: String, val objective: String, val estimatedCost: String, val expiresAt: String,
@@ -92,7 +104,30 @@ class Api(private val base: String, private val token: String) {
         private fun str(o: JSONObject, k: String): String? = if (o.isNull(k)) null else o.optString(k)
 
         fun parseTask(o: JSONObject) = Task(o.getString("id"), o.optString("objective"), o.optString("state"),
-            str(o, "reason_code"), str(o, "wait_reason"), o.optDouble("cost_usd", 0.0))
+            str(o, "reason_code"), str(o, "wait_reason"), o.optDouble("cost_usd", 0.0),
+            o.optString("data_class") == "public", o.optJSONObject("reply")?.let { parseReply(it) })
+
+        private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }
+
+        private fun <T> objects(a: JSONArray?, f: (JSONObject) -> T): List<T> =
+            if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let(f) }
+
+        fun parseReply(o: JSONObject) = Reply(
+            o.optString("text"),
+            objects(o.optJSONArray("view")) { b ->
+                val rows = b.optJSONArray("rows")
+                Block(b.optString("type"), b.optString("title"), b.optString("text"), b.optString("tone"), b.optString("chart"),
+                    strings(b.optJSONArray("columns")),
+                    if (rows == null) emptyList() else (0 until rows.length()).map { strings(rows.optJSONArray(it)) },
+                    objects(b.optJSONArray("items")) { i ->
+                        Item(i.optString("label"), i.optString("value"), i.optString("note"), i.optString("url"),
+                            if (i.has("number") && !i.isNull("number")) i.optDouble("number") else null)
+                    })
+            },
+            o.optString("basis"),
+            objects(o.optJSONArray("notes")) { Note(it.optString("code"), it.optString("detail")) },
+            strings(o.optJSONArray("files")),
+        )
 
         fun parseTasks(o: JSONObject): List<Task> {
             val a = o.optJSONArray("tasks") ?: return emptyList()

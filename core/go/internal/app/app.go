@@ -158,6 +158,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		provs[id] = p
 	}
 	gw := gateway.NewMulti(provs, cfg.Models, a.Governor)
+	gw.Rescue = !cfg.Routing.NoTierRescue
 	gw.Notify = func(event string, data map[string]any) { // R0 self-healing is always recorded (Blueprint §8A.5)
 		st.Write(context.Background(), func(tx *sql.Tx) error { return policy.Audit(context.Background(), tx, event, "core", "", "", data) })
 		log.Warn("self-healing", "event", event, "data", data)
@@ -245,7 +246,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)

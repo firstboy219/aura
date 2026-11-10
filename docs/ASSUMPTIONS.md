@@ -85,3 +85,15 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 - Reversibility: easy (channels and connectors are off unless configured).
 - Needs owner approval: N (instructed)
 - Status: approved
+
+### ASSUMPTION-0029: P10 "Living Agent" work proceeds on the owner's instruction
+- Context: the blueprint has no P10. On 2026-11-10 the owner asked to review and perfect AURA: obedient, answers the
+  owner, adapts its interface to the task, manages its own needs, validated in a sandbox.
+- Decision: implement adaptive routing (ADR-0054) and the owner reply with an adaptive view (ADR-0055) as milestones
+  P10-M1/M2. "Self-awareness" is implemented as an operational self brief from real state only; no consciousness claim.
+  Superiority over Hermes, OpenClaw or others is not claimed without a measured comparison (AGENTS rule 20).
+- Alternatives considered: record in `docs/PROPOSALS.md` only and wait.
+- Risk if wrong: the reply contract and `task_replies` table may need changes after owner review.
+- Reversibility: moderate (`reply.disabled: true` turns the feature off; the table stays).
+- Needs owner approval: Y (contract and data model change; instructed, review pending)
+- Status: proposed

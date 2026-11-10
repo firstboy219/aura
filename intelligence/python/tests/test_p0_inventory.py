@@ -42,6 +42,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "lab_runs",  # migration 0010, ADR-0048
         "aul_workflows", "aul_runs",  # migration 0012, ADR-0050
         "app_accounts",  # migration 0013, ADR-0053
+        "task_replies",  # migration 0014, ADR-0055
     }
 
 

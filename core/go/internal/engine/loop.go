@@ -163,11 +163,20 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 			return err
 		})
 	}
+	// An owner task may be answered without tools, and is planned knowing the
+	// recent conversation and what AURA is (ADR-0055).
+	mayAnswer := e.mayAnswer(t)
+	var conversation []map[string]string
+	self := ""
+	if e.wantsReply(t) {
+		conversation, self = e.conversation(ctx, t), e.selfBrief(ctx, t)
+	}
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{"guidance": guidance,
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
 		"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
 		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
-		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t)})
+		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t),
+		"may_answer": mayAnswer, "conversation": conversation, "self": self})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -187,8 +196,13 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 		}
 		return e.askOwner(ctx, t, "", *p.Question)
 	}
-	steps, err := e.validatePlan(t, p, 1, nil)
-	if err != nil {
+	var steps []task.Step
+	direct := len(p.Steps) == 0 && mayAnswer
+	if direct {
+		// No tool is needed: the reply is written from the model's own knowledge
+		// and labelled so. There is nothing to verify against, so no criteria.
+		p.CompletionCriteria = nil
+	} else if steps, err = e.validatePlan(t, p, 1, nil); err != nil {
 		return err
 	}
 	if complexPlan(p) {
@@ -212,7 +226,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 			return err
 		}
 		if _, err := task.AppendEvent(ctx, tx, t.ID, nil, "PLAN_CREATED", "worker", map[string]any{
-			"steps": len(steps), "checkpoint": ck, "completion_criteria": p.CompletionCriteria}); err != nil {
+			"steps": len(steps), "checkpoint": ck, "completion_criteria": p.CompletionCriteria, "direct_answer": direct}); err != nil {
 			return err
 		}
 		_, err = task.Transition(ctx, tx, t.ID, task.Running, "", "", "core")
@@ -717,6 +731,12 @@ func (e *Engine) finalize(ctx context.Context, taskID string) (bool, error) {
 		}
 		if len(failures) > 0 {
 			return e.retryOrFail(ctx, t, "verification_failed", map[string]any{"kind": "verification_failed", "failures": failures})
+		}
+	}
+	if e.wantsReply(t) {
+		// The owner is told the result before the task counts as done (ADR-0055).
+		if err := e.reply(ctx, t, evidence); err != nil {
+			return true, err
 		}
 	}
 	err = e.st.Write(ctx, func(tx *sql.Tx) error {

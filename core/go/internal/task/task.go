@@ -91,6 +91,8 @@ type Scope struct {
 	Attachments []string `json:"attachments,omitempty"`
 	// Workflow is the AUL workflow (aul_workflows.id) this task runs instead of a plan (ADR-0050).
 	Workflow string `json:"workflow,omitempty"`
+	// Reply is "none" for a task that needs no owner reply (ADR-0055); empty means the default.
+	Reply string `json:"reply,omitempty"`
 }
 
 // IsPublic reports whether the task's content may go to prompt-logging routes.

@@ -331,7 +331,7 @@ func (e *Engine) limitation(ctx context.Context, id string) (*Limitation, error)
 func (e *Engine) submitLab(ctx context.Context, tx *sql.Tx, x exemplar, variantID, arm, kind string) error {
 	b := x.Budget
 	b.MaxCostUSD = min(b.MaxCostUSD, e.cfg.Lab.MaxTaskCostUSD)
-	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: x.Scope.Tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass, Budget: b})
+	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: x.Scope.Tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass, Reply: "none", Budget: b})
 	if err != nil {
 		return err
 	}

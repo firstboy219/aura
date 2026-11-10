@@ -31,6 +31,25 @@ class ClientTest {
     }
 
     @Test
+    fun parsesReplyAndView() {
+        val t = Api.parseTask(JSONObject("""{"id":"T2","objective":"o","state":"COMPLETED","data_class":"public","cost_usd":0,
+            "reply":{"task_id":"T2","text":"Halo Tuan","basis":"model","notes":[{"code":"model_knowledge"}],"files":["a.md"],
+            "view":[{"type":"chart","chart":"bar","items":[{"label":"a","number":1.5},{"label":"b","number":2}]},
+                    {"type":"table","columns":["x","y"],"rows":[["1","2"]]},{"type":"actions","items":[{"label":"Lanjut","value":"teruskan"}]}]}}"""))
+        val r = t.reply!!
+        assertTrue(t.public)
+        assertEquals("Halo Tuan", r.text)
+        assertEquals(1.5, r.view[0].items[0].number!!, 0.0)
+        assertEquals(listOf(listOf("1", "2")), r.view[1].rows)
+        assertEquals("teruskan", r.view[2].items[0].value)
+        assertNull(r.view[1].items.firstOrNull())
+        assertEquals("model_knowledge", r.notes[0].code)
+        assertTrue(ReplyView.noteText(r.notes[0]).contains("pengetahuan model"))
+        assertEquals("1,234", ReplyView.fmt(1234.0))
+        assertNull(Api.parseTask(JSONObject("""{"id":"T3","state":"RUNNING"}""")).reply)
+    }
+
+    @Test
     fun microphoneRules() {
         val p = SensorPolicy()
         val seen = mutableListOf<SensorPolicy.State>()

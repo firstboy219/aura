@@ -265,6 +265,14 @@ func (t *Telegram) handle(ctx context.Context, text string, replyTo *struct {
 	return "Task created: " + tk.ID + "\nI will tell you when it needs you or is done.\n" + t.cfg.WebOrigin + "/app/#/task/" + tk.ID
 }
 
+// truncRunes cuts on a character boundary (reply text is not ASCII).
+func truncRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
 func trunc(s string, n int) string {
 	if len(s) > n {
 		return s[:n] + "…"
@@ -307,6 +315,12 @@ func (t *Telegram) pending(ctx context.Context) []notification {
 				msg := fmt.Sprintf("Task %s %s: %s\n%s", taskID, to, trunc(obj, 200), link)
 				if to != "COMPLETED" && reason != "" {
 					msg += "\nReason: " + reason
+				}
+				if to == "COMPLETED" {
+					// The owner reads the answer where they asked (ADR-0055); the view stays in the app.
+					if r, _ := t.eng.GetReply(ctx, taskID); r != nil && r.Text != "" {
+						msg = truncRunes(r.Text, 3500) + "\n\n" + link
+					}
 				}
 				out = append(out, notification{id, msg})
 			} else {

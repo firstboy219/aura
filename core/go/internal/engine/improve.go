@@ -260,7 +260,7 @@ func (e *Engine) submitRetest(ctx context.Context, x exemplar, extraTools ...str
 		}
 		files[p] = f.Content
 	}
-	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass,
+	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass, Reply: "none",
 		Budget: x.Budget, Attachments: files})
 	if err != nil {
 		return nil, false, err
