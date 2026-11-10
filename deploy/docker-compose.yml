@@ -8,6 +8,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args: { VERSION: "${AURA_VERSION:-dev}" }
     image: aura-core:local
     container_name: aura-core
     command: ["serve"]
@@ -44,7 +45,8 @@ services:
   aura-worker:
     image: aura-core:local
     container_name: aura-worker
-    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001"]
+    # AURA_RELEASE_PUBKEY (deploy/.env, not committed): the worker host verifies the signed release first (ADR-0037).
+    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001", "--release-pubkey", "${AURA_RELEASE_PUBKEY:-}"]
     user: "10002:10002"
     restart: unless-stopped
     network_mode: none

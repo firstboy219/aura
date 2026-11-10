@@ -122,6 +122,10 @@ Create `docs/ADR/NNNN-title.md` for every significant decision: Context → Deci
 
 Run `./dev lint` and `./dev test` before finishing any task.
 
+Deploying (owner-approved, ADR-0037): `sudo deploy/release.sh <version>` builds the image, signs the runtime files with the release
+key in `/opt/aura/release`, and restarts the stack. A plain `docker compose up --build` produces an unsigned image, which the Core
+refuses while `release.required` is true. Isolation check: `sudo deploy/checks/worker-isolation.sh`.
+
 ## 9. Definition of Done (per milestone)
 
 - Scope matches the approved milestone, nothing more.

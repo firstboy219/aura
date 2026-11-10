@@ -130,6 +130,13 @@ type Config struct {
 		OnTimeout          string `yaml:"on_timeout" json:"on_timeout"` // fail | continue (with stated assumptions)
 	} `yaml:"inputs" json:"inputs"`
 	Webhooks []Webhook `yaml:"webhooks" json:"webhooks"`
+	// Release pins the signed runtime (ADR-0037): with a public key set, the Core
+	// verifies the image's release manifest before it starts.
+	Release struct {
+		PublicKey string `yaml:"public_key" json:"public_key"` // base64 Ed25519; not secret
+		Manifest  string `yaml:"manifest" json:"manifest"`
+		Required  bool   `yaml:"required" json:"required"` // refuse to start when verification fails
+	} `yaml:"release" json:"release"`
 	// Secrets configures the encrypted secret store (ADR-0036). Any *_file secret
 	// setting may then be "vault:<name>" instead of a file path.
 	Secrets struct {
@@ -208,6 +215,7 @@ func Default() *Config {
 	c.Tools.WebSearch.WikipediaLang = "en"
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
+	c.Release.Manifest = "/usr/local/share/aura/release.json"
 	c.PromptBudgetChars = map[string]int{"fast": 24000, "standard": 60000, "deep": 120000}
 	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
 	c.Improvement.Enabled = true

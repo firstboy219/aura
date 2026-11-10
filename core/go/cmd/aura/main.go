@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/console"
 	"aura.local/core/internal/gateway"
+	"aura.local/core/internal/release"
 	"aura.local/core/internal/rpc"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/vault"
@@ -70,6 +72,7 @@ func usage(w io.Writer) {
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
+  release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
   worker-host [--socket P]      (isolated worker container) serve workers over a Unix socket
   worker-connect [--socket P]   (Core) bridge the worker supervisor to the worker host
@@ -185,13 +188,132 @@ func secretsCmd(args []string, stdin io.Reader, stdout io.Writer) error {
 	return nil
 }
 
+// verifyRelease checks the signed release manifest (ADR-0037). Without a
+// configured public key it does nothing; with one, a failure stops startup
+// when required, and is logged loudly otherwise.
+func verifyRelease(pubText, manifest string, required bool, log *slog.Logger) error {
+	if pubText == "" {
+		return nil
+	}
+	err := func() error {
+		pub, err := release.ParsePublicKey(pubText)
+		if err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(manifest)
+		if err != nil {
+			return fmt.Errorf("release manifest: %w", err)
+		}
+		m, err := release.Verify(raw, pub, "")
+		if err == nil {
+			log.Info("release verified", "version", m.Body.Version, "files", len(m.Body.Files), "key", m.Body.KeyID)
+		}
+		return err
+	}()
+	if err != nil {
+		if required {
+			return fmt.Errorf("refusing to start: %w", err)
+		}
+		log.Error("release verification failed (release.required is false, starting anyway)", "err", err)
+	}
+	return nil
+}
+
+// releaseCmd creates and checks signed release manifests (ADR-0037).
+func releaseCmd(args []string, stdout io.Writer) error {
+	const use = "release keygen <private-key-file> | sign --key <file> --version V [--root DIR] --out <file> <path>... | verify --pubkey B64 [--manifest F] [--root DIR]"
+	if len(args) == 0 {
+		return usageErr(use)
+	}
+	switch args[0] {
+	case "keygen":
+		if len(args) != 2 {
+			return usageErr("release keygen <private-key-file>")
+		}
+		pub, err := release.Keygen(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "private key written to %s (0400; keep it off the server)\npublic key (put in release.public_key): %s\n", args[1], pub)
+	case "sign":
+		fs := flag.NewFlagSet("release sign", flag.ContinueOnError)
+		keyFile := fs.String("key", "", "private key file")
+		version := fs.String("version", "", "release version")
+		root := fs.String("root", "", "directory holding the image files (default: this filesystem)")
+		out := fs.String("out", "", "manifest output file")
+		pos, err := parse(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		if *keyFile == "" || *version == "" || *out == "" || len(pos) == 0 {
+			return usageErr("release sign --key <file> --version V [--root DIR] --out <file> <path>...")
+		}
+		text, err := config.ReadSecret(*keyFile)
+		if err != nil {
+			return err
+		}
+		priv, err := release.ParsePrivateKey(text)
+		if err != nil {
+			return err
+		}
+		files, err := release.Collect(*root, pos)
+		if err != nil {
+			return err
+		}
+		var dirs []string
+		for _, p := range pos {
+			if fi, err := os.Stat(filepath.Join(*root, p)); err == nil && fi.IsDir() {
+				dirs = append(dirs, p)
+			}
+		}
+		m, err := release.Sign(priv, *version, files, dirs)
+		if err != nil {
+			return err
+		}
+		b, _ := json.MarshalIndent(m, "", "  ")
+		if err := os.WriteFile(*out, append(b, '\n'), 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "signed %d files (key %s) → %s\n", len(files), m.Body.KeyID, *out)
+	case "verify":
+		fs := flag.NewFlagSet("release verify", flag.ContinueOnError)
+		pubText := fs.String("pubkey", "", "base64 public key")
+		manifest := fs.String("manifest", "/usr/local/share/aura/release.json", "manifest")
+		root := fs.String("root", "", "directory holding the image files")
+		if _, err := parse(fs, args[1:]); err != nil {
+			return err
+		}
+		pub, err := release.ParsePublicKey(*pubText)
+		if err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(*manifest)
+		if err != nil {
+			return err
+		}
+		m, err := release.Verify(raw, pub, *root)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "ok: release %s, %d files, key %s\n", m.Body.Version, len(m.Body.Files), m.Body.KeyID)
+	default:
+		return usageErr(use)
+	}
+	return nil
+}
+
 // workerHost runs in the isolated worker container (ADR-0035).
 func workerHost(args []string) error {
 	fs := flag.NewFlagSet("worker-host", flag.ContinueOnError)
 	sock := fs.String("socket", "/run/aura-worker/worker.sock", "Unix socket to listen on")
 	scratch := fs.String("scratch", "/tmp/aura-scratch", "per-worker scratch root (tmpfs)")
 	allow := fs.Int("allow-uid", 10001, "only this peer uid (the Core) may connect; -1 allows any")
+	pub := fs.String("release-pubkey", "", "verify the signed release before serving (ADR-0037)")
+	manifest := fs.String("release-manifest", "/usr/local/share/aura/release.json", "release manifest")
 	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	if err := verifyRelease(*pub, *manifest, true, slog.New(slog.NewJSONHandler(os.Stdout, nil))); err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -230,6 +352,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runConsole()
 	case "secrets":
 		err = secretsCmd(args[1:], stdin, stdout)
+	case "release":
+		err = releaseCmd(args[1:], stdout)
 	case "worker-host":
 		err = workerHost(args[1:])
 	case "worker-connect":
@@ -276,6 +400,9 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := verifyRelease(cfg.Release.PublicKey, cfg.Release.Manifest, cfg.Release.Required, slog.Default()); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	a, err := app.Build(ctx, cfg, app.Options{Version: Version})
@@ -320,6 +447,12 @@ func doctor(out io.Writer) int {
 	} else {
 		_, err := config.ReadSecret(cfg.Providers.OpenRouter.KeyFile)
 		check("provider_key", err, "mode and owner ok (value not shown)")
+	}
+	if cfg.Release.PublicKey != "" {
+		err := verifyRelease(cfg.Release.PublicKey, cfg.Release.Manifest, true, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		check("release", err, "signed manifest verified ("+cfg.Release.Manifest+")")
+	} else {
+		warn("release", "release.public_key not set; runtime files are not verified")
 	}
 	if cfg.Secrets.MasterKeyFile != "" {
 		v, err := app.OpenVault(cfg)
