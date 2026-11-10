@@ -33,6 +33,9 @@ class Api(private val base: String, private val token: String) {
         return parseTask(call("POST", "/tasks", body))
     }
 
+    /** Revokes this device's token on the server. */
+    fun logout() { call("POST", "/app/logout") }
+
     fun answer(id: String, text: String) { call("POST", "/tasks/${enc(id)}/input", JSONObject().put("answer", text)) }
 
     /** Approves exactly the action the owner saw: the Core checks the hash. */
@@ -47,7 +50,7 @@ class Api(private val base: String, private val token: String) {
             c.connectTimeout = 15000
             c.readTimeout = 30000
             c.instanceFollowRedirects = false // never send the token to another place
-            c.setRequestProperty("Authorization", "Bearer $token")
+            if (token.isNotEmpty()) c.setRequestProperty("Authorization", "Bearer $token")
             c.setRequestProperty("Accept", "application/json")
             if (body != null) {
                 c.doOutput = true
@@ -68,6 +71,13 @@ class Api(private val base: String, private val token: String) {
     }
 
     companion object {
+        /** Signs in with an app account; the server issues this device's own token (ADR-0053). */
+        fun login(base: String, username: String, password: String, device: String): String {
+            val body = JSONObject().put("username", username).put("password", password).put("device", device)
+            val o = Api(base, "").call("POST", "/app/login", body)
+            return o.getString("token")
+        }
+
         /** Only https base URLs without credentials, query or fragment. */
         fun checkBase(raw: String): String {
             val s = raw.trim().trimEnd('/')

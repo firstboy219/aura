@@ -32,6 +32,7 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 | brain_variants | L3 brain variants: guidance for one reasoning module, Lab report, owner decision, canary rollout (0010, ADR-0048) |
 | aul_workflows | AUL workflows: source, checked IR + sha256, declared capabilities, version, status (0012, ADR-0050) |
 | aul_runs | AUL runs: task, workflow version, inputs, output, call count (0012, ADR-0050) |
+| app_accounts | Android app sign-in accounts: username, argon2id hash, role, lockout; members.account_id links issued device tokens (0013, ADR-0053) |
 | (0011) | members.department and tasks.created_by: usage attribution by department/member (ADR-0049) |
 | lab_runs | AURA Lab runs: lab task, variant, arm (baseline/variant), kind, cleanup time (0010, ADR-0048) |
 | members, settings | workspace members with roles viewer/operator/approver and their own API tokens (by hash); owner runtime settings such as the daily budget (0008, ADR-0043) |

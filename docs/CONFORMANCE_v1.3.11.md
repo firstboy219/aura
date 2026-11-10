@@ -19,7 +19,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | 5 No unrestricted execution | ✔ | No shell tool; no exec of model output; `calc` is a pure arithmetic parser. |
 | 6 Untrusted means untrusted | ✔ | Observations wrapped as untrusted; memory, MCP results, search results labelled; hostile-worker and RS-12 tests. |
 | 7 Honesty / evidence levels | ✔ | Reports label the evidence level; failures are reported (e.g. the first free-model run, the queue bug). |
-| 9 Independence (§15) | ✘ → open | Code, data and runtime are independent. **But** the provider key in use is a copy of another product's key (A-04, PROPOSAL-0001). Needs an owner decision (give AURA its own key). Documentation was scrubbed of other-product references. |
+| 9 Independence (§15) | ✔ (owner exception) | Code, data and runtime are independent. The shared OpenRouter key is an owner-approved exception (2026-11-10, A-04; PROPOSAL-0001 rejected): AURA keeps it in its own vault and never reads the other product's files. |
 | 10 Do not edit owner documents | ✔ | Installed byte-identical (hashes in ASSUMPTIONS); only the Commands section of AGENTS.md was edited (allowed). |
 | 11, 23 L4 boundary; no path to modify Core/policy/Charter/harness | ✔ | Skills limited to manifest tools; protected-topic proposals rejected and audited; Charter read-only and hash-pinned; improvement loop cannot touch code. |
 | 16 Workspace isolation | ✔ | One instance = one workspace (own DB); test shows profile/memory do not leak to another instance. |
@@ -41,7 +41,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | §8.5 gateway, cascade, structured output, reasoning effort | ✔ | Native/prompt structured output, one repair, cascade fast→standard→deep, second-provider adapter (fake-server tested only — no real second key). |
 | §8.5.1 registry | ◐ | Routes verified against the catalog; health recorded; no automatic capability discovery beyond the catalog. |
 | §8.5.2 trace-driven routing (P3b) | ◐ | Shadow mode only (recorded, never applied) — as specified. Not yet evaluated on a reproducible evaluation set (needs ≥ 20 samples per purpose). |
-| §8.6 context engine | ✘ | Only hard size caps and truncation; **no per-tier prompt budgets or compaction**. |
+| §8.6 context engine | ◐ | Per-tier prompt budgets ✔ (OL-05, `prompt_budget_chars`; the worker's `fit_prompt` trims the longest untrusted observations first and the Core refuses oversized prompts). No semantic compaction or summarisation of long histories. |
 | §8.7 verifier, plan review | ✔ | Evidence-quoted verification, bounded replan, review for complex plans, deep escalation. |
 | §8.8 tools | ✔ | `web.fetch`, `web.search` (Wikipedia/Brave), `data.read`, `calc` (exact), `workspace.*`, MCP adapter. Browser automation is P4 (—). |
 | §8.9 memory | ◐ | FTS5 memory with provenance, evidence gate, correction/deletion. **Embeddings/hybrid retrieval not built** (optional per Blueprint). |
@@ -55,7 +55,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | §8B subagents | ✔ | RS-7 on the fake provider and E11 on real free models. |
 | §13A.3 Console | ◐ | Console v1 ✔ (live trace, full approval preview, kill switch, 80×24). Console v2 panels ✔: memory (view, delete with confirmation), skills (disable/enable, roll back with confirmation), self-model, Limitation Ledger, notifications (opening marks read); all fit 80×24 and spell out state. Not in the TUI yet: memory *correct*, skill diff view, Owner Working Profile, Budgets panel (all available in the CLI). |
 | Charter framework | ◐ | Hash-pinned loading, injection as top-priority rules, mismatch → features disabled + security event, GOV-06 tests. **Charter v0.1 is an unapproved owner draft** (`[OWNER]` fields open): CH-R1…R8 rules are **not enforced**, no approved Quran/hadith corpus exists, so GOV-01…05 cannot be evaluated. The identity statement carries the Blueprint baseline (no fatwa, no invented citations). |
-| §15 independence | ◐ | See rule 9. |
+| §15 independence | ✔ (owner exception) | See rule 9. |
 
 ## 3. Operational lessons (§8.13)
 
@@ -69,7 +69,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | OL-08 workspace time zone | ✔ | `timezone` (default Asia/Jakarta); budget day, schedules; 23:59–01:00 WIB tests. |
 | OL-09 short replies | ✔ | A question and its answer travel together to planning; a deterministic interpreter reads short replies (ya/setuju/ok, tidak/jangan, maksudnya?/explain again) against that question: yes/no add no facts and grant nothing, clarify supplies no information; the planner never adds owner-confirmation steps (the Core asks for approvals). A model-based interpreter for longer replies is not built. |
 | OL-10 agent must not grade itself | ✔ | No runtime path to tests/eval harness; verification needs evidence found by the Core. |
-| OL-11 idempotent notifications per device | ✘ | Notifications exist; no device concept yet (P2b/P5). |
+| OL-11 idempotent notifications per device | ◐ | Per-channel once-only delivery ✔ (`channel_deliveries`, ADR-0044, Telegram). Android polls and remembers what it showed per device (ADR-0052); no server-side per-device delivery record yet. |
 | OL-12 atomic reservations | ✔ | |
 
 ## 4. Closed-loop self-improvement (§8A.5) and SELF-01…07

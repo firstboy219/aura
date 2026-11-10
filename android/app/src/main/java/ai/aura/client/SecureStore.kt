@@ -17,6 +17,9 @@ class SecureStore(ctx: Context) {
     var server: String
         get() = prefs.getString("server", "https://aurax.cosger.online") ?: ""
         set(v) = prefs.edit().putString("server", v).apply()
+    var username: String
+        get() = prefs.getString("username", "") ?: ""
+        set(v) = prefs.edit().putString("username", v).apply()
     var micAllowed: Boolean
         get() = prefs.getBoolean("mic_allowed", false) // off until the owner turns it on
         set(v) = prefs.edit().putBoolean("mic_allowed", v).apply()

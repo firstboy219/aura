@@ -1162,7 +1162,8 @@ func runConsole() error {
 // adminCmd is the Workspace Admin foundation (ADR-0043): members, budget, write-only credentials.
 func adminCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
 	const use = "admin members | member add <name> <viewer|operator|approver> [department] | member disable <id> | member department <id> <department> | " +
-		"budget [usd] | credentials | credential set <name> --stdin | credential delete <name> | usage [group_by] [since] | audit [key=value]..."
+		"budget [usd] | credentials | credential set <name> --stdin | credential delete <name> | usage [group_by] [since] | audit [key=value]... | " +
+		"app-accounts | app-account set <username> <viewer|operator|approver> --stdin | app-account disable <username>"
 	var out map[string]any
 	switch {
 	case len(rest) == 5 && rest[0] == "member" && rest[1] == "add":
@@ -1170,6 +1171,26 @@ func adminCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) er
 			return err
 		}
 		fmt.Fprintf(stdout, "member %v (%v, %v) created; token (shown once): %v\n", out["name"], out["role"], out["department"], out["token"])
+	case len(rest) == 1 && rest[0] == "app-accounts":
+		if err := c.do("GET", "/admin/app-accounts", nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+	case len(rest) == 5 && rest[0] == "app-account" && rest[1] == "set" && rest[4] == "--stdin":
+		b, err := io.ReadAll(io.LimitReader(stdin, 1<<10)) // the password never appears in the process list
+		if err != nil {
+			return err
+		}
+		pw := strings.TrimRight(string(b), "\r\n")
+		if err := c.do("PUT", "/admin/app-accounts/"+rest[2], map[string]any{"password": pw, "role": rest[3]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "app account %v (%v) set; its devices were signed out\n", out["username"], out["role"])
+	case len(rest) == 3 && rest[0] == "app-account" && rest[1] == "disable":
+		if err := c.do("POST", "/admin/app-accounts/"+rest[2]+"/disable", nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "app account disabled; all its devices signed out")
 	case len(rest) == 4 && rest[0] == "member" && rest[1] == "department":
 		if err := c.do("POST", "/admin/members/"+rest[2]+"/department", map[string]any{"department": rest[3]}, nil, &out); err != nil {
 			return err

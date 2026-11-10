@@ -144,6 +144,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/profile/{id}/{action}", auth(s.profileAction))
 	mux.Handle("POST /api/v1/tasks/{id}/context", auth(s.addContext))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
+	mux.HandleFunc("POST /api/v1/app/login", s.appLogin) // ADR-0053: unauthenticated, rate limited, account lockout
+	mux.Handle("POST /api/v1/app/logout", auth(s.appLogout))
+	mux.Handle("GET /api/v1/admin/app-accounts", auth(s.listAppAccounts))
+	mux.Handle("PUT /api/v1/admin/app-accounts/{username}", auth(s.putAppAccount))
+	mux.Handle("POST /api/v1/admin/app-accounts/{username}/disable", auth(s.disableAppAccount))
 	mux.Handle("GET /api/v1/admin/members", auth(s.listMembers))
 	mux.Handle("POST /api/v1/admin/members", auth(s.createMember))
 	mux.Handle("POST /api/v1/admin/members/{id}/disable", auth(s.disableMember))

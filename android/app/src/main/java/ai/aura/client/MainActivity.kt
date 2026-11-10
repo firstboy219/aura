@@ -119,7 +119,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- tasks
     private fun renderTasks() {
-        if (store.token.isEmpty()) { content.addView(label("Isi server dan token di Pengaturan dulu.")); return }
+        if (store.token.isEmpty()) { content.addView(label("Masuk dulu di Pengaturan.")); return }
         content.addView(label("Tugas baru", bold = true))
         val objective = EditText(this).apply { hint = "Apa yang harus AURA kerjakan?"; minLines = 3; gravity = Gravity.TOP }
         content.addView(objective)
@@ -177,7 +177,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- approvals
     private fun renderApprovals() {
-        if (store.token.isEmpty()) { content.addView(label("Isi server dan token di Pengaturan dulu.")); return }
+        if (store.token.isEmpty()) { content.addView(label("Masuk dulu di Pengaturan.")); return }
         bg({ api().approvals() }) { aps ->
             if (aps.isEmpty()) content.addView(label("Tidak ada yang menunggu persetujuan."))
             aps.forEach { a ->
@@ -198,7 +198,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- notifications
     private fun renderNotices() {
-        if (store.token.isEmpty()) { content.addView(label("Isi server dan token di Pengaturan dulu.")); return }
+        if (store.token.isEmpty()) { content.addView(label("Masuk dulu di Pengaturan.")); return }
         bg({ api().notifications(false) }) { ns ->
             if (ns.isEmpty()) content.addView(label("Belum ada notifikasi."))
             ns.forEach { n ->
@@ -217,18 +217,27 @@ class MainActivity : Activity() {
         content.addView(label("Server AURA (https)", bold = true))
         val server = EditText(this).apply { setText(store.server); isSingleLine = true }
         content.addView(server)
-        content.addView(label("Token anggota (dibuat dengan: aura admin member add ponsel approver)", size = 13f))
-        val token = EditText(this).apply {
-            hint = if (store.token.isEmpty()) "aura_m_…" else "tersimpan (isi untuk mengganti)"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        content.addView(token)
-        content.addView(button("Simpan dan uji") {
+        val signedIn = store.token.isNotEmpty()
+        content.addView(label(if (signedIn) "Status: sudah masuk" else "Masuk dengan akun aplikasi AURA", size = 13f))
+        val user = EditText(this).apply { hint = "Nama pengguna"; isSingleLine = true; setText(store.username) }
+        val pass = EditText(this).apply { hint = "Kata sandi"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        if (!signedIn) { content.addView(user); content.addView(pass) }
+        content.addView(button(if (signedIn) "Simpan server dan uji koneksi" else "Masuk") {
             try {
                 store.server = Api.checkBase(server.text.toString())
             } catch (e: IllegalArgumentException) { toast(e.message ?: "URL tidak valid"); return@button }
-            if (token.text.isNotBlank()) store.token = token.text.toString().trim()
-            bg({ api().tasks(1) }) { toast("Terhubung ke AURA") }
+            if (signedIn) { bg({ api().tasks(1) }) { toast("Terhubung ke AURA") }; return@button }
+            val u = user.text.toString().trim()
+            val p = pass.text.toString()
+            if (u.isEmpty() || p.isEmpty()) { toast("Isi nama pengguna dan kata sandi"); return@button }
+            val srv = store.server
+            bg({ Api.login(srv, u, p, Build.MANUFACTURER + " " + Build.MODEL) }) { tok ->
+                store.token = tok // the password is not kept; only this device's token, encrypted
+                store.username = u
+                toast("Berhasil masuk")
+                tab = "tasks"
+                render()
+            }
         })
         content.addView(label("Sensor dan privasi", bold = true))
         content.addView(CheckBox(this).apply {
@@ -253,9 +262,16 @@ class MainActivity : Activity() {
         content.addView(button("Hentikan semua sensor sekarang") { voice.stop(); toast("Semua sensor dihentikan") })
         content.addView(label(
             "Suara dikenali oleh pengenal suara perangkat (offline bila tersedia) dan hanya teksnya yang dikirim ke AURA; " +
-                "rekaman suara tidak disimpan. Kamera dan layar tidak dipakai di versi ini. Token disimpan terenkripsi " +
-                "dengan kunci Android Keystore. Hapus token kapan saja di bawah.", size = 12f))
-        content.addView(button("Hapus token dari ponsel ini") { store.token = ""; NotifyJob.schedule(this, false); toast("Token dihapus"); render() })
+                "rekaman suara tidak disimpan. Kamera dan layar tidak dipakai di versi ini. Kata sandi tidak disimpan; " +
+                "ponsel hanya menyimpan token perangkat terenkripsi (Android Keystore), yang dicabut saat keluar.", size = 12f))
+        if (store.token.isNotEmpty()) content.addView(button("Keluar dari perangkat ini") {
+            val a = api()
+            io.execute { runCatching { a.logout() } } // revoke on the server; sign out locally either way
+            store.token = ""
+            NotifyJob.schedule(this, false)
+            toast("Sudah keluar")
+            render()
+        })
         content.addView(label("Versi ${packageManager.getPackageInfo(packageName, 0).versionName}", size = 12f))
     }
 
