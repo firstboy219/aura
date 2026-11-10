@@ -95,6 +95,11 @@ type Gateway struct {
 	// Rescue lets a call use another tier's routes when its own tier has no
 	// working route (ADR-0054). Set from configuration.
 	Rescue bool
+	// Patience is how long a free route may take to answer, per tier, before the
+	// call moves to the next route (ADR-0054). Nil or a missing tier: no limit.
+	// It never applies to a paid route (abandoning a paid call could pay twice)
+	// or to the last candidate of a call.
+	Patience map[string]time.Duration
 	// Notify receives R0 self-healing events: R0_CIRCUIT_OPEN, R0_CIRCUIT_CLOSED,
 	// R0_EMPTY_ANSWER_RETRY, R0_TOOL_CALL_MARKUP (may be nil).
 	Notify func(event string, data map[string]any)
@@ -181,7 +186,11 @@ func (g *Gateway) Complete(ctx context.Context, b Budget, req Request) (*Result,
 	var lastErr error
 	tried := 0
 	for i, route := range routes {
-		res, err := g.onRoute(ctx, b, route, req, schema)
+		rctx := ctx
+		if d := g.Patience[req.Tier]; d > 0 && route.Free && i < len(routes)-1 {
+			rctx = context.WithValue(ctx, patienceKey{}, d)
+		}
+		res, err := g.onRoute(rctx, b, route, req, schema)
 		if err == nil {
 			if i >= own {
 				g.notify("R0_TIER_RESCUE", map[string]any{"tier": req.Tier, "route": route.RouteID, "provider": route.Provider, "purpose": req.Purpose})
@@ -285,7 +294,13 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			return nil, err
 		}
 		start := time.Now()
-		at, err := g.provider(route).Complete(ctx, route, req)
+		cctx, stop := ctx, context.CancelFunc(func() {})
+		if d, _ := ctx.Value(patienceKey{}).(time.Duration); d > 0 {
+			cctx, stop = context.WithTimeout(ctx, d)
+		}
+		at, err := g.provider(route).Complete(cctx, route, req)
+		slow := err != nil && cctx.Err() != nil && ctx.Err() == nil
+		stop()
 		lat := time.Since(start).Milliseconds()
 		act := budget.Actual{LatencyMs: lat, Outcome: "ok"}
 		if at != nil {
@@ -349,6 +364,13 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if slow {
+			// A free route that is this slow is not retried: the next route answers sooner.
+			pe := &ProviderError{Status: 0, Transient: false, Msg: fmt.Sprintf("slow: no answer in %ds", lat/1000)}
+			g.health.record(routeKey(route), false, 0)
+			g.notify("R0_SLOW_ROUTE", map[string]any{"route": route.RouteID, "provider": route.Provider, "tier": req.Tier, "waited_ms": lat})
+			return nil, pe
 		}
 		var pe *ProviderError
 		if !errors.As(err, &pe) {
@@ -440,6 +462,8 @@ func truncate(s string, n int) string {
 }
 
 type emptyRetryKey struct{}
+
+type patienceKey struct{}
 
 func emptyRetried(ctx context.Context) bool { v, _ := ctx.Value(emptyRetryKey{}).(bool); return v }
 

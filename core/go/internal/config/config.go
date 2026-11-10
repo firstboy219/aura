@@ -115,6 +115,9 @@ type Config struct {
 	// Routing tunes adaptive routing (ADR-0054). Tier rescue is on by default.
 	Routing struct {
 		NoTierRescue bool `yaml:"no_tier_rescue" json:"no_tier_rescue"`
+		// FreePatienceSeconds: how long a free route may take before the call moves on, per tier.
+		// Default fast 20, standard 45, deep 90; a negative value removes the limit for that tier.
+		FreePatienceSeconds map[string]int `yaml:"free_patience_seconds" json:"free_patience_seconds"`
 	} `yaml:"routing" json:"routing"`
 	// Reply: every owner task ends with a reply and an adaptive view (ADR-0055).
 	Reply struct {

@@ -8,6 +8,9 @@ package gateway
 //     failures, because repeating the call cannot succeed;
 //   - a route that failed most of its recent calls is tried after the healthy
 //     ones of the same tier;
+//   - a route that has become much slower than another healthy route of the
+//     tier is tried after it, and a free route that does not answer within the
+//     tier's patience is abandoned for the next route;
 //   - when every route of the tier failed, routes of the other tiers are tried
 //     (tier rescue) so the owner still gets an answer;
 //   - when every candidate is resting, the one due back soonest is probed
@@ -30,6 +33,9 @@ const (
 	healthMinSample = 4
 	quotaCooldown   = 60 * time.Second // rest after 429 (or the provider's Retry-After, if longer)
 	creditCooldown  = 10 * time.Minute // rest after 401/402/403
+	slowFloorMs     = 20000            // a route is "slow" only above this mean latency…
+	slowFactor      = 3                // …and only if another healthy route is this many times faster
+	slowMinSample   = 2
 	maxQuotaRest    = 30 * time.Minute
 )
 
@@ -119,8 +125,8 @@ func (g *Gateway) Health() []RouteHealth {
 	return out
 }
 
-// ordered returns routes in the order to try: healthy first, then demoted,
-// then resting (soonest back first). Configured order breaks ties, so the
+// ordered returns routes in the order to try: healthy first, then slow, then
+// demoted, then resting (soonest back first). Configured order breaks ties, so the
 // owner's preference holds whenever the routes behave.
 func (g *Gateway) ordered(routes []config.ModelRoute) []config.ModelRoute {
 	type ranked struct {
@@ -129,22 +135,36 @@ func (g *Gateway) ordered(routes []config.ModelRoute) []config.ModelRoute {
 		rest time.Duration
 	}
 	rs := make([]ranked, 0, len(routes))
-	for _, r := range routes {
+	lat := make([]int64, len(routes)) // mean latency of healthy routes with enough samples, else 0
+	var best int64
+	for i, r := range routes {
 		k := routeKey(r)
 		x := ranked{r: r, rest: g.brk.restingFor(k)}
 		switch {
 		case x.rest > 0:
-			x.rank = 2
+			x.rank = 3
 		case g.health.unhealthy(k):
-			x.rank = 1
+			x.rank = 2
+		default:
+			if _, ok, ms := g.health.stats(k); ok >= slowMinSample {
+				lat[i] = ms
+				if best == 0 || ms < best {
+					best = ms
+				}
+			}
 		}
 		rs = append(rs, x)
+	}
+	for i := range rs {
+		if rs[i].rank == 0 && lat[i] > slowFloorMs && lat[i] > slowFactor*best {
+			rs[i].rank = 1 // works, but another route of this tier answers much sooner
+		}
 	}
 	sort.SliceStable(rs, func(i, j int) bool {
 		if rs[i].rank != rs[j].rank {
 			return rs[i].rank < rs[j].rank
 		}
-		return rs[i].rank == 2 && rs[i].rest < rs[j].rest
+		return rs[i].rank == 3 && rs[i].rest < rs[j].rest
 	})
 	out := make([]config.ModelRoute, len(rs))
 	for i, x := range rs {

@@ -32,3 +32,18 @@ minutes) and orders candidates with it. Agent logic still names tiers only (AGEN
 ## Evidence (implementation-verified)
 `gateway_test.go`: `TestQuotaRestsRouteImmediately`, `TestUnhealthyRouteIsDemoted`, `TestTierRescue`,
 `TestAllRestingStillProbes`; the existing privacy and budget tests are unchanged and pass.
+
+## Addendum (2026-11-10): patience on free routes and latency ordering
+Measured in the sandbox: the same free route answered in 0.6 s and in 59 s within minutes, and one slow first
+candidate made a simple reply take 78 s.
+- `routing.free_patience_seconds` (default fast 20, standard 45, deep 90; a negative value turns it off): a zero-price
+  route that is not the last candidate is given this long to answer. After that the gateway stops waiting, records the
+  route as failed for health, emits `R0_SLOW_ROUTE` and moves to the next candidate. Paid routes and the last
+  candidate are never cut short, so patience can not turn an answerable call into a failure.
+- Ordering: a healthy route whose mean latency is above 20 s and more than three times the best healthy route of the
+  same list (at least two samples) is tried after the others, before unhealthy and resting routes.
+- Not done: sending a reasoning-effort setting to OpenAI-compatible providers to shorten thinking. One provider
+  rejects the value with HTTP 400; it needs per-provider capability data first.
+- Evidence: `gateway_test.go` `TestFreeRoutePatience`, `health_internal_test.go` `TestSlowRouteIsTriedLater`.
+- Limit: latency is still bounded by the free tiers. In the sandbox runs of 2026-11-10 direct answers took 4-12 s, tool
+  tasks 50-95 s when free routes rejected calls (quota).

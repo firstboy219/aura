@@ -159,6 +159,15 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	gw := gateway.NewMulti(provs, cfg.Models, a.Governor)
 	gw.Rescue = !cfg.Routing.NoTierRescue
+	gw.Patience = map[string]time.Duration{}
+	for tier, def := range map[string]int{"fast": 20, "standard": 45, "deep": 90} {
+		if v, ok := cfg.Routing.FreePatienceSeconds[tier]; ok {
+			def = v
+		}
+		if def > 0 {
+			gw.Patience[tier] = time.Duration(def) * time.Second
+		}
+	}
 	gw.Notify = func(event string, data map[string]any) { // R0 self-healing is always recorded (Blueprint §8A.5)
 		st.Write(context.Background(), func(tx *sql.Tx) error { return policy.Audit(context.Background(), tx, event, "core", "", "", data) })
 		log.Warn("self-healing", "event", event, "data", data)

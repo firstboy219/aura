@@ -654,3 +654,51 @@ func TestAllRestingStillProbes(t *testing.T) {
 		t.Fatalf("probe should use the route due back soonest, got %s", res.RouteID)
 	}
 }
+
+// ADR-0054: a free route that does not answer within the tier's patience is
+// abandoned for the next route, without retrying it. A paid route and the last
+// candidate are never abandoned.
+func TestFreeRoutePatience(t *testing.T) {
+	slow := map[string]bool{"route/free1": true}
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if slow[r.RouteID] {
+			return gatewaytest.Reply{Content: `{"answer":"late"}`, Delay: 400 * time.Millisecond}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	_, s, id := setup(t, f)
+	var events []string
+	mk := func(rs []config.ModelRoute) *gateway.Gateway {
+		g := gateway.New(f, map[string][]config.ModelRoute{"standard": rs}, budget.New(s, 10))
+		g.SetBackoff(func(int) time.Duration { return time.Millisecond })
+		g.Patience = map[string]time.Duration{"standard": 40 * time.Millisecond}
+		g.Notify = func(ev string, _ map[string]any) { events = append(events, ev) }
+		return g
+	}
+	free1 := config.ModelRoute{APIModelID: "f1", RouteID: "route/free1", Free: true, PromptLogging: "may_log", MaxOutputTokens: 1000}
+	free2 := config.ModelRoute{APIModelID: "f2", RouteID: "route/free2", Free: true, PromptLogging: "may_log", MaxOutputTokens: 1000}
+	paid := config.ModelRoute{APIModelID: "p", RouteID: "route/paid", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000}
+	q := req()
+	q.DataClass = "public"
+	b := gateway.Budget{TaskID: id, TaskLimitUSD: 5}
+
+	res, err := mk([]config.ModelRoute{free1, free2}).Complete(context.Background(), b, q)
+	if err != nil || res.RouteID != "route/free2" {
+		t.Fatalf("the slow free route should be abandoned: %+v %v", res, err)
+	}
+	if got := strings.Join(f.Routes, ","); got != "route/free1,route/free2" {
+		t.Fatalf("the slow route must be tried once and not retried: %s", got)
+	}
+	if !strings.Contains(strings.Join(events, ","), "R0_SLOW_ROUTE") {
+		t.Fatalf("not reported: %v", events)
+	}
+	// The last candidate is waited for: a late answer beats no answer.
+	if res, err := mk([]config.ModelRoute{free1}).Complete(context.Background(), b, q); err != nil || string(res.Structured) != `{"answer":"late"}` {
+		t.Fatalf("last candidate: %+v %v", res, err)
+	}
+	// A paid route is never abandoned for being slow.
+	slow = map[string]bool{"route/paid": true}
+	if res, err := mk([]config.ModelRoute{paid, free2}).Complete(context.Background(), b, q); err != nil || res.RouteID != "route/paid" {
+		t.Fatalf("paid route: %+v %v", res, err)
+	}
+}
