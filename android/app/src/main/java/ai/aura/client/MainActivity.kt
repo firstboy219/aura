@@ -143,7 +143,7 @@ class MainActivity : Activity() {
         bg({ api().tasks() }) { ts ->
             if (ts.isEmpty()) content.addView(label("Belum ada tugas."))
             ts.forEach { t ->
-                content.addView(label("${t.state}  ${t.objective.take(90)}").apply {
+                content.addView(label("${stateText(t)}  ${t.objective.take(90)}").apply {
                     setOnClickListener { showTask(t.id) }
                     if (t.state == "WAITING_INPUT" || t.state == "WAITING_APPROVAL") setTextColor(Color.rgb(230, 81, 0))
                 })
@@ -155,7 +155,8 @@ class MainActivity : Activity() {
         bg({ api().task(id) to api().events(id) }) { (t, evs) ->
             val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
             box.addView(label(t.objective, bold = true))
-            box.addView(label("Status: ${t.state}${t.reasonCode?.let { " ($it)" } ?: ""} · biaya \$${"%.4f".format(t.costUsd)}", size = 13f))
+            box.addView(label("Status: ${stateText(t)} · biaya \$${"%.4f".format(t.costUsd)}", size = 13f))
+            explain(t.reasonCode)?.let { box.addView(label(it, size = 13f).apply { setTextColor(Color.rgb(183, 28, 28)) }) }
             val question = evs.lastOrNull { it.type == "INPUT_REQUESTED" }?.data
             var answerBox: EditText? = null
             if (t.state == "WAITING_INPUT" && question != null) {
@@ -173,6 +174,29 @@ class MainActivity : Activity() {
             }
             d.show()
         }
+    }
+
+    private fun stateText(t: Api.Task): String = when (t.state) {
+        "COMPLETED" -> "✓ Selesai"
+        "FAILED" -> "✗ Gagal"
+        "RUNNING", "PLANNING", "CREATED" -> "… Dikerjakan"
+        "WAITING_INPUT" -> "? Menunggu jawaban"
+        "WAITING_APPROVAL" -> "! Menunggu persetujuan"
+        "BUDGET_EXCEEDED" -> "✗ Budget habis"
+        "CANCELLED" -> "Dibatalkan"
+        else -> t.state
+    }
+
+    /** Plain words for the reason codes an owner meets most often. */
+    private fun explain(code: String?): String? = when (code) {
+        null, "" -> null
+        "PROVIDER_UNAVAILABLE" -> "Model AI sedang tidak bisa dipakai: kredit OpenRouter habis atau kuota model gratis harian sudah terpakai " +
+            "(reset pukul 07.00 WIB). Tambahkan kredit OpenRouter agar AURA bisa menjawab kapan saja."
+        "BUDGET_EXCEEDED", "MAX_ITERATIONS", "MAX_WALL_TIME" -> "Tugas berhenti karena batas biaya, langkah, atau waktu tercapai."
+        "POLICY_DENIED" -> "Tugas ditolak oleh aturan keamanan AURA (izin tool atau domain)."
+        "VERIFICATION_FAILED" -> "AURA tidak bisa membuktikan hasilnya benar, jadi tugas tidak ditandai selesai."
+        "SITE_BLOCKED" -> "Situs menolak akses otomatis."
+        else -> "Alasan: $code"
     }
 
     // ---------------------------------------------------------------- approvals
