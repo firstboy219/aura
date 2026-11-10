@@ -20,6 +20,9 @@ services:
       - aura-data:/var/lib/aura
       - /opt/aura/config.yaml:/etc/aura/config.yaml:ro
       - /opt/aura/secrets:/run/aura-secrets:ro   # read by Core only; never in the worker environment
+      - aura-worker-sock:/run/aura-worker        # the only path to the isolated worker (ADR-0035)
+    depends_on:
+      aura-worker: { condition: service_healthy }
     networks: [aura-net]
     cpus: 1.0
     mem_limit: 1g
@@ -36,6 +39,32 @@ services:
       retries: 3
       start_period: 20s
 
+  # The Python worker, isolated (Blueprint P4, ADR-0035): its own unprivileged uid, NO network at all, no data,
+  # workspace or secret mounts, read-only root, scratch on tmpfs. It is reachable only through the socket volume.
+  aura-worker:
+    image: aura-core:local
+    container_name: aura-worker
+    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001"]
+    user: "10002:10002"
+    restart: unless-stopped
+    network_mode: none
+    volumes:
+      - aura-worker-sock:/run/aura-worker
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 64
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,stat,sys; sys.exit(0 if stat.S_ISSOCK(os.stat('/run/aura-worker/worker.sock').st_mode) else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
 networks:
   aura-net:
     name: aura-net
@@ -43,3 +72,5 @@ networks:
 volumes:
   aura-data:
     name: aura-data
+  aura-worker-sock:
+    name: aura-worker-sock

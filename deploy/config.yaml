@@ -11,7 +11,9 @@ database:
 workspace:
   root: /var/lib/aura/workspace
 worker:
-  command: ["python3", "-I", "-m", "aura_worker"]
+  # The worker runs isolated in the aura-worker container (ADR-0035); the Core reaches it through this bridge.
+  # For a single-container development setup use ["python3", "-I", "-m", "aura_worker"].
+  command: ["aura", "worker-connect", "--socket", "/run/aura-worker/worker.sock"]
   idle_timeout_seconds: 60
   max_workers: 1
   max_concurrent_tasks: 1

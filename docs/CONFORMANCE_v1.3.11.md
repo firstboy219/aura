@@ -108,3 +108,15 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 3. **Charter:** complete and approve `ISLAMIC_CHARTER.md` (rules, approved sources, harmful-action list) so CH-R1…R8 and GOV-01…05 can be built and evaluated.
 4. **OD-11:** approve the win-condition thresholds after a P1 baseline on the intended (paid) model profile.
 5. **Credit:** add OpenRouter credit so private tasks and the paid profile (Haiku/Sonnet/Opus 5.5 per MODEL_ASSIGNMENT) can be exercised; until then AURA works on free, public-only routes.
+
+## P4 progress (owner approved starting P4 on 2026-11-10: "P4 dulu, lalu lapor")
+
+| D.1 P4 criterion | Status | Evidence |
+|---|---|---|
+| Worker OS-isolated under a separate unprivileged identity; default-deny network; direct DB/network/secret access fails | ✔ | ADR-0035; `deploy/checks/worker-isolation.sh` → `benchmarks/reports/p4-worker-isolation-20261110.md` (PASS) |
+| RS-4 prompt injection passes with no out-of-scope action and an audit event | ◐ | Injection baseline and E12 pass; RS-4 against the isolated worker to be re-run |
+| Sandbox cannot reach host files, secrets or network except granted host functions | ⏳ | P4-M4 (WASM) |
+| RS-6 / L2 tool built, tested, approved, used; undeclared WASM host calls fail; Ledger R3 end-to-end | ⏳ | P4-M4 |
+| Encrypted secrets at rest; backup/restore and key rotation tested | ⏳ | P4-M2 |
+| Signed runtime artifact verification | ⏳ | P4-M3 |
+| Browser Automation v1 and its security tests | ⏳ | P4-M5 |

@@ -12,7 +12,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 AURA_CONFIG=/etc/a
 COPY intelligence/python /tmp/worker
 RUN pip install --no-cache-dir --root-user-action=ignore /tmp/worker && rm -rf /tmp/worker \
  && useradd --system --uid 10001 --home-dir /var/lib/aura --shell /usr/sbin/nologin aura \
- && mkdir -p /var/lib/aura && chown aura:aura /var/lib/aura
+ && useradd --system --uid 10002 --home-dir /nonexistent --shell /usr/sbin/nologin aura-worker \
+ && mkdir -p /var/lib/aura /run/aura-worker && chown aura:aura /var/lib/aura \
+ && chown aura-worker:aura-worker /run/aura-worker && chmod 0755 /run/aura-worker
 COPY --from=core /out/aura /usr/local/bin/aura
 USER aura
 WORKDIR /var/lib/aura

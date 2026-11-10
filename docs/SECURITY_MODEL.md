@@ -33,8 +33,9 @@ resources shared with other workloads on the host.
 | T11 | Noisy neighbour (other workloads on the host) | Container CPU/RAM/pids limits, one worker, one task at a time | resource baseline |
 
 ## 4. Honest limits in P1
-- The worker is **not OS-sandboxed** and shares the Core uid inside the container (ADR-0007). Mitigated by
-  architecture and tests; OS isolation is P4.
+- ~~The worker is not OS-sandboxed~~ — **P4 (ADR-0035):** the worker runs in its own container (uid 10002, no network at all, no
+  data/secret mounts, read-only), reachable only through a socket that accepts the Core's uid. Verified by
+  `deploy/checks/worker-isolation.sh`. The boundary is Docker on a shared kernel; no extra seccomp/Landlock profile yet.
 - Docker is a deployment boundary from co-resident products, not a hostile-code sandbox.
 - The provider key is a copy of another product's key (A-04, open conflict with §15): AURA's budget bounds AURA's calls, not the other product's.
 - No encryption at rest for secrets in P1 (file permissions only); encrypted storage and rotation are P4.

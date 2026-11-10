@@ -30,6 +30,7 @@ import (
 	"aura.local/core/internal/rpc"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/worker"
+	"aura.local/core/internal/workerhost"
 	tea "github.com/charmbracelet/bubbletea"
 	_ "modernc.org/sqlite"
 )
@@ -68,10 +69,39 @@ func usage(w io.Writer) {
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
+  worker-host [--socket P]      (isolated worker container) serve workers over a Unix socket
+  worker-connect [--socket P]   (Core) bridge the worker supervisor to the worker host
 
 Environment: AURA_CONFIG (default /etc/aura/config.yaml), AURA_URL (default http://127.0.0.1:7400),
 AURA_TOKEN_FILE (default: server.token_file from the config).
 `)
+}
+
+// workerHost runs in the isolated worker container (ADR-0035).
+func workerHost(args []string) error {
+	fs := flag.NewFlagSet("worker-host", flag.ContinueOnError)
+	sock := fs.String("socket", "/run/aura-worker/worker.sock", "Unix socket to listen on")
+	scratch := fs.String("scratch", "/tmp/aura-scratch", "per-worker scratch root (tmpfs)")
+	allow := fs.Int("allow-uid", 10001, "only this peer uid (the Core) may connect; -1 allows any")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	return workerhost.Serve(ctx, workerhost.Options{Socket: *sock, ScratchRoot: *scratch, AllowUID: *allow,
+		Command: []string{"python3", "-I", "-m", "aura_worker"}, Log: log})
+}
+
+// workerConnect is the Core-side worker command when the worker is isolated:
+// it bridges the supervisor's stdio to the worker host socket.
+func workerConnect(args []string, stdin io.Reader, stdout io.Writer) error {
+	fs := flag.NewFlagSet("worker-connect", flag.ContinueOnError)
+	sock := fs.String("socket", "/run/aura-worker/worker.sock", "worker host socket")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	return workerhost.Connect(*sock, stdin, stdout)
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -90,6 +120,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return doctor(stdout)
 	case "console":
 		err = runConsole()
+	case "worker-host":
+		err = workerHost(args[1:])
+	case "worker-connect":
+		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
 		"self", "limitations", "limitation", "trigger", "notifications":
 		err = client(args, stdin, stdout)
