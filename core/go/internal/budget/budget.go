@@ -95,9 +95,11 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 	err := g.st.Write(ctx, func(tx *sql.Tx) error {
 		var taskSpent, daySpent float64
 		var calls int
-		// max_iterations counts calls the provider may have run; a definite
-		// rejection (HTTP 4xx/5xx before any work, outcome "rejected") is not one.
-		if err := tx.QueryRowContext(ctx, "select coalesce(sum("+spent+"),0), count(*) filter (where outcome <> 'rejected') from usage_records where task_id=?",
+		// max_iterations counts logical model calls. A definite rejection (HTTP
+		// 4xx/5xx before any work, "rejected") is not one, and neither is an empty
+		// answer ("empty_output"): it is always followed by a bounded retry or the
+		// next route, which is counted. Their cost still counts against the budget.
+		if err := tx.QueryRowContext(ctx, "select coalesce(sum("+spent+"),0), count(*) filter (where outcome not in ('rejected','empty_output')) from usage_records where task_id=?",
 			c.TaskID).Scan(&taskSpent, &calls); err != nil {
 			return err
 		}
