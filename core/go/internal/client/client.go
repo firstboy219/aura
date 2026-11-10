@@ -76,6 +76,8 @@ type API interface {
 	Files(taskID string) ([]File, error)
 	File(taskID, path string) (string, error)
 	Stream(ctx context.Context, taskID string, out chan<- Event) error
+	// Raw calls any other endpoint (path below /api/v1) and returns its JSON.
+	Raw(method, path string, body any) (json.RawMessage, error)
 }
 
 type Client struct {
@@ -174,6 +176,12 @@ func (c *Client) Cancel(taskID string) error {
 	return c.do("POST", "/tasks/"+taskID+"/cancel", nil, nil)
 }
 func (c *Client) Stop() error { return c.do("POST", "/system/stop", nil, nil) }
+
+func (c *Client) Raw(method, path string, body any) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.do(method, path, body, &out)
+	return out, err
+}
 
 func (c *Client) Files(taskID string) ([]File, error) {
 	var out struct{ Files []File }

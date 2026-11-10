@@ -2,6 +2,7 @@ package console
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -13,6 +14,24 @@ import (
 type fakeAPI struct {
 	approved, rejected, answered string
 	stopped, cancelled           bool
+	raw                          []string // "METHOD path body" of Raw calls
+}
+
+var panelFixtures = map[string]string{
+	"/memories?limit=100": `{"memories":[{"id":"01MEMAAAAAAAAAAAAAAAAAAAAA","kind":"fact","status":"active","privacy":"private","content":"The owner prefers\nshort reports","provenance":{"task_id":"T1"}}]}`,
+	"/skills":             `{"skills":[{"id":"01SKLAAAAAAAAAAAAAAAAAAAAA","name":"fetch and summarize","status":"active","current_version":3,"notes":"two pages"}]}`,
+	"/limitations":        `{"limitations":[{"id":"01LIMAAAAAAAAAAAAAAAAAAAAA","status":"open","category":"external_dependency","title":"free routes rate limited"}]}`,
+	"/notifications":      `{"notifications":[{"id":"01NOTAAAAAAAAAAAAAAAAAAAAA","kind":"info","title":"A task is waiting for your answer","read_at":null,"created_at":1793000000000}]}`,
+	"/self":               `{"identity":"AURA","open_limitations":1}`,
+}
+
+func (f *fakeAPI) Raw(method, path string, body any) (json.RawMessage, error) {
+	b, _ := json.Marshal(body)
+	f.raw = append(f.raw, method+" "+path+" "+string(b))
+	if method == "GET" {
+		return json.RawMessage(panelFixtures[path]), nil
+	}
+	return json.RawMessage(`{}`), nil
 }
 
 func (f *fakeAPI) Tasks() ([]client.Task, error) {
@@ -171,4 +190,83 @@ func TestAnswerQuestion(t *testing.T) {
 		t.Fatalf("answer %q", api.answered)
 	}
 	m.stopStream()
+}
+
+func lastRaw(api *fakeAPI) string {
+	if len(api.raw) == 0 {
+		return ""
+	}
+	return api.raw[len(api.raw)-1]
+}
+
+// Console v2 (Blueprint §13A.3): every panel renders in 80×24 and spells out state.
+func TestConsoleV2PanelsFit80x24(t *testing.T) {
+	for _, k := range []string{"m", "s", "i", "l", "o"} {
+		api := &fakeAPI{}
+		m := New(api)
+		m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		key(m, k)
+		v := m.View()
+		if m.mode != modePanel || len(m.items) != 1 {
+			t.Fatalf("panel %s: mode %d items %d\n%s", k, m.mode, len(m.items), v)
+		}
+		fits(t, v, 80, 24)
+		key(m, "enter")
+		if m.mode != modePanelItem {
+			t.Fatalf("panel %s: item not opened", k)
+		}
+		fits(t, m.View(), 80, 24)
+		key(m, "esc")
+		key(m, "esc")
+		if m.mode != modeList {
+			t.Fatalf("panel %s: esc does not return to the task list", k)
+		}
+	}
+}
+
+func TestMemoryDeleteNeedsConfirmation(t *testing.T) {
+	api := &fakeAPI{}
+	m := New(api)
+	key(m, "m")
+	key(m, "d")
+	if m.mode != modeConfirm || strings.HasPrefix(lastRaw(api), "DELETE") {
+		t.Fatal("deleted without confirmation")
+	}
+	key(m, "n")
+	if strings.HasPrefix(lastRaw(api), "DELETE") || m.mode != modePanel {
+		t.Fatal("deleted after declining")
+	}
+	key(m, "d")
+	key(m, "y")
+	if !strings.Contains(strings.Join(api.raw, "|"), "DELETE /memories/01MEMAAAAAAAAAAAAAAAAAAAAA") || m.status != "memory deleted" {
+		t.Fatalf("calls %v status %q", api.raw, m.status)
+	}
+}
+
+func TestSkillActionsAndRollback(t *testing.T) {
+	api := &fakeAPI{}
+	m := New(api)
+	key(m, "s")
+	key(m, "x")
+	if !strings.Contains(strings.Join(api.raw, "|"), "POST /skills/01SKLAAAAAAAAAAAAAAAAAAAAA/disable") {
+		t.Fatalf("disable not sent: %v", api.raw)
+	}
+	key(m, "b")
+	key(m, "y")
+	if !strings.Contains(strings.Join(api.raw, "|"), `POST /skills/01SKLAAAAAAAAAAAAAAAAAAAAA/rollback {"version":2}`) {
+		t.Fatalf("rollback to the previous version not sent: %v", api.raw)
+	}
+}
+
+func TestOpeningNotificationMarksItRead(t *testing.T) {
+	api := &fakeAPI{}
+	m := New(api)
+	key(m, "o")
+	if !strings.Contains(m.View(), "unread") {
+		t.Fatal("read state not spelled out")
+	}
+	key(m, "enter")
+	if !strings.Contains(strings.Join(api.raw, "|"), "POST /notifications/01NOTAAAAAAAAAAAAAAAAAAAAA/read") {
+		t.Fatalf("not marked read: %v", api.raw)
+	}
 }

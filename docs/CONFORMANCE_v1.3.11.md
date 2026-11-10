@@ -53,7 +53,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | §8A.3 Self-Model | ✔ | `/self`, `/self-model` from records, not from the model. |
 | **§8A.5 Closed-loop self-improvement** | ✔ for P3a scope | See §4. |
 | §8B subagents | ✔ | RS-7 on the fake provider and E11 on real free models. |
-| §13A.3 Console | ◐ | Console v1 ✔ (live trace, full approval preview, kill switch, 80×24). **Console v2 panels** (memory, skills diff/rollback, self-model, ledger, notifications) are API-only; the TUI does not show them yet. |
+| §13A.3 Console | ◐ | Console v1 ✔ (live trace, full approval preview, kill switch, 80×24). Console v2 panels ✔: memory (view, delete with confirmation), skills (disable/enable, roll back with confirmation), self-model, Limitation Ledger, notifications (opening marks read); all fit 80×24 and spell out state. Not in the TUI yet: memory *correct*, skill diff view, Owner Working Profile, Budgets panel (all available in the CLI). |
 | Charter framework | ◐ | Hash-pinned loading, injection as top-priority rules, mismatch → features disabled + security event, GOV-06 tests. **Charter v0.1 is an unapproved owner draft** (`[OWNER]` fields open): CH-R1…R8 rules are **not enforced**, no approved Quran/hadith corpus exists, so GOV-01…05 cannot be evaluated. The identity statement carries the Blueprint baseline (no fatwa, no invented citations). |
 | §15 independence | ◐ | See rule 9. |
 

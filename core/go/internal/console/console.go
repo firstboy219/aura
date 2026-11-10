@@ -27,6 +27,8 @@ const (
 	modeApproval
 	modeFiles
 	modeFile
+	modePanel     // Console v2 list: memory, skills, self-model, ledger, notifications
+	modePanelItem // one item of a panel, in full
 )
 
 // Model is the console state.
@@ -54,6 +56,11 @@ type Model struct {
 
 	streamCancel context.CancelFunc
 	streamCh     chan client.Event
+
+	panel     string // memory | skills | self | ledger | notifications
+	items     []panelItem
+	itemText  string
+	confirmID string // panel item a confirmation is about
 }
 
 // New creates the console model.
@@ -180,6 +187,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalMsg:
 		m.handleApproval(msg)
 		return m, nil
+	case panelMsg:
+		if msg.panel == m.panel {
+			m.items = msg.items
+			if m.cursor >= len(m.items) {
+				m.cursor = max(0, len(m.items)-1)
+			}
+		}
+		return m, nil
+	case panelStatusMsg:
+		m.status = string(msg)
+		return m, m.loadPanel()
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
@@ -241,8 +259,9 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "cancel":
 			id := m.selected
 			return m, m.do(func() error { return m.api.Cancel(id) }, "task cancelled")
+		default:
+			return m, m.confirmPanel()
 		}
-		return m, nil
 	case modeApproval:
 		ap := m.approval
 		switch k.String() {
@@ -282,6 +301,8 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeFiles
 		}
 		return m, nil
+	case modePanel, modePanelItem:
+		return m.panelKey(k)
 	}
 	// list and detail share global keys
 	switch k.String() {
@@ -312,6 +333,10 @@ func (m *Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			return m, m.loadTasks()
+		default:
+			if p, ok := panelKeys[k.String()]; ok {
+				return m, m.openPanel(p)
+			}
 		}
 		return m, nil
 	}
@@ -415,6 +440,13 @@ func (m *Model) View() string {
 		for _, l := range strings.Split(m.fileText, "\n") {
 			lines = append(lines, clip(l, w))
 		}
+	case modePanel:
+		lines = m.viewPanel(w)
+	case modePanelItem:
+		lines = append(lines, header.Render(clip(" "+panelTitles[m.panel]+" ", w)))
+		for _, l := range strings.Split(m.itemText, "\n") {
+			lines = append(lines, clip(l, w))
+		}
 	default:
 		if m.mode == modeList || (m.mode != modeDetail && m.selected == "") {
 			lines = m.viewList(w, h)
@@ -441,15 +473,22 @@ func (m *Model) footer(w int) []string {
 	var help string
 	switch m.mode {
 	case modeList:
-		help = "↑↓ select · enter open · n new · ! kill switch · q quit"
+		help = "↑↓ enter open · n new · m memory · s skills · i self · l ledger · o notices · ! kill · q quit"
+	case modePanel, modePanelItem:
+		help = panelHelp[m.panel]
 	case modeDetail:
 		help = "y approve · a answer · c correct · f files · x cancel · ! stop all · esc back"
 	case modeInput:
 		return []string{clip(m.input.View(), w), dim.Render(clip("enter send · esc cancel"+map[bool]string{true: " · Tab: public (free models allowed)", false: " · Tab: private"}[m.public], w))}
 	case modeConfirm:
 		q := "Cancel this task and all its subagents? [y/N]"
-		if m.confirmFor == "stop" {
+		switch m.confirmFor {
+		case "stop":
 			q = "KILL SWITCH: stop ALL AURA activity until the Core restarts? [y/N]   (CLI: aura stop --all)"
+		case "delete-memory":
+			q = "Delete this memory permanently? [y/N]   (CLI: aura memory delete <id>)"
+		case "rollback-skill":
+			q = "Roll this skill back to its previous version? [y/N]   (CLI: aura skill rollback <id> <version>)"
 		}
 		return []string{warn.Render(clip(q, w)), ""}
 	default:
