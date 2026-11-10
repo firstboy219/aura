@@ -97,7 +97,7 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 |---|---|
 | RS-1 real provider ≥ 9/10 | ✔ 10/10 (free routes), report `benchmarks/reports/P1-2026-11-09.md` |
 | RS-3, RS-7, RS-10, RS-11, RS-12, SELF-01…07 | ✔ deterministic fixtures (fake provider) — **not yet repeated with a real provider** |
-| Eval suite v1 (≥ 15 tasks) on the real provider | ◐ 11/17 passed on free routes (n = 1 per task; 3 provider outages, 3 verifier rejections) — `benchmarks/reports/eval-suite_v1-20261109T215207.md`; not a stable pass rate |
+| Eval suite v1 (≥ 15 tasks) on the real provider | ◐ free routes, n = 1 per task: 11/17 (2026-11-09) → 13/17 (2026-11-10, `eval-suite_v1-20261110T001728.md`); every failure was traced to an AURA defect and fixed (see the report). Not a stable pass rate; no paid-profile baseline yet |
 | RS-2, RS-4…RS-6, RS-8, RS-9 | — / ✘ RS-2 as specified (≥ 4 sources + A2) not run; RS-4/6/8/9 are P4/P5 |
 | §5.6 Win conditions vs Hermes | ✘ **No claim possible**: Hermes is not installed or run, the owner has not approved the thresholds (OD-11), the P1 baseline exists only on free models. Capabilities Hermes has and AURA lacks are not yet listed (claim rule 3). |
 
