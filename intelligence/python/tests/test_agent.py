@@ -246,3 +246,18 @@ def test_fit_prompt_trims_observations_and_keeps_delimiters():
         assert agent.fit_prompt("fast", small) == small
     finally:
         agent.set_preamble({})
+
+
+@pytest.mark.parametrize("answer,meaning", [("Ya", "yes"), ("setuju!", "yes"), ("ok lanjut", "yes"), ("lanjut aja", "yes"), ("ya tapi halaman dua saja", ""),
+                                            ("jangan", "no"), ("Tidak usah", "no"), ("maksudnya?", "clarify"),
+                                            ("explain again", "clarify"), ("Use https://example.com/two", ""),
+                                            ("yes but only the first page and write it short", "")])
+def test_interpret_short_reply(answer, meaning):
+    assert agent.interpret_short_reply(answer) == meaning
+
+
+def test_short_reply_is_read_against_the_question():
+    out = agent.render_owner_context([{"kind": "answer", "question": "Summarize only page two?", "answer": "ya"}])
+    assert "short YES to exactly what the question proposed" in out
+    out = agent.render_owner_context([{"kind": "answer", "question": "Which page?", "answer": "maksudnya?"}])
+    assert "gave NO information" in out

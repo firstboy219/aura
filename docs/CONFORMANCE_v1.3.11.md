@@ -67,7 +67,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | OL-04 orphaned runs / leases | ✔ | Leases, startup reconciliation, watch runs interrupted by a crash are failed. |
 | OL-05 prompt size | ✔ | Prompt size per call in the trace; per-tier prompt budget `prompt_budget_chars` (fast 24k, standard 60k, deep 120k characters): the worker trims untrusted observation bodies (longest first, delimiters kept) to fit, and a call still over budget is flagged `over_budget` in `MODEL_CALLED`. Tool docs are sent only for granted tools. |
 | OL-08 workspace time zone | ✔ | `timezone` (default Asia/Jakarta); budget day, schedules; 23:59–01:00 WIB tests. |
-| OL-09 short replies | ◐ | A question and its answer travel together to planning; no dedicated short-reply interpreter (Haiku) yet. |
+| OL-09 short replies | ✔ | A question and its answer travel together to planning; a deterministic interpreter reads short replies (ya/setuju/ok, tidak/jangan, maksudnya?/explain again) against that question: yes/no add no facts and grant nothing, clarify supplies no information; the planner never adds owner-confirmation steps (the Core asks for approvals). A model-based interpreter for longer replies is not built. |
 | OL-10 agent must not grade itself | ✔ | No runtime path to tests/eval harness; verification needs evidence found by the Core. |
 | OL-11 idempotent notifications per device | ✘ | Notifications exist; no device concept yet (P2b/P5). |
 | OL-12 atomic reservations | ✔ | |

@@ -161,6 +161,8 @@ Rules:
 - completion_criteria: 1-5 short, checkable statements about the produced output (e.g. "reports/summary.md contains
   a summary of each page with its source link").
 - {ask_rule}
+- Never add a step that only asks the owner to confirm: the Core itself asks the owner to approve every action that
+  needs approval.
 Reply with JSON only."""
 
 ASK_RULE_ALLOWED = ('If the objective is genuinely ambiguous so that any plan would be a guess (for example it does not '
@@ -247,11 +249,52 @@ def render_observations(observations: list[dict]) -> str:
     return "\n\n".join(parts) or "(no observations)"
 
 
+# OL-09: short replies are read against the agent's own last question, never on their own.
+_YES = {"ya", "iya", "y", "yes", "ok", "oke", "okay", "setuju", "boleh", "lanjut", "silakan", "silahkan", "betul", "benar",
+        "sure", "go", "go ahead", "agreed", "yep", "sip", "gas"}
+_NO = {"tidak", "nggak", "ngga", "gak", "enggak", "jangan", "no", "nope", "batal", "stop", "tidak usah", "ga usah", "gausah"}
+_CLARIFY = {"maksudnya", "maksudnya apa", "apa maksudnya", "gimana", "bagaimana", "what do you mean", "what", "huh",
+            "jelaskan lagi", "explain again", "explain", "kenapa", "why"}
+
+
+def interpret_short_reply(answer: str) -> str:
+    """Classify a short owner reply as yes, no or clarify; "" when it carries its own content."""
+    text = re.sub(r"[^\w\s]", " ", str(answer).lower())
+    text = " ".join(text.split())
+    if not text or len(text.split()) > 4:
+        return ""
+    for word in (text, text.removesuffix(" saja"), text.removesuffix(" aja"), text.removesuffix(" please")):
+        if word in _CLARIFY:
+            return "clarify"
+        if word in _YES:
+            return "yes"
+        if word in _NO:
+            return "no"
+    words = text.split()
+    if all(w in _YES for w in words):
+        return "yes"  # "ok lanjut", "ya boleh"
+    if all(w in _NO for w in words):
+        return "no"
+    return ""
+
+
+_SHORT_MEANING = {
+    "yes": "This is a short YES to exactly what the question proposed; it adds no other facts and grants no permission.",
+    "no": "This is a short NO to what the question proposed; do not do that, and it adds no other facts.",
+    "clarify": ("The owner asked what the question meant and gave NO information. Do not treat it as an answer or invent "
+                "one; if you still need it, ask again in plainer words."),
+}
+
+
 def render_owner_context(items: list[dict]) -> str:
     lines = []
     for it in items or []:
         if it.get("kind") == "answer":
-            lines.append(f"- The owner was asked: {it.get('question')!r} and answered: {it.get('answer')!r}")
+            line = f"- The owner was asked: {it.get('question')!r} and answered: {it.get('answer')!r}"
+            meaning = interpret_short_reply(str(it.get("answer", "")))
+            if meaning:
+                line += " " + _SHORT_MEANING[meaning]
+            lines.append(line)
         elif it.get("kind") == "unanswered":
             lines.append(f"- The owner was asked: {it.get('question')!r} and did not answer. {it.get('answer')}")
         else:
