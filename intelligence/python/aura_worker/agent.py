@@ -322,6 +322,14 @@ def _json_object(text: Any) -> bool:
         return False
 
 
+_ARITHMETIC = re.compile(r"^(?:[0-9\s+\-*/^().,]|round|abs|min|max|sqrt)+$")
+
+
+def is_arithmetic(expression: Any) -> bool:
+    """Plain arithmetic the calc tool can parse (numbers, operators, the allowed functions)."""
+    return isinstance(expression, str) and bool(expression.strip()) and bool(_ARITHMETIC.match(expression))
+
+
 def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict]:
     if not 1 <= len(steps) <= MAX_STEPS:
         raise StepFailure(f"plan has {len(steps)} steps (1..{MAX_STEPS} allowed)", "invalid_plan")
@@ -337,6 +345,10 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
         field = need.get(tool)
         if field and not s.get(field) and tool != "calc":
             raise StepFailure(f"step {i}: {tool} needs {field}", "invalid_plan")
+        if tool == "calc" and s.get("expression") and not is_arithmetic(s.get("expression")):
+            raise StepFailure(f"step {i}: calc expression {str(s.get('expression'))[:80]!r} is not plain arithmetic; use only "
+                              "numbers, + - * / ^ ( ) and round/abs/min/max/sqrt, or set expression to null to compute it "
+                              "from the observations at step time", "invalid_plan")
         if tool.startswith("mcp.") and not _json_object(s.get("input")):
             raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan")
         step = {"step_no": i, "description": str(s.get("description", ""))[:500], "tool_id": tool}
@@ -434,15 +446,29 @@ def replan(ch: Channel, params: dict) -> dict:
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
         user += f"\n\nWhat the owner has told you:\n{owner}"
-    out = complete(ch, params.get("tier") or "standard", system, user, plan_schema(granted), 3000, "replan")
-    steps = validate_steps(out.get("steps") or [], granted, start)
-    written = {s["path"] for s in steps if s["tool_id"] == "workspace.write"}
-    inputs = input_paths(steps + list(params.get("steps", [])), params.get("attachments"))
-    missing = [p for p in expected_outputs(objective) if p not in written and p not in already and p not in inputs]
-    if missing and "workspace.write" in granted:
-        raise StepFailure("new plan never writes " + ", ".join(missing), "invalid_plan")
-    criteria = [str(c)[:300] for c in (out.get("completion_criteria") or [])][:5]
-    return {"steps": steps, "completion_criteria": criteria, "question": None}
+    messages = [{"role": "system", "content": sys_prompt(system)}, {"role": "user", "content": user}]
+    tier = params.get("tier") or "standard"
+    for attempt in range(2):  # one repair, as for the first plan
+        res = ch.call("llm.complete", {"tier": tier, "messages": messages, "response_schema": plan_schema(granted),
+                                       "max_output_tokens": 3000, "purpose": "replan"})
+        out = res.get("structured") or {}
+        try:
+            steps = validate_steps(out.get("steps") or [], granted, start)
+            written = {s["path"] for s in steps if s["tool_id"] == "workspace.write"}
+            inputs = input_paths(steps + list(params.get("steps", [])), params.get("attachments"))
+            missing = [p for p in expected_outputs(objective) if p not in written and p not in already and p not in inputs]
+            if missing and "workspace.write" in granted:
+                raise StepFailure("new plan never writes " + ", ".join(missing) + ", which the objective asks for. Add a "
+                                  "workspace.write step for each, after the steps it needs.", "invalid_plan")
+        except StepFailure as e:
+            if attempt == 1:
+                raise
+            messages = messages + [{"role": "assistant", "content": json.dumps(out)[:8000]},
+                                   {"role": "user", "content": f"Your plan is not acceptable: {e} Reply with the corrected plan."}]
+            continue
+        criteria = [str(c)[:300] for c in (out.get("completion_criteria") or [])][:5]
+        return {"steps": steps, "completion_criteria": criteria, "question": None}
+    raise StepFailure("unreachable", "invalid_plan")
 
 
 def verify(ch: Channel, params: dict) -> dict:
@@ -506,7 +532,7 @@ def step(ch: Channel, params: dict) -> dict:
         return _result(_invoke(ch, tool, {"query": s.get("query")}))
     if tool == "calc":
         expression = s.get("expression")
-        if not expression:
+        if not is_arithmetic(expression):  # missing, or not something calc can parse (one tool call per step)
             user = (f"This step: {s.get('description', '')}\n\nObservations:\n{render_observations(observations)}")
             expression = complete(ch, tier or "fast", CALC_SYSTEM, user, EXPR_SCHEMA, 300, "calc").get("expression")
             if not expression:

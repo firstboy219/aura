@@ -195,3 +195,30 @@ def test_planner_question_only_when_allowed():
     resp = FakeCore(req("task.plan", {"objective": "Summarize it", "granted_tools": ["web.fetch"], "allow_domains": [], "may_ask": False}),
                     [q, q]).run()
     assert resp["error"]["data"]["reason_code"] == "invalid_plan"
+
+
+def test_replan_missing_write_is_repaired_once():
+    fetch = {"step_no": 2, "description": "fetch", "tool_id": "web.fetch", "url": "https://a.test/2", "path": None,
+             "query": None, "expression": None, "key": None, "until": None, "brief": None, "tools": None}
+    write = dict(fetch, step_no=3, description="write", tool_id="workspace.write", url=None, path="reports/summary.md")
+    params = {"objective": "Fetch and write reports/summary.md", "granted_tools": ["web.fetch", "workspace.write"],
+              "steps": [{"step_no": 1, "tool_id": "web.fetch", "state": "FAILED", "description": "f"}],
+              "cause": {"kind": "step_failed"}, "next_step_no": 2}
+    no_write = {"steps": [fetch], "completion_criteria": [], "question": None}
+    fixed = {"steps": [fetch, write], "completion_criteria": [], "question": None}
+    core = FakeCore(req("task.replan", params), [{"result": {"structured": no_write}}, {"result": {"structured": fixed}}])
+    resp = core.run()
+    assert resp["result"]["steps"][-1]["path"] == "reports/summary.md"
+    assert "never writes reports/summary.md" in core.seen[1]["params"]["messages"][-1]["content"]
+
+
+@pytest.mark.parametrize("expr,ok", [("1250000 * 12 * 0.11", True), ("round(2^10 / 3, 2)", True),
+                                     ("sum(amount)", False), ("{amount}", False), ("", False), (None, False)])
+def test_is_arithmetic(expr, ok):
+    assert agent.is_arithmetic(expr) is ok
+
+
+def test_plan_with_non_arithmetic_calc_is_invalid():
+    steps = [{"step_no": 1, "description": "total", "tool_id": "calc", "expression": "sum(amount)"}]
+    with pytest.raises(agent.StepFailure, match="not plain arithmetic"):
+        agent.validate_steps(steps, ["calc"])
