@@ -75,6 +75,27 @@ func TestDynamicFetchWithoutProvenanceDenied(t *testing.T) {
 	}
 }
 
+// A URL the owner wrote in the objective has provenance even when the step
+// chooses it at step time (e.g. after a replan); a variant of it does not.
+func TestDynamicFetchOfObjectiveURL(t *testing.T) {
+	obj := "Search the web about solar power, also read http://fixture.test/two. and write reports/summary.md"
+	h := newHarness(t, harnessOpts{respond: researchModel("http://fixture.test/two"),
+		searcher: fakeSearcher{[]tools.SearchResult{{Title: "Solar", URL: "http://fixture.test/one"}}}})
+	tk := h.submit(obj, nil)
+	if done := h.wait(tk.ID, task.Succeeded, task.Failed); done.State != task.Succeeded {
+		t.Fatalf("%s %s denials=%v", done.State, deref(done.Reason), deniedReasons(t, h, tk.ID))
+	}
+	h2 := newHarness(t, harnessOpts{respond: researchModel("http://fixture.test/two?leak=1"),
+		searcher: fakeSearcher{[]tools.SearchResult{{Title: "Solar", URL: "http://fixture.test/one"}}}})
+	tk2 := h2.submit(obj, nil)
+	if done := h2.wait(tk2.ID, task.Failed, task.Succeeded); done.State != task.Failed {
+		t.Fatalf("a variant of the objective URL was accepted: %s", done.State)
+	}
+	if got := ObjectiveURLs("Fetch https://a.test/x, then (https://b.test/y). Done"); strings.Join(got, " ") != "https://a.test/x https://b.test/y" {
+		t.Fatalf("ObjectiveURLs: %v", got)
+	}
+}
+
 var calcObs = regexp.MustCompile(`= ([0-9.]+) \(exact\)`)
 
 // data.read on an owner attachment + calc with a step-time expression: the

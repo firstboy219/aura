@@ -407,6 +407,18 @@ var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_
 // ExpectedOutputs lists the workspace files an objective explicitly asks for.
 // A task that does not produce them is not complete, whatever its plan said.
 // Paths in inputs (attachments, files the plan only reads) are not outputs.
+var objectiveURLRe = regexp.MustCompile(`https?://[^\s"'<>()\[\]{}]+`)
+
+// ObjectiveURLs are the URLs the owner wrote in the objective, verbatim
+// (trailing sentence punctuation removed).
+func ObjectiveURLs(objective string) []string {
+	var out []string
+	for _, m := range objectiveURLRe.FindAllString(objective, -1) {
+		out = append(out, strings.TrimRight(m, ".,;:!?"))
+	}
+	return out
+}
+
 func ExpectedOutputs(objective string, inputs ...map[string]bool) []string {
 	var out []string
 	seen := map[string]bool{}

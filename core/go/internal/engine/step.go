@@ -457,9 +457,10 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			if *s.plan.URL != a.URL {
 				return nil, "", "arguments_differ_from_plan"
 			}
-		} else if !e.hasProvenance(s.t.ID, a.URL) {
-			// A URL chosen at step time must have been recorded by the Core earlier in
-			// this task (search result or page link), exactly (ADR-0017).
+		} else if !e.hasProvenance(s.t, a.URL) {
+			// A URL chosen at step time must have been written by the owner in the
+			// objective or recorded by the Core earlier in this task (search result or
+			// page link), exactly (ADR-0017).
 			return nil, "", "argument_without_provenance"
 		}
 		u, err := url.Parse(a.URL)
@@ -587,8 +588,13 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 
 // hasProvenance reports whether url was recorded by the Core in this task as a
 // search result or a page link.
-func (e *Engine) hasProvenance(taskID, u string) bool {
-	rows, err := e.st.R.Query("select state_json from checkpoints where task_id=? and label='links'", taskID)
+func (e *Engine) hasProvenance(t *task.Task, u string) bool {
+	for _, x := range ObjectiveURLs(t.Objective) {
+		if x == u {
+			return true // owner-provided, verbatim
+		}
+	}
+	rows, err := e.st.R.Query("select state_json from checkpoints where task_id=? and label='links'", t.ID)
 	if err != nil {
 		return false
 	}

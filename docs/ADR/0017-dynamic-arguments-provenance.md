@@ -11,3 +11,9 @@ as a `web.search` result URL or as a link extracted from a page fetched in this 
 checkpoint), and it passes the domain allowlist and SSRF checks. Content cannot invent a destination; query strings
 must match the recorded URL exactly (no exfiltration via appended parameters). `workspace.*` paths remain plan-bound
 except files the task itself wrote. Denials are audited (`argument_without_provenance`).
+
+## Amendment (2026-11-10): URLs written by the owner
+A URL that appears verbatim in the owner's objective also has provenance, even when a step chooses it at step time (for example
+after a replan). This came from the eval suite (E08): a replan left the URL to step time, and the URL the owner had named was
+refused. Only exact matches count, after removing trailing sentence punctuation. The domain allowlist and SSRF guard still apply.
+Content cannot add URLs to the objective.
