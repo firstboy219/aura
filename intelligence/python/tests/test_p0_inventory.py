@@ -32,6 +32,8 @@ def test_migrations_create_exactly_the_planned_tables():
         # P3 (migration 0003)
         "memories", "skills", "skill_versions", "profile_items", "routing_shadow", "triggers", "watch_state", "notifications",
         "limitations", "limitation_remedies",  # Limitation Ledger (Blueprint 8A.5)
+        # P4 (migration 0005, ADR-0036)
+        "secrets",
     }
 
 
