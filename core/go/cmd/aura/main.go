@@ -81,6 +81,7 @@ func usage(w io.Writer) {
   admin members | member add <name> <role> | member disable <id> | budget [usd] | credentials | credential set <name> --stdin
                                 Workspace Admin (owner): members and roles, daily budget, write-only credentials
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
+  brain list | show <id> | approve <id> | reject <id> | rollback <id>  L3 brain variants from AURA Lab
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   web setup-link [--ttl 30m] | sessions-revoke   Workspace Web App owner access (ADR-0041)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
@@ -413,7 +414,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
-		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin":
+		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin", "brain":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -894,6 +895,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return nil
 	case "tools":
 		return toolsCmd(c, rest, stdin, stdout)
+	case "brain":
+		return brainCmd(c, rest, stdin, stdout)
 	case "admin":
 		return adminCmd(c, rest, stdin, stdout)
 	case "browser":
@@ -1258,6 +1261,73 @@ func browserCmd(c *apiClient, rest []string, stdout io.Writer, use string) error
 }
 
 // toolsCmd reviews and decides AURA-built L2 tools (ADR-0038).
+// brainCmd manages L3 brain variants (ADR-0048).
+func brainCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
+	const use = "brain list | show <id> | approve <id> [--yes] | reject <id> | rollback <id> [reason]"
+	if len(rest) == 0 {
+		return usageErr(use)
+	}
+	switch rest[0] {
+	case "list":
+		var out struct {
+			Variants []map[string]any `json:"variants"`
+		}
+		if err := c.do("GET", "/brain/variants", nil, nil, &out); err != nil {
+			return err
+		}
+		for _, v := range out.Variants {
+			fmt.Fprintf(stdout, "%s  %-10v %-18v %v\n", v["id"], v["module"], v["status"], v["rationale"])
+		}
+		return nil
+	case "show", "approve":
+		fs := flag.NewFlagSet("brain "+rest[0], flag.ContinueOnError)
+		yes := fs.Bool("yes", false, "do not ask for confirmation")
+		pos, err := parse(fs, rest[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr("brain " + rest[0] + " <id>")
+		}
+		var v map[string]any
+		if err := c.do("GET", "/brain/variants/"+pos[0], nil, nil, &v); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "module: %v\nstatus: %v\nsha256: %v\nwhy: %v\n\n--- guidance ---\n%v\n--- AURA Lab report ---\n", v["module"], v["status"],
+			v["sha256"], v["rationale"], v["guidance"])
+		printJSON(stdout, v["lab"])
+		if rest[0] == "show" {
+			printJSON(stdout, v["rollout"])
+			return nil
+		}
+		fmt.Fprintln(stdout, "Approving starts a canary rollout; it is promoted or rolled back automatically from measured results.")
+		if !*yes && !confirm(stdin, stdout, "Approve exactly this guidance?") {
+			return errors.New("not approved")
+		}
+		var out map[string]any
+		if err := c.do("POST", "/brain/variants/"+pos[0]+"/approve", map[string]any{"sha256": v["sha256"]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%v %v\n", out["id"], out["status"])
+		return nil
+	case "reject", "rollback":
+		if len(rest) < 2 {
+			return usageErr("brain " + rest[0] + " <id>")
+		}
+		body := map[string]any{}
+		if rest[0] == "rollback" && len(rest) > 2 {
+			body["reason"] = strings.Join(rest[2:], " ")
+		}
+		var out map[string]any
+		if err := c.do("POST", "/brain/variants/"+rest[1]+"/"+rest[0], body, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%v %v\n", out["id"], out["status"])
+		return nil
+	}
+	return usageErr(use)
+}
+
 func toolsCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
 	const use = "tools list | show <id> | approve <id> [--yes] | reject <id> | disable <id> [reason]"
 	if len(rest) == 0 {

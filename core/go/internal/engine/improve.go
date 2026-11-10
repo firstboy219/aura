@@ -51,6 +51,8 @@ func (e *Engine) RunImprovementCycle(ctx context.Context) {
 	}
 	e.ActOnRemedies(ctx)
 	e.EvaluateRemedies(ctx)
+	e.EvaluateLab(ctx)
+	e.EvaluateCanaries(ctx)
 }
 
 type exemplar struct {
@@ -102,8 +104,9 @@ func (e *Engine) exemplars(ctx context.Context, class, state string, limit int) 
 func (e *Engine) ActOnRemedies(ctx context.Context) {
 	// R3 remedies that already have a drafted tool wait for the owner, not for another draft.
 	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id, r.class from limitation_remedies r join limitations l on l.id = r.limitation_id
-		where r.class in ('R2','R3') and r.status='proposed' and l.status in ('remedy_proposed','diagnosing')
-		and not exists (select 1 from l2_tools t where t.remedy_id = r.id)`)
+		where r.class in ('R2','R3','R4') and r.status='proposed' and l.status in ('remedy_proposed','diagnosing')
+		and not exists (select 1 from l2_tools t where t.remedy_id = r.id)
+		and not exists (select 1 from brain_variants b where b.remedy_id = r.id)`)
 	if err != nil {
 		return
 	}
@@ -120,8 +123,11 @@ func (e *Engine) ActOnRemedies(ctx context.Context) {
 			return // budget, kill switch, or the owner has work waiting
 		}
 		start := e.startSkillRemedy
-		if it.class == "R3" {
+		switch it.class {
+		case "R3":
 			start = e.startToolRemedy
+		case "R4":
+			start = e.startBrainRemedy
 		}
 		if err := start(ctx, it.remedy, it.lim); err != nil {
 			e.log.Warn("skill remedy", "limitation", it.lim, "err", err)
@@ -156,7 +162,7 @@ func (e *Engine) startSkillRemedy(ctx context.Context, remedyID, limID string) e
 	if len(failed) == 0 {
 		return fmt.Errorf("no failed exemplars of class %q to learn from", l.TaskClass)
 	}
-	it, err := e.improvementTask(ctx, "skill remedy for "+limID)
+	it, err := e.improvementTask(ctx, "skill remedy for "+limID, anyPrivate(failed, done) || l.DetectedBy == "owner_feedback")
 	if err != nil {
 		return err
 	}
@@ -367,6 +373,7 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 			} else {
 				e.SetSkillStatus(ctx, art.SkillID, "disabled")
 			}
+			e.proposeBrainRemedy(ctx, it.lim) // the next rung for a planning-strategy limitation (R4, P6)
 		}
 	}
 }

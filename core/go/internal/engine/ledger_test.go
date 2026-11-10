@@ -317,7 +317,7 @@ func TestSELF05ImprovementBudget(t *testing.T) {
 		t.Fatal("improvement should be allowed when idle and under the cap")
 	}
 	// spend beyond the cap on an improvement task
-	it, err := h.eng.improvementTask(ctx, "cap test")
+	it, err := h.eng.improvementTask(ctx, "cap test", false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -398,6 +398,9 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 	if err := policy.CheckTier(tier); err != nil {
 		return nil, e.deny(ctx, s, req.Method, err.Error(), map[string]any{"tool_id": c.ToolID, "tier": tier})
 	}
+	if tier == policy.A2 && s.t.AgentRole == "lab" {
+		return nil, e.deny(ctx, s, req.Method, "lab_no_approval", map[string]any{"tool_id": c.ToolID}) // the Lab never asks the owner
+	}
 	s.invoked = true
 	if tier == policy.A2 {
 		act := policy.Action{ToolID: spec.ID, ToolVersion: spec.Version, Arguments: args, Target: target,

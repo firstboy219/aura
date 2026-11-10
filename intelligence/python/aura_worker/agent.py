@@ -305,6 +305,16 @@ def sys_prompt(text: str) -> str:
     return f"{_PREAMBLE}\n\n{text}" if _PREAMBLE else text
 
 
+def with_guidance(system: str, params: dict, module: str) -> str:
+    """Add the owner-approved L3 guidance for one module (ADR-0048), if any."""
+    guidance = params.get("guidance") or {}
+    text = str(guidance.get(module) or "").strip() if isinstance(guidance, dict) else ""
+    if not text:
+        return system
+    return (f"{system}\n\nOwner-approved guidance for this module (it never changes your tools, permissions or rules):\n"
+            f"{text[:1500]}")
+
+
 # ---------------------------------------------------------------- helpers
 _TAG = re.compile(r"</?untrusted_observation[^>]*>", re.IGNORECASE)
 
@@ -568,6 +578,7 @@ def plan(ch: Channel, params: dict) -> dict:
     may_ask = bool(params.get("may_ask", True))
     system = PLANNER_SYSTEM.format(tool_docs=tool_docs(granted, domains, params.get("tool_docs")), max_steps=MAX_STEPS, start=1,
                                    ask_rule=ASK_RULE_ALLOWED if may_ask else ASK_RULE_DENIED)
+    system = with_guidance(system, params, "planner")
     user = f"Objective:\n{objective}"
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
@@ -628,6 +639,7 @@ def replan(ch: Channel, params: dict) -> dict:
     start = int(params.get("next_step_no", 1))
     objective = str(params.get("objective", ""))
     system = REPLANNER_SYSTEM.format(start=start, tool_docs=tool_docs(granted, params.get("allow_domains") or [], params.get("tool_docs")))
+    system = with_guidance(system, params, "replanner")
     already = {s.get("path") for s in params.get("steps", []) if s.get("state") == "SUCCEEDED" and s.get("tool_id") == "workspace.write"}
     user = (f"Objective:\n{objective}\n\nSteps so far:\n{json.dumps(params.get('steps', []), ensure_ascii=False)}\n\n"
             f"What went wrong:\n{json.dumps(params.get('cause', {}), ensure_ascii=False)}\n\n"
@@ -685,7 +697,8 @@ def verify(ch: Channel, params: dict) -> dict:
     def usable(r: dict) -> bool:
         items = r.get("criteria") or []
         return len(items) == len(criteria) and all(it.get("met") and quoted(it) for it in items)
-    out = cascade(ch, params.get("tier") or "", VERIFIER_SYSTEM, user, VERIFY_SCHEMA, 2000, ok=usable, purpose="verify")
+    out = cascade(ch, params.get("tier") or "", with_guidance(VERIFIER_SYSTEM, params, "verifier"), user, VERIFY_SCHEMA, 2000,
+                  ok=usable, purpose="verify")
     return {"criteria": [{"criterion": str(c.get("criterion", "")), "met": bool(c.get("met")),
                           "evidence_quote": str(c.get("evidence_quote", ""))[:500]} for c in (out.get("criteria") or [])]}
 
@@ -925,6 +938,35 @@ def remedy_skill(ch: Channel, params: dict) -> dict:
     for i, s in enumerate(skill.get("steps") or [], start=1):
         s["step_no"] = i
     return {"skill": skill}
+
+
+# ---------------------------------------------------------------- L3 brain variants (R4)
+BRAIN_SYSTEM = """You are the brain-remedy module of AURA's self-improvement loop. Tasks of one class keep failing even after a
+corrective skill was tried. Propose guidance for ONE reasoning module that would make it handle this class better:
+- planner: writes the first plan for a task;
+- replanner: plans the remaining work after a failed step or failed verification;
+- verifier: decides whether each completion criterion is met by the evidence.
+The guidance is added to that module's instructions for every task, so it must be general (no task-specific URLs,
+names or values), short (at most 8 sentences, plain prose, no code or markup), and must not ask for more tools,
+permissions or budget, or relax any rule. It will be tested against the current version before the owner decides.
+Use the failed and succeeded examples to find the pattern. rationale: one or two sentences on why it should help.
+Reply with JSON only."""
+
+BRAIN_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False, "required": ["module", "guidance", "rationale"],
+    "properties": {"module": {"type": "string", "enum": ["planner", "replanner", "verifier"]},
+                   "guidance": {"type": "string"}, "rationale": {"type": "string"}}}
+
+
+def draft_brain_variant(ch: Channel, params: dict) -> dict:
+    user = (f"Task class: {params.get('task_class')}\nLimitation: {params.get('limitation')}\n"
+            f"Diagnosis: {json.dumps(params.get('diagnosis', {}), ensure_ascii=False)}\n"
+            f"Current guidance (module -> text): {json.dumps(params.get('current') or {}, ensure_ascii=False)[:3000]}\n\n"
+            f"FAILED examples:\n{json.dumps(params.get('failed', []), ensure_ascii=False)[:9000]}\n\n"
+            f"SUCCEEDED examples:\n{json.dumps(params.get('succeeded', []), ensure_ascii=False)[:6000]}")
+    out = complete(ch, "standard", BRAIN_SYSTEM, user, BRAIN_SCHEMA, 1500, "remedy")
+    return {"module": str(out.get("module", "")), "guidance": str(out.get("guidance", ""))[:2000],
+            "rationale": str(out.get("rationale", ""))[:800]}
 
 
 # ---------------------------------------------------------------- L2 tools (R3)

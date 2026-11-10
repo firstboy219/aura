@@ -38,7 +38,7 @@ func (e *Engine) startToolRemedy(ctx context.Context, remedyID, limID string) er
 	for _, x := range failed {
 		examples = append(examples, map[string]any{"objective": truncate(x.Objective, 500), "steps": x.Steps, "reason_code": x.Code})
 	}
-	it, err := e.improvementTask(ctx, "L2 tool remedy for "+limID)
+	it, err := e.improvementTask(ctx, "L2 tool remedy for "+limID, anyPrivate(failed) || l.DetectedBy == "owner_feedback")
 	if err != nil {
 		return err
 	}

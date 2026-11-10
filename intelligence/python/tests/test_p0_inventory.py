@@ -38,6 +38,8 @@ def test_migrations_create_exactly_the_planned_tables():
         "web_owner", "web_sessions", "web_setup",  # migration 0007, ADR-0041
         "members", "settings",  # migration 0008, ADR-0043
         "channel_deliveries",  # migration 0009, ADR-0044
+        "brain_variants",  # migration 0010, ADR-0048
+        "lab_runs",  # migration 0010, ADR-0048
     }
 
 

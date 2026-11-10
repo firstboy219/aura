@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aura.local/contracts/schemas/task.plan.json",
-  "title": "task.plan (Core \u2192 Worker)",
+  "title": "task.plan (Core → Worker)",
   "description": "Produce plan steps (tool + known arguments) and completion criteria. Side-effect class and tier come from the Core manifest, not the plan.",
   "type": "object",
   "properties": {
@@ -63,6 +63,26 @@
           "items": {
             "type": "string"
           }
+        },
+        "guidance": {
+          "type": "object",
+          "description": "Owner-approved L3 guidance per reasoning module (ADR-0048).",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1500
+          }
+        },
+        "tool_docs": {
+          "description": "context added in P3 (memory, skills, profile) and P4 (tool docs)"
+        },
+        "memory": {
+          "description": "context added in P3 (memory, skills, profile) and P4 (tool docs)"
+        },
+        "skills": {
+          "description": "context added in P3 (memory, skills, profile) and P4 (tool docs)"
+        },
+        "profile": {
+          "description": "context added in P3 (memory, skills, profile) and P4 (tool docs)"
         }
       },
       "required": [

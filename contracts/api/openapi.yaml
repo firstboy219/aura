@@ -142,6 +142,15 @@ paths:
     get: { operationId: getSelfModel, responses: { '200': { description: Measured capabilities } } }
   /scorecard:
     get: { operationId: getScorecard, responses: { '200': { description: Efficiency scorecard } } }
+  /brain/variants:
+    get: { operationId: listBrainVariants, description: "L3 brain variants from AURA Lab (ADR-0048); ?status= filters.", responses: { '200': { description: Variants } } }
+  /brain/variants/{id}:
+    get: { operationId: getBrainVariant, responses: { '200': { description: Variant with guidance, sha256, Lab report and rollout } } }
+  /brain/variants/{id}/{action}:
+    post:
+      operationId: brainVariantAction
+      description: "approve (owner; body sha256, plus code for web step-up) starts the canary rollout; reject; rollback (body reason)."
+      responses: { '200': { description: Variant }, '409': { description: Wrong state }, '401': { description: Step-up required } }
   /routing/shadow:
     get: { operationId: getShadowRouting, responses: { '200': { description: Shadow routing comparison } } }
   /events:

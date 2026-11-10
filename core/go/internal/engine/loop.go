@@ -153,7 +153,14 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	var asked, unanswered int
 	e.st.R.QueryRowContext(ctx, "select count(*), coalesce(sum(status='timed_out'),0) from task_inputs where task_id=?", t.ID).Scan(&asked, &unanswered)
 	mayAsk := asked < maxQuestions && unanswered == 0 && t.ParentTaskID == nil // an owner who did not answer is not asked again
-	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
+	guidance, variants := e.brainGuidance(ctx, t)
+	if len(variants) > 0 {
+		e.st.Write(ctx, func(tx *sql.Tx) error {
+			_, err := task.AppendEvent(ctx, tx, t.ID, nil, "BRAIN_GUIDANCE", "core", map[string]any{"variants": variants})
+			return err
+		})
+	}
+	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{"guidance": guidance,
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
 		"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
 		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
@@ -627,7 +634,8 @@ func (e *Engine) replan(ctx context.Context, t *task.Task, cause map[string]any)
 	}
 	octx, _ := e.ownerContext(ctx, cur)
 	obs, _ := e.observations(ctx, cur, next)
-	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"objective": cur.Objective, "granted_tools": cur.Scope.Tools,
+	guidance, _ := e.brainGuidance(ctx, cur)
+	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"guidance": guidance, "objective": cur.Objective, "granted_tools": cur.Scope.Tools,
 		"allow_domains": cur.Scope.AllowDomains, "steps": summary, "cause": cause, "next_step_no": next,
 		"completion_criteria": e.criteria(ctx, t.ID), "observations": obs, "owner_context": octx, "tier": tier,
 		"attachments": cur.Scope.Attachments, "tool_docs": e.toolDocs(cur)})
@@ -872,7 +880,8 @@ func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, ev
 		if err != nil {
 			return nil, err
 		}
-		raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"objective": t.Objective, "completion_criteria": modelCriteria,
+		guidance, _ := e.brainGuidance(ctx, t)
+		raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"guidance": guidance, "objective": t.Objective, "completion_criteria": modelCriteria,
 			"evidence": evidence, "tier": tierFor(t)})
 		if s.fatal != nil {
 			return nil, s.fatal

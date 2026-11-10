@@ -400,7 +400,7 @@ func (e *Engine) deterministicDiagnosis(l *Limitation) (string, float64, string)
 // modelDiagnosis asks the worker (standard tier) for a root cause from the
 // fixed taxonomy. The answer is only accepted if it is in the taxonomy.
 func (e *Engine) modelDiagnosis(ctx context.Context, l *Limitation) (string, float64, bool) {
-	t, err := e.improvementTask(ctx, "diagnose "+l.ID)
+	t, err := e.improvementTask(ctx, "diagnose "+l.ID, l.DetectedBy == "owner_feedback")
 	if err != nil {
 		return "", 0, false
 	}
@@ -476,7 +476,7 @@ func (e *Engine) improvementSpentToday(ctx context.Context) float64 {
 	start := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, e.cfg.Location()).UnixMilli()
 	var s float64
 	e.st.R.QueryRowContext(ctx, `select coalesce(sum(coalesce(u.cost_actual_usd, u.cost_reserved_usd)),0) from usage_records u
-		join tasks t on t.id = u.task_id where t.agent_role in ('improvement','retest') and u.created_at >= ?`, start).Scan(&s)
+		join tasks t on t.id = u.task_id where t.agent_role in ('improvement','retest','lab') and u.created_at >= ?`, start).Scan(&s)
 	return s
 }
 
@@ -497,9 +497,15 @@ func (e *Engine) diagBudget() task.Budget {
 
 // improvementTask creates the housekeeping task that carries improvement spend
 // (agent_role improvement), so it is accounted separately from owner tasks.
-func (e *Engine) improvementTask(ctx context.Context, what string) (*task.Task, error) {
+// private: its inputs include the owner's private tasks or notes, so its model
+// calls must not use routes that may log prompts.
+func (e *Engine) improvementTask(ctx context.Context, what string, private bool) (*task.Task, error) {
+	dc := "public"
+	if private {
+		dc = "private"
+	}
 	t := &task.Task{Objective: "[improvement] " + what, AgentRole: "improvement", Budget: e.diagBudget(), ConfigHash: e.cfg.Hash(),
-		Priority: -100, Scope: task.Scope{Tools: []string{}, DataClass: "public"}}
+		Priority: -100, Scope: task.Scope{Tools: []string{}, DataClass: dc}}
 	err := e.st.Write(ctx, func(tx *sql.Tx) error {
 		if err := task.Insert(ctx, tx, t); err != nil {
 			return err

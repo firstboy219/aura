@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aura.local/contracts/schemas/task.replan.json",
-  "title": "task.replan (Core \u2192 Worker)",
+  "title": "task.replan (Core → Worker)",
   "description": "Plan the remaining work after a failed step or failed verification. Steps are numbered from next_step_no.",
   "type": "object",
   "properties": {
@@ -32,6 +32,14 @@
         },
         "tier": {
           "type": "string"
+        },
+        "guidance": {
+          "type": "object",
+          "description": "Owner-approved L3 guidance per reasoning module (ADR-0048).",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1500
+          }
         }
       },
       "required": [

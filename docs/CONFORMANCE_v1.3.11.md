@@ -85,7 +85,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | Honest disclosure with measured rates | ✔ | SELF-06; `aura self` |
 | R0 runtime self-healing (provider failover, circuit breaker, worker restart, recovery) | ✔ | SELF-07 + breaker tests + crash test |
 | Monitoring closes with evidence (recovery) / reopens on regression | ✔ | `CloseRecovered` test; a regression opens a new entry |
-| R1 (manual until P3b), R3 (P4), R4 (P6), R5 (proposal only) | — / ✔ | R1 is a proposal to the owner; R3/R4 not available by design |
+| R1 (manual until P3b), R3 (P4), R4 (P6), R5 (proposal only) | ✔ | R1 is a proposal to the owner; R3 ADR-0038; R4 ADR-0048 (owner approval, canary, auto-rollback); R5 proposal only |
 | **Not proven** | | R2 has only been exercised on fixtures and the fake provider; **no real limitation has yet been remedied end to end on production traffic**. The ledger has found real limitations (below), but the two it found were Core defects (R5), fixed by code, not by the loop. |
 
 First real findings of the ledger on production data (2026-11-09): tasks queued behind slow tasks lost their wall budget before
@@ -127,6 +127,8 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 |---|---|---|
 | Specialist subagent profiles (owner-configured, intersected grants) | ✔ implementation-verified | ADR-0046, `engine/specialists_test.go` |
 | Parallel subagents, worker pool 1..4 | ✔ implementation-verified | ADR-0047, `engine/parallel_test.go` |
-| L3/R4 brain remedies via AURA Lab (variants, eval, owner approval, staged rollout, auto-rollback) | in progress | — |
+| L3/R4 brain remedies via AURA Lab (variants, eval, owner approval, staged rollout, auto-rollback) | ✔ implementation-verified (fake provider); off in production until the owner enables L3 | ADR-0048, `engine/lab_test.go` |
+| AURA Lab isolation and cleanup | ✔ implementation-verified | ADR-0048 (no approvals, capped budgets, workspaces removed) |
+| Improvement tasks keep the owner's data class (privacy fix) | ✔ implementation-verified | ADR-0048, `TestImprovementTaskInheritsPrivacy` |
 | Enterprise admin: audit search/export, usage reports | pending | — |
 | SSO/OIDC | blocked: needs an identity provider from the owner | — |

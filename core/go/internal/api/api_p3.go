@@ -387,6 +387,67 @@ func (s *Server) l2Action(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, t)
 }
 
+// L3 brain variants (ADR-0048): listing, owner decision (bound to the sha256,
+// step-up on the web), and rollback.
+func (s *Server) listBrain(w http.ResponseWriter, r *http.Request) {
+	vs, err := s.Engine.ListBrainVariants(r.Context(), r.URL.Query().Get("status"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"variants": vs})
+}
+
+func (s *Server) getBrain(w http.ResponseWriter, r *http.Request) {
+	v, err := s.Engine.GetBrainVariant(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, v)
+}
+
+func (s *Server) brainAction(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in struct {
+		SHA256 string `json:"sha256"`
+		Reason string `json:"reason"`
+		Code   string `json:"code"`
+	}
+	if r.ContentLength != 0 {
+		if err := decodeStrict(r, &in); err != nil {
+			s.mapErr(w, r, err)
+			return
+		}
+	}
+	var v any
+	var err error
+	switch r.PathValue("action") {
+	case "approve":
+		by := "owner"
+		if viaWeb(r) {
+			if !s.stepUp(r, in.Code) {
+				s.fail(w, r, 401, "step_up_required", "enter a current code from your authenticator app to approve")
+				return
+			}
+			by = "owner(web, step-up)"
+		}
+		v, err = s.Engine.DecideBrain(r.Context(), id, true, in.SHA256, by)
+	case "reject":
+		v, err = s.Engine.DecideBrain(r.Context(), id, false, "", "owner")
+	case "rollback":
+		v, err = s.Engine.RollbackBrain(r.Context(), id, "owner", in.Reason)
+	default:
+		s.fail(w, r, 404, "not_found", "no such action")
+		return
+	}
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, v)
+}
+
 // browserCheck is an owner diagnostic of the browser stack (ADR-0039); no model.
 func (s *Server) browserCheck(w http.ResponseWriter, r *http.Request) {
 	var in struct {

@@ -211,6 +211,13 @@ type Config struct {
 		NoiseMargin         float64 `yaml:"noise_margin" json:"noise_margin"`
 		DailyCostUSD        float64 `yaml:"daily_cost_usd" json:"daily_cost_usd"`
 	} `yaml:"improvement" json:"improvement"`
+	// Lab is AURA Lab for L3 brain variants (R4 remedies, ADR-0048). Off by default.
+	Lab struct {
+		Enabled        bool    `yaml:"enabled" json:"enabled"`
+		CanaryPercent  int     `yaml:"canary_percent" json:"canary_percent"`     // share of new tasks that get a canary variant
+		CanaryMinTasks int     `yaml:"canary_min_tasks" json:"canary_min_tasks"` // finished canary tasks before promotion is judged
+		MaxTaskCostUSD float64 `yaml:"max_task_cost_usd" json:"max_task_cost_usd"`
+	} `yaml:"lab" json:"lab"`
 	// Charter is the owner-authored Charter (ADR-0024): read-only, pinned by sha256.
 	Charter struct {
 		File   string `yaml:"file" json:"file"`
@@ -297,6 +304,7 @@ func Default() *Config {
 	c.Improvement.Enabled = true
 	c.Improvement.MinClassRuns, c.Improvement.SuccessRateTarget, c.Improvement.MinRepeatedFailures = 10, 0.70, 3
 	c.Improvement.LookbackDays, c.Improvement.RetestRuns, c.Improvement.NoiseMargin, c.Improvement.DailyCostUSD = 14, 5, 0.10, 0.25
+	c.Lab.CanaryPercent, c.Lab.CanaryMinTasks, c.Lab.MaxTaskCostUSD = 25, 6, 0.10
 	return c
 }
 
@@ -511,6 +519,9 @@ func (c *Config) Validate() error {
 	}
 	if tg := c.Channels.Telegram; tg.Enabled && (tg.TokenRef == "" || len(tg.AllowedUserIDs) == 0) {
 		add("channels.telegram: token_ref and at least one allowed_user_ids entry are required")
+	}
+	if l := c.Lab; l.CanaryPercent < 1 || l.CanaryPercent > 100 || l.CanaryMinTasks < 1 || l.CanaryMinTasks > 200 || l.MaxTaskCostUSD <= 0 {
+		add("lab: canary_percent 1..100, canary_min_tasks 1..200 and max_task_cost_usd > 0 are required")
 	}
 	specs := map[string]bool{}
 	for _, sp := range c.Specialists {

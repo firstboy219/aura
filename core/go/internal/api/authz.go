@@ -50,6 +50,7 @@ var routeRole = map[string]string{
 	"POST /api/v1/limitations/{id}/{action}": RoleApprover,
 	// Owner only: credentials, sessions, tools, evolution, deletion, admin.
 	"POST /api/v1/tools/{id}/{action}":                  RoleOwner,
+	"POST /api/v1/brain/variants/{id}/{action}":         RoleOwner,
 	"DELETE /api/v1/memories/{id}":                      RoleOwner,
 	"POST /api/v1/skills/{id}/{action}":                 RoleOwner,
 	"POST /api/v1/improvement/run":                      RoleOwner,
