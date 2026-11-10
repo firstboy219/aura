@@ -118,6 +118,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/tools/{id}", auth(s.getL2))
 	mux.Handle("POST /api/v1/tools/{id}/{action}", auth(s.l2Action))
 	mux.Handle("GET /api/v1/brain/variants", auth(s.listBrain))
+	mux.Handle("POST /api/v1/aul/check", auth(s.aulCheck))
+	mux.Handle("GET /api/v1/workflows", auth(s.listWorkflows))
+	mux.Handle("POST /api/v1/workflows", auth(s.registerWorkflow))
+	mux.Handle("GET /api/v1/workflows/{id}", auth(s.getWorkflow))
+	mux.Handle("POST /api/v1/workflows/{id}/run", auth(s.runWorkflow))
+	mux.Handle("POST /api/v1/workflows/{id}/disable", auth(s.disableWorkflow))
 	mux.Handle("GET /api/v1/brain/variants/{id}", auth(s.getBrain))
 	mux.Handle("POST /api/v1/brain/variants/{id}/{action}", auth(s.brainAction))
 	mux.Handle("GET /api/v1/self-model", auth(s.selfModel))
@@ -368,14 +374,18 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if !created {
 		status = http.StatusOK
 	} else {
-		// Attribution for usage reports (ADR-0049): the principal that created the task.
-		p := PrincipalOf(r)
-		s.Store.Write(r.Context(), func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(r.Context(), "update tasks set created_by=? where id=?", p.ID, t.ID)
-			return err
-		})
+		s.attribute(r, t.ID)
 	}
 	writeJSON(w, status, toAPI(t))
+}
+
+// attribute records the principal that created a task (usage reports, ADR-0049).
+func (s *Server) attribute(r *http.Request, taskID string) {
+	p := PrincipalOf(r)
+	s.Store.Write(r.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(r.Context(), "update tasks set created_by=? where id=?", p.ID, taskID)
+		return err
+	})
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

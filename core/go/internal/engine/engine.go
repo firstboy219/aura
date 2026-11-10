@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"aura.local/core/internal/aul"
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/config"
 	"aura.local/core/internal/gateway"
@@ -49,6 +50,7 @@ type Engine struct {
 	docs        map[string]string // owner-written descriptions of MCP tools
 	charter     string            // owner Charter text ("" = not provided)
 	sbx         *sandbox.Runtime  // nil: L2 tools unavailable
+	aul         *aul.Runtime      // nil: AUL workflows unavailable
 	brs         *browserState     // nil: browser automation unavailable
 	github      *GitHubConnector  // nil: the GitHub connector is not configured
 	secret      func(ctx context.Context, ref string) (string, error)
@@ -89,6 +91,7 @@ type Deps struct {
 	Version   string
 	Charter   string           // owner Charter text, verified against its pinned hash by the caller
 	Sandbox   *sandbox.Runtime // WASM sandbox for L2 tools (nil: unavailable)
+	AUL       *aul.Runtime     // AUL VM (nil: workflows unavailable)
 	// Secret resolves an owner secret reference (vault:<name> or a 0400 file).
 	Secret func(ctx context.Context, ref string) (string, error)
 	// Vault stores browser login sessions encrypted (nil: sessions are not saved).
@@ -104,7 +107,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	e := &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
 		driving: map[string]*drivingTask{}, taskSup: map[string]*worker.Supervisor{}}
 	e.sups = append([]*worker.Supervisor{d.Worker}, d.MoreWorkers...)
 	e.pool = make(chan *worker.Supervisor, len(e.sups))

@@ -74,6 +74,9 @@ func (e *Engine) runTask(ctx context.Context, t *task.Task) error {
 		}
 		cur.State = task.Planning
 	}
+	if cur.Scope.Workflow != "" {
+		return e.runWorkflow(ctx, cur) // an AUL workflow runs instead of a plan (ADR-0050)
+	}
 	if cur.State == task.Planning {
 		if err := e.plan(ctx, cur); err != nil {
 			return err

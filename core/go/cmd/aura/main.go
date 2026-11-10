@@ -82,6 +82,7 @@ func usage(w io.Writer) {
                                 Workspace Admin (owner): members and roles, daily budget, write-only credentials
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   brain list | show <id> | approve <id> | reject <id> | rollback <id>  L3 brain variants from AURA Lab
+  workflow check <file> | add <file> | list | show <name> | run <name> [--input k=JSON]... | disable <id>   AUL workflows
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   web setup-link [--ttl 30m] | sessions-revoke   Workspace Web App owner access (ADR-0041)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
@@ -414,7 +415,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
-		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin", "brain":
+		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin", "brain", "workflow":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -897,6 +898,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return toolsCmd(c, rest, stdin, stdout)
 	case "brain":
 		return brainCmd(c, rest, stdin, stdout)
+	case "workflow":
+		return workflowCmd(c, rest, stdout)
 	case "admin":
 		return adminCmd(c, rest, stdin, stdout)
 	case "browser":
@@ -1297,6 +1300,92 @@ func browserCmd(c *apiClient, rest []string, stdout io.Writer, use string) error
 }
 
 // toolsCmd reviews and decides AURA-built L2 tools (ADR-0038).
+// workflowCmd manages AUL workflows (ADR-0050).
+func workflowCmd(c *apiClient, rest []string, stdout io.Writer) error {
+	const use = "workflow check <file> | add <file> | list | show <name> | run <name> [--input k=JSON]... | disable <id>"
+	if len(rest) == 0 {
+		return usageErr(use)
+	}
+	var out map[string]any
+	switch rest[0] {
+	case "check", "add":
+		if len(rest) != 2 {
+			return usageErr("workflow " + rest[0] + " <file>")
+		}
+		src, err := os.ReadFile(rest[1])
+		if err != nil {
+			return err
+		}
+		path := "/aul/check"
+		if rest[0] == "add" {
+			path = "/workflows"
+		}
+		err = c.do("POST", path, map[string]any{"source": string(src)}, nil, &out)
+		if out != nil {
+			printJSON(stdout, out)
+		}
+		return err
+	case "list":
+		if err := c.do("GET", "/workflows", nil, nil, &out); err != nil {
+			return err
+		}
+		ws, _ := out["workflows"].([]any)
+		for _, x := range ws {
+			w := x.(map[string]any)
+			fmt.Fprintf(stdout, "%s  %-24v v%-4v %-10v sha256 %.12v\n", w["id"], w["name"], w["version"], w["status"], w["sha256"])
+		}
+		return nil
+	case "show":
+		if len(rest) != 2 {
+			return usageErr("workflow show <name|id>")
+		}
+		if err := c.do("GET", "/workflows/"+rest[1], nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%v v%v (%v) sha256 %v\n--- source ---\n%v\n--- declared capabilities ---\n", out["name"], out["version"], out["status"], out["sha256"], out["source"])
+		printJSON(stdout, out["requires"])
+		return nil
+	case "run":
+		fs := flag.NewFlagSet("workflow run", flag.ContinueOnError)
+		var ins multiFlag
+		fs.Var(&ins, "input", "k=JSON value (repeatable), e.g. --input 'urls=[\"https://example.com/\"]'")
+		pos, err := parse(fs, rest[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr("workflow run <name> [--input k=JSON]...")
+		}
+		inputs := map[string]any{}
+		for _, kv := range ins {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok {
+				return usageErr("--input k=JSON")
+			}
+			var val any
+			if err := json.Unmarshal([]byte(v), &val); err != nil {
+				val = v // a bare word is a string
+			}
+			inputs[k] = val
+		}
+		if err := c.do("POST", "/workflows/"+pos[0]+"/run", map[string]any{"inputs": inputs}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "task %v %v\n", out["id"], out["state"])
+		return nil
+	case "disable":
+		if len(rest) != 2 {
+			return usageErr("workflow disable <id>")
+		}
+		if err := c.do("POST", "/workflows/"+rest[1]+"/disable", nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%v %v\n", out["id"], out["status"])
+		return nil
+	}
+	return usageErr(use)
+}
+
 // brainCmd manages L3 brain variants (ADR-0048).
 func brainCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
 	const use = "brain list | show <id> | approve <id> [--yes] | reject <id> | rollback <id> [reason]"

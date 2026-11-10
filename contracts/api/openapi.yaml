@@ -146,6 +146,17 @@ paths:
     get: { operationId: adminUsage, description: "Owner: usage by department|member|day|tier|task_class|model (ADR-0049).", responses: { '200': { description: Usage groups } } }
   /admin/audit:
     get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
+  /aul/check:
+    post: { operationId: aulCheck, description: "Compile and check an AUL workflow; returns diagnostics or its declared capabilities (ADR-0050).", responses: { '200': { description: Check result } } }
+  /workflows:
+    get: { operationId: listWorkflows, responses: { '200': { description: Registered AUL workflows } } }
+    post: { operationId: registerWorkflow, description: "Owner: register a new workflow version.", responses: { '201': { description: Registered }, '400': { description: Diagnostics } } }
+  /workflows/{id}:
+    get: { operationId: getWorkflow, description: "By id, or the active version by name.", responses: { '200': { description: Workflow } } }
+  /workflows/{id}/run:
+    post: { operationId: runWorkflow, description: "Start a task running the workflow; body inputs, optional budget.", responses: { '201': { description: Task } } }
+  /workflows/{id}/disable:
+    post: { operationId: disableWorkflow, responses: { '200': { description: Workflow } } }
   /brain/variants:
     get: { operationId: listBrainVariants, description: "L3 brain variants from AURA Lab (ADR-0048); ?status= filters.", responses: { '200': { description: Variants } } }
   /brain/variants/{id}:

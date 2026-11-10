@@ -40,6 +40,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "channel_deliveries",  # migration 0009, ADR-0044
         "brain_variants",  # migration 0010, ADR-0048
         "lab_runs",  # migration 0010, ADR-0048
+        "aul_workflows", "aul_runs",  # migration 0012, ADR-0050
     }
 
 

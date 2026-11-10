@@ -132,3 +132,12 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 | Improvement tasks keep the owner's data class (privacy fix) | ✔ implementation-verified | ADR-0048, `TestImprovementTaskInheritsPrivacy` |
 | Enterprise admin: audit search/export, usage by department/member | ✔ implementation-verified | ADR-0049, `app/admin_p6_test.go` |
 | SSO/OIDC | blocked: needs an identity provider from the owner | — |
+
+## P8 progress (owner instruction 2026-11-10: continue to the last phase; P7 waits for owner decisions)
+
+| D.1 P8 item | Status | Evidence |
+|---|---|---|
+| Malformed AUL cannot escape the runtime | ✔ implementation-verified | ADR-0050; fuzzed compiler, limits, VM in WASM with WASI-only imports, no mounts/network |
+| Undeclared capabilities fail static checks | ✔ implementation-verified | `aul/aul_test.go` TestCompileChecksCapabilities |
+| AUL executes as WASM under Core grants | ✔ implementation-verified | `aul/aul_test.go` TestRunsAsWASM, `engine/aul_test.go` TestP8AULWorkflows |
+| Agents/policies in AUL, enterprise packaging | not started (later scope) | — |

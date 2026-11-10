@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"aura.local/core/internal/api"
+	"aura.local/core/internal/aul"
 	"aura.local/core/internal/browser"
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/channel"
@@ -70,6 +71,7 @@ type App struct {
 	keyOK       bool
 	Vault       *vault.Vault // nil when secrets.master_key_file is not set
 	Sandbox     *sandbox.Runtime
+	AUL         *aul.Runtime
 	Egress      *egress.Proxy // browser egress proxy (nil: browser automation off)
 	MoreWorkers []*worker.Supervisor
 	srv         *http.Server
@@ -226,9 +228,24 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			log.Info("L2 sandbox disabled: python module not found", "path", cfg.L2.PythonWASM)
 		}
 	}
+	// AUL workflows (ADR-0050): the VM module is optional like the L2 sandbox.
+	var aulRT *aul.Runtime
+	if cfg.AUL.VMWasm != "" {
+		if _, err := os.Stat(cfg.AUL.VMWasm); err == nil {
+			aulRT, err = aul.NewRuntime(ctx, cfg.AUL.VMWasm, cfg.L2.CacheDir, aul.Limits{MaxCalls: cfg.AUL.MaxCalls,
+				Timeout: time.Duration(cfg.AUL.TimeoutSeconds) * time.Second})
+			if err != nil {
+				st.Close()
+				return nil, fmt.Errorf("aul vm: %w", err)
+			}
+			a.AUL = aulRT
+		} else {
+			log.Info("AUL workflows disabled: VM module not found", "path", cfg.AUL.VMWasm)
+		}
+	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)

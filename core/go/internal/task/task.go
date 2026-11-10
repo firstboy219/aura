@@ -89,6 +89,8 @@ type Scope struct {
 	BrowserProfile string `json:"browser_profile,omitempty"`
 	// Attachments are owner-provided input files written into the task workspace at creation.
 	Attachments []string `json:"attachments,omitempty"`
+	// Workflow is the AUL workflow (aul_workflows.id) this task runs instead of a plan (ADR-0050).
+	Workflow string `json:"workflow,omitempty"`
 }
 
 // IsPublic reports whether the task's content may go to prompt-logging routes.

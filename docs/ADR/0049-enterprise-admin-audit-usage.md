@@ -18,6 +18,7 @@ write-only credentials).
   - The export itself is audited (`AUDIT_EXPORTED`).
   - It is served as an attachment with `nosniff`.
   - CSV cells that start with `= + - @` are prefixed with `'`, against spreadsheet formula injection.
+- **Older tasks.** Tasks created before migration 0011 have no recorded creator and are reported as `system`.
 - **Access.** All of this is owner only, enforced server-side (routeRole). The CLI offers
   `aura admin usage|audit|member department`.
 

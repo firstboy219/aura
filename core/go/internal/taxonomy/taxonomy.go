@@ -27,6 +27,8 @@ const (
 	CancelledByOwner    = "CANCELLED_BY_OWNER"
 	InterruptedWatch    = "INTERRUPTED"
 	InternalError       = "INTERNAL_ERROR"
+	AULIntegrity        = "AUL_INTEGRITY" // stored workflow IR does not match its sha256 (ADR-0050)
+	AULFailed           = "AUL_FAILED"    // an owner-authored workflow failed (fail, limit, refused call, VM error)
 )
 
 // Root causes (Blueprint §8A.5 diagnosis taxonomy). Nothing else is allowed.
@@ -94,6 +96,10 @@ func Canonical(reason string) string {
 		return ToolFailed
 	case strings.HasPrefix(r, "site_blocked"), strings.Contains(r, "site_blocked"):
 		return SiteBlocked
+	case strings.HasPrefix(r, "aul_integrity"):
+		return AULIntegrity
+	case strings.HasPrefix(r, "aul_"):
+		return AULFailed
 	case strings.HasPrefix(r, "kill_switch"):
 		return KillSwitch
 	case strings.HasPrefix(r, "cancelled"), strings.HasPrefix(r, "ancestor_cancelled"):
@@ -114,8 +120,8 @@ func CandidateCause(code string) (cause string, confidence float64) {
 		return CauseExternalDependency, 0.85
 	case SiteBlocked:
 		return CauseExternalDependency, 0.9 // the site refuses automated browsers: an owner decision (R6), never a bypass
-	case PolicyDenied, OwnerRejected, ApprovalExpired:
-		return CausePermissionBoundary, 0.9
+	case PolicyDenied, OwnerRejected, ApprovalExpired, AULIntegrity, AULFailed:
+		return CausePermissionBoundary, 0.9 // AUL: the owner's own program or its integrity — owner action (R6), never a brain remedy
 	case ModelOutputInvalid:
 		return CauseWrongTierRoute, 0.7
 	case PlanInvalid, ReplanLimit:

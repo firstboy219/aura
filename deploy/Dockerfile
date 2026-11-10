@@ -6,6 +6,8 @@ RUN go mod download
 COPY core/go/ ./
 ARG VERSION=0.1.0-p1
 RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o /out/aura ./cmd/aura
+# AUL VM (ADR-0050): the same repository's Go code built as a WASI module; it runs under wazero with no files or network.
+RUN CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build -buildvcs=false -trimpath -ldflags "-s -w" -o /out/aulvm.wasm ./cmd/aulvm
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 AURA_CONFIG=/etc/aura/config.yaml
@@ -21,7 +23,8 @@ COPY --from=core /out/aura /usr/local/bin/aura
 ADD --checksum=sha256:e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a763 \
     https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm \
     /usr/local/share/aura/python-3.12.0.wasm
-RUN chmod 0444 /usr/local/share/aura/python-3.12.0.wasm
+COPY --from=core /out/aulvm.wasm /usr/local/share/aura/aulvm.wasm
+RUN chmod 0444 /usr/local/share/aura/python-3.12.0.wasm /usr/local/share/aura/aulvm.wasm
 USER aura
 WORKDIR /var/lib/aura
 EXPOSE 7400
