@@ -44,6 +44,28 @@ def expected_outputs(objective: str) -> list[str]:
     return seen
 
 
+_DELEGATION_RE = re.compile(r"\b(\d|one|two|three|four|five|satu|dua|tiga|empat|lima)\s+(?:sub-?agents?|subagen)\b", re.IGNORECASE)
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5}
+
+
+def required_delegations(objective: str) -> int:
+    """Subagents the owner explicitly asked for (keep in sync with engine.RequiredDelegations)."""
+    m = _DELEGATION_RE.search(objective)
+    if m:
+        word = m.group(1).lower()
+        return min(max(_NUMBER_WORDS.get(word) or int(word if word.isdigit() else 0), 0), 5)
+    return 1 if "agent.delegate" in objective.lower() else 0
+
+
+def missing_delegations(steps: list, objective: str, granted: list[str], already: int = 0) -> str:
+    want = required_delegations(objective) if "agent.delegate" in granted else 0
+    have = already + sum(1 for s in steps if s.get("tool_id") == "agent.delegate")
+    if have >= want:
+        return ""
+    return (f"The objective asks for {want} subagent(s) (agent.delegate) and the plan has {have}. Use agent.delegate steps "
+            "for that work, each with its own brief, as the owner asked.")
+
+
 def input_paths(steps: list, attachments: list | None = None) -> set[str]:
     """Files the task reads rather than produces (keep in sync with engine.inputPaths)."""
     writes = {s.get("path") for s in steps if s.get("tool_id") == "workspace.write"}
@@ -501,10 +523,11 @@ def plan(ch: Channel, params: dict) -> dict:
         try:
             p = validate_plan(out, granted)
             missing = missing_outputs(p, objective, attachments=params.get("attachments")) if "workspace.write" in granted else []
-            if not missing:
+            delegation = missing_delegations(p["steps"], objective, granted)
+            if not missing and not delegation:
                 return p
-            problem = ("The plan never writes " + ", ".join(missing) +
-                       ", which the objective asks for. Add a workspace.write step for each, after the steps it needs.")
+            problem = delegation or ("The plan never writes " + ", ".join(missing) +
+                                     ", which the objective asks for. Add a workspace.write step for each, after the steps it needs.")
         except StepFailure as e:
             problem = str(e)
         if attempt == 1:
@@ -557,6 +580,10 @@ def replan(ch: Channel, params: dict) -> dict:
             if missing and "workspace.write" in granted:
                 raise StepFailure("new plan never writes " + ", ".join(missing) + ", which the objective asks for. Add a "
                                   "workspace.write step for each, after the steps it needs.", "invalid_plan")
+            delegated = sum(1 for s in params.get("steps", []) if s.get("tool_id") == "agent.delegate" and s.get("state") == "SUCCEEDED")
+            delegation = missing_delegations(steps, objective, granted, delegated)
+            if delegation:
+                raise StepFailure(delegation, "invalid_plan")
         except StepFailure as e:
             if attempt == 1:
                 raise

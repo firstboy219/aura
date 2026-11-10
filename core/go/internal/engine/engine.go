@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -408,6 +409,27 @@ var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_
 // ExpectedOutputs lists the workspace files an objective explicitly asks for.
 // A task that does not produce them is not complete, whatever its plan said.
 // Paths in inputs (attachments, files the plan only reads) are not outputs.
+var delegationRe = regexp.MustCompile(`(?i)\b(\d|one|two|three|four|five|satu|dua|tiga|empat|lima)\s+(?:sub-?agents?|subagen)\b`)
+
+var numberWords = map[string]int{"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5}
+
+// RequiredDelegations is how many subagents the owner explicitly asked for in
+// the objective ("use two subagents", "pakai dua subagen", "agent.delegate");
+// 0 when the objective leaves it to the agent. Keep in sync with the worker.
+func RequiredDelegations(objective string) int {
+	if m := delegationRe.FindStringSubmatch(objective); m != nil {
+		n := numberWords[strings.ToLower(m[1])]
+		if n == 0 {
+			n, _ = strconv.Atoi(m[1])
+		}
+		return min(max(n, 0), 5)
+	}
+	if strings.Contains(strings.ToLower(objective), "agent.delegate") {
+		return 1
+	}
+	return 0
+}
+
 var objectiveURLRe = regexp.MustCompile(`https?://[^\s"'<>()\[\]{}]+`)
 
 // ObjectiveURLs are the URLs the owner wrote in the objective, verbatim

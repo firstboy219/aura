@@ -261,3 +261,28 @@ def test_short_reply_is_read_against_the_question():
     assert "short YES to exactly what the question proposed" in out
     out = agent.render_owner_context([{"kind": "answer", "question": "Which page?", "answer": "maksudnya?"}])
     assert "gave NO information" in out
+
+
+@pytest.mark.parametrize("objective,n", [("Use two subagents (agent.delegate): one does A", 2), ("pakai dua subagen", 2),
+                                         ("Use 3 sub-agents", 3), ("call agent.delegate once", 1), ("summarize a page", 0)])
+def test_required_delegations(objective, n):
+    assert agent.required_delegations(objective) == n
+
+
+def test_plan_without_requested_subagents_is_repaired_once():
+    obj = "Use two subagents: one summarizes https://a.test/1, the other https://a.test/2. Then write reports/c.md"
+    granted = ["web.fetch", "workspace.write", "agent.delegate"]
+    write = {"step_no": 3, "description": "write", "tool_id": "workspace.write", "url": None, "path": "reports/c.md",
+             "query": None, "expression": None, "key": None, "until": None, "brief": None, "tools": None, "input": None}
+    fetch = dict(write, step_no=1, description="fetch", tool_id="web.fetch", url="https://a.test/1", path=None)
+    fetch2 = dict(fetch, step_no=2, url="https://a.test/2")
+    d1 = dict(write, step_no=1, description="sub 1", tool_id="agent.delegate", path=None, brief="summarize https://a.test/1",
+              tools=["web.fetch"])
+    d2 = dict(d1, step_no=2, description="sub 2", brief="summarize https://a.test/2")
+    no_sub = {"steps": [fetch, fetch2, write], "completion_criteria": ["x"], "question": None}
+    good = {"steps": [d1, d2, write], "completion_criteria": ["x"], "question": None}
+    core = FakeCore(req("task.plan", {"objective": obj, "granted_tools": granted, "allow_domains": ["a.test"]}),
+                    [{"result": {"structured": no_sub}}, {"result": {"structured": good}}])
+    resp = core.run()
+    assert [s["tool_id"] for s in resp["result"]["steps"]].count("agent.delegate") == 2
+    assert "asks for 2 subagent(s)" in core.seen[1]["params"]["messages"][-1]["content"]

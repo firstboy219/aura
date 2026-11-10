@@ -211,3 +211,17 @@ func TestExistenceCriteriaDecidedByCore(t *testing.T) {
 		t.Fatalf("a missing file passed its existence criterion: %s", done.State)
 	}
 }
+
+func TestRequiredDelegations(t *testing.T) {
+	for obj, want := range map[string]int{
+		"Use two subagents (agent.delegate): one summarizes A, the other B": 2,
+		"Pakai dua subagen untuk meringkas dua halaman":                     2,
+		"Use 3 sub-agents to research":                                      3,
+		"Delegate with agent.delegate and write reports/a.md":               1,
+		"Summarize https://example.com/ into reports/a.md":                  0,
+	} {
+		if got := RequiredDelegations(obj); got != want {
+			t.Fatalf("%q: %d, want %d", obj, got, want)
+		}
+	}
+}

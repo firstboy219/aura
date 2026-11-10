@@ -351,6 +351,19 @@ func (e *Engine) validatePlan(t *task.Task, p *planDoc, startNo int, alreadyWrit
 			}
 		}
 	}
+	if want := RequiredDelegations(t.Objective); want > 0 && allowed.HasTool("agent.delegate") {
+		var done int // subagents that already finished in this task (a replan keeps them)
+		e.st.R.QueryRow("select count(*) from task_steps where task_id=? and tool_id='agent.delegate' and state='SUCCEEDED'", t.ID).Scan(&done)
+		have := done
+		for _, ps := range p.Steps {
+			if ps.ToolID != nil && *ps.ToolID == "agent.delegate" {
+				have++
+			}
+		}
+		if have < want {
+			return nil, fmt.Errorf("invalid_plan: the objective asks for %d subagent(s) (agent.delegate); the plan has %d", want, have)
+		}
+	}
 	return out, nil
 }
 
