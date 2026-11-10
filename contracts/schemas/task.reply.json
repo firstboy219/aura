@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aura.local/contracts/schemas/task.reply.json",
   "title": "task.reply (Core → Worker)",
-  "description": "Write the owner reply for a finished task and propose an adaptive view. The Core sanitises the view, checks numbers against the evidence and stores the reply (ADR-0055).",
+  "description": "Write the owner reply for a finished (or failed) task and propose an adaptive view. The Core sanitises the view, checks numbers against the evidence and stores the reply (ADR-0055).",
   "type": "object",
   "properties": {
     "params": {
@@ -28,6 +28,22 @@
           "type": "array",
           "items": {
             "type": "object"
+          }
+        },
+        "failure": {
+          "type": "object",
+          "description": "Present when the task did not finish: the writer explains the failure and never presents the task as done. The Core labels the reply task_failed.",
+          "required": [
+            "code",
+            "detail"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
           }
         },
         "owner_context": {

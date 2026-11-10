@@ -21,11 +21,14 @@ import (
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
+	"aura.local/core/internal/taxonomy"
 	"aura.local/core/internal/view"
 )
 
 const (
 	maxReplyChars    = 6000
+	failureReplyWait = 90 * time.Second
+	failureEvidence  = 6
 	conversationSpan = 24 * time.Hour
 	conversationMax  = 6
 )
@@ -39,7 +42,7 @@ const (
 
 // ReplyNote is an honest caveat the Core attaches to a reply; clients show it.
 type ReplyNote struct {
-	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed
+	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -192,7 +195,7 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 			files = append(files, ev.Source)
 		}
 	}
-	text, blocks, notes, err := e.writeReply(ctx, t, evidence, basis)
+	text, blocks, notes, err := e.writeReply(ctx, t, evidence, basis, nil)
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, budget.ErrHalted) {
 			return err
@@ -204,11 +207,18 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 		text, blocks = summaryReply(evidence, files)
 		basis, notes = BasisSummary, []ReplyNote{{Code: "core_summary", Detail: reasonCode(err)}}
 	}
+	return e.storeReply(ctx, t, text, blocks, basis, notes, files)
+}
+
+func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, blocks []view.Block, basis string, notes []ReplyNote, files []string) error {
 	if blocks == nil {
 		blocks = []view.Block{}
 	}
 	if files == nil {
 		files = []string{}
+	}
+	if notes == nil {
+		notes = []ReplyNote{}
 	}
 	vj, _ := json.Marshal(blocks)
 	nj, _ := json.Marshal(notes)
@@ -228,7 +238,109 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 	})
 }
 
-func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []evidenceItem, basis string) (string, []view.Block, []ReplyNote, error) {
+// taskFailure is what the reply writer is told about a task that did not finish.
+type taskFailure struct {
+	Code   string `json:"code"`   // canonical reason code
+	Detail string `json:"detail"` // the Core's own record of what went wrong
+}
+
+// explainable failures are worth a model-written explanation: something went
+// wrong while working. Budget, provider, policy and stop reasons are stated by
+// the Core itself (no model is available, or none should speak for a policy).
+func explainable(code string) bool {
+	switch code {
+	case taxonomy.ToolFailed, taxonomy.VerificationFailed, taxonomy.ModelOutputInvalid, taxonomy.PlanInvalid, taxonomy.ReplanLimit,
+		taxonomy.SiteBlocked:
+		return true
+	}
+	return false
+}
+
+// failureReply tells the owner that a task ended without its result, why, and
+// what was found on the way (ADR-0055). A failed task used to end in silence.
+// The task stays FAILED: this reply is an explanation, never a verified result,
+// and is always labelled task_failed. It must not fail the caller.
+func (e *Engine) failureReply(parent context.Context, t *task.Task, reason, detail string) {
+	if !e.wantsReply(t) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), failureReplyWait)
+	defer cancel()
+	code := firstNonEmpty(taxonomy.Canonical(reason), taxonomy.InternalError)
+	var evidence []evidenceItem
+	if obs, err := e.observations(ctx, t, 1<<30); err == nil {
+		for _, o := range obs {
+			if o.ToolID != nil && *o.ToolID == "workspace.write" {
+				continue
+			}
+			evidence = append(evidence, evidenceItem{Source: o.Source, Kind: "observation", Content: truncate(o.Content, 4000)})
+		}
+		if len(evidence) > failureEvidence {
+			evidence = evidence[len(evidence)-failureEvidence:]
+		}
+	}
+	note := ReplyNote{Code: "task_failed", Detail: code}
+	var text string
+	var blocks []view.Block
+	var notes []ReplyNote
+	basis := BasisSummary
+	if explainable(code) && parent.Err() == nil {
+		var err error
+		text, blocks, notes, err = e.writeReply(ctx, t, evidence, BasisModel, &taskFailure{Code: code, Detail: truncate(detail, 600)})
+		if err != nil {
+			e.log.Warn("failure reply writer failed; the Core states the failure", "task_id", t.ID, "err", err)
+			text = ""
+		} else {
+			basis = BasisModel
+		}
+	}
+	if text == "" {
+		text, blocks = failureSummary(code, t.Objective, evidence)
+		notes = []ReplyNote{note}
+	}
+	if err := e.storeReply(ctx, t, text, blocks, basis, notes, nil); err != nil {
+		e.log.Warn("failure reply not stored", "task_id", t.ID, "err", err)
+	}
+}
+
+var failureTexts = map[string]string{
+	taxonomy.ProviderUnavailable: "Tidak ada model yang bisa dipakai untuk tugas ini saat ini. Tugas privat hanya boleh memakai rute yang tidak menyimpan prompt. / " +
+		"No model route is usable for this task right now. A private task may only use routes that do not log prompts.",
+	taxonomy.BudgetExceeded: "Anggaran tugas atau anggaran harian habis sebelum tugas selesai. / The task or daily budget ran out before the task finished.",
+	taxonomy.MaxIterations:  "Batas jumlah langkah tercapai sebelum tugas selesai. / The iteration limit was reached before the task finished.",
+	taxonomy.MaxWallTime:    "Batas waktu tugas habis sebelum tugas selesai. / The task ran out of time before it finished.",
+	taxonomy.PolicyDenied:   "Tugas ini meminta sesuatu yang tidak diizinkan oleh izin atau kebijakan yang berlaku. / The task asked for something its permissions or policy do not allow.",
+	taxonomy.ToolFailed:     "Sebuah alat gagal dan rencana pengganti tidak berhasil. / A tool failed and replanning did not help.",
+	taxonomy.VerificationFailed: "Hasil yang dibuat tidak lolos pemeriksaan, jadi tidak saya laporkan sebagai selesai. / " +
+		"The result did not pass verification, so it is not reported as done.",
+	taxonomy.WorkerCrash: "Proses pekerja berhenti berulang kali. / The worker process stopped repeatedly.",
+	taxonomy.SiteBlocked: "Situs tujuan menolak akses otomatis; tidak ada jalan lain yang dicoba. / The site refused automated access; no way around it was tried.",
+}
+
+// failureSummary is the Core's own statement of a failure: fixed wording per
+// reason code, the last finding verbatim, and a retry suggestion. No model.
+func failureSummary(code, objective string, evidence []evidenceItem) (string, []view.Block) {
+	why, ok := failureTexts[code]
+	if !ok {
+		why = "Terjadi kesalahan saat mengerjakan tugas. / Something went wrong while working on the task."
+	}
+	text := "Maaf, tugas ini tidak selesai. / Sorry, this task was not completed.\n" + why
+	blocks := []view.Block{{Type: "callout", Tone: "danger", Text: code}}
+	for i := len(evidence) - 1; i >= 0; i-- {
+		if c := strings.TrimSpace(evidence[i].Content); c != "" {
+			blocks = append(blocks, view.Block{Type: "text", Title: evidence[i].Source, Text: view.CleanText(c, 1500)})
+			break
+		}
+	}
+	if o := strings.TrimSpace(objective); o != "" && len(o) <= 600 {
+		blocks = append(blocks, view.Block{Type: "actions", Items: []view.Item{{Label: "Coba lagi / Try again", Value: o}}})
+	}
+	return text, blocks
+}
+
+// writeReply asks the worker for the reply. With failure set the writer explains
+// a task that did not finish; the reply is then labelled task_failed.
+func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []evidenceItem, basis string, failure *taskFailure) (string, []view.Block, []ReplyNote, error) {
 	gen, err := e.supFor(t.ID).Ensure()
 	if err != nil {
 		return "", nil, nil, err
@@ -245,9 +357,13 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	}
 	octx, _ := e.ownerContext(ctx, t)
 	guidance, _ := e.brainGuidance(ctx, t)
-	raw, err := e.callWorker(ctx, s, "task.reply", map[string]any{"guidance": guidance, "objective": t.Objective, "basis": basis,
+	params := map[string]any{"guidance": guidance, "objective": t.Objective, "basis": basis,
 		"evidence": evidence, "owner_context": octx, "conversation": e.conversation(ctx, t), "self": e.selfBrief(ctx, t),
-		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types})
+		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types}
+	if failure != nil {
+		params["failure"] = failure
+	}
+	raw, err := e.callWorker(ctx, s, "task.reply", params)
 	if s.fatal != nil {
 		return "", nil, nil, s.fatal
 	}
@@ -267,7 +383,9 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	}
 	blocks, removed := view.Sanitize(r.View, view.Options{KnownURL: func(u string) bool { return e.hasProvenance(t, u) }})
 	var notes []ReplyNote
-	if basis == BasisModel {
+	if failure != nil {
+		notes = append(notes, ReplyNote{Code: "task_failed", Detail: failure.Code})
+	} else if basis == BasisModel {
 		notes = append(notes, ReplyNote{Code: "model_knowledge"})
 	} else if missing := ungroundedNumbers(text, blocks, evidence, t.Objective); len(missing) > 0 {
 		notes = append(notes, ReplyNote{Code: "ungrounded_numbers", Detail: strings.Join(missing, ", ")})

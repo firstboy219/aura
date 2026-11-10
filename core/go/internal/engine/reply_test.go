@@ -161,15 +161,48 @@ func TestReplyWriterFailureFallsBackToCoreSummary(t *testing.T) {
 	}
 }
 
-// A direct answer has nothing but its reply: without one the task fails.
-func TestDirectAnswerFailsWithoutReply(t *testing.T) {
+// A direct answer has nothing but its reply: without one the task fails, and the
+// Core itself tells the owner why (no model is left to do it).
+func TestDirectAnswerFailsWithCoreExplanation(t *testing.T) {
 	h := newHarness(t, harnessOpts{replies: true, respond: replyModel(func(string) string { return noSteps }, func(string) gatewaytest.Reply {
 		return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 500, Msg: "down"}}
 	})})
 	tk := h.submit("Apa kabar?", nil)
 	got := h.wait(tk.ID, task.Failed)
-	if r, _ := h.eng.GetReply(context.Background(), tk.ID); r != nil {
-		t.Fatalf("failed task %v has a reply %+v", deref(got.Reason), r)
+	r, _ := h.eng.GetReply(context.Background(), tk.ID)
+	if r == nil || r.Basis != BasisSummary || len(r.Notes) != 1 || r.Notes[0].Code != "task_failed" || r.Notes[0].Detail != "PROVIDER_UNAVAILABLE" {
+		t.Fatalf("failed task %v: reply = %+v", deref(got.Reason), r)
+	}
+	if !strings.Contains(r.Text, "tidak selesai") || len(r.View) == 0 || r.View[0].Type != "callout" {
+		t.Fatalf("reply does not state the failure: %+v", r)
+	}
+}
+
+// A task that fails while working is explained by the reply writer in failure
+// mode; the reply is labelled task_failed and the task stays FAILED.
+func TestFailedTaskIsExplainedToTheOwner(t *testing.T) {
+	var system, user string
+	h := newHarness(t, harnessOpts{replies: true, respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+		switch purposeOf(req) {
+		case "plan":
+			return gatewaytest.Reply{Content: noSteps}
+		case "reply":
+			system, user = req.Messages[0].Content, req.Messages[len(req.Messages)-1].Content
+			return gatewaytest.Reply{Content: replyJSON("Maaf, ringkasan belum berhasil dibuat.")}
+		}
+		return gatewaytest.RS1Model(r, req)
+	}})
+	tk := h.submit(rs1Objective(h.host), nil)
+	h.wait(tk.ID, task.Failed)
+	r, _ := h.eng.GetReply(context.Background(), tk.ID)
+	if r == nil || r.Text != "Maaf, ringkasan belum berhasil dibuat." || !hasNote(r, "task_failed") || hasNote(r, "model_knowledge") {
+		t.Fatalf("reply = %+v", r)
+	}
+	if !strings.Contains(system, "THIS TASK FAILED") || !strings.Contains(user, "What went wrong") {
+		t.Fatalf("reply writer was not told the task failed:\n%s\n%s", system, user)
+	}
+	if steps, _ := task.Steps(context.Background(), h.st.R, tk.ID); len(steps) != 0 {
+		t.Fatalf("a rejected plan ran %d steps", len(steps))
 	}
 }
 
@@ -188,8 +221,8 @@ func TestNoDirectAnswerWhenWorkIsRequired(t *testing.T) {
 	if !strings.Contains(planPrompt, "Every plan needs at least one step") {
 		t.Fatal("planner was offered a direct answer for an objective that names outputs")
 	}
-	if r, _ := h.eng.GetReply(context.Background(), tk.ID); r != nil {
-		t.Fatal("a failed task must not have a reply")
+	if r, _ := h.eng.GetReply(context.Background(), tk.ID); r == nil || !hasNote(r, "task_failed") {
+		t.Fatalf("a failed task's reply must be labelled task_failed: %+v", r)
 	}
 }
 

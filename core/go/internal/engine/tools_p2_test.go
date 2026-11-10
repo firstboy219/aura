@@ -70,8 +70,10 @@ func TestDynamicFetchWithoutProvenanceDenied(t *testing.T) {
 		searcher: fakeSearcher{[]tools.SearchResult{{Title: "Solar", URL: "http://fixture.test/one"}}}})
 	tk := h.submit("Search the web about solar power and write reports/summary.md", nil)
 	done := h.wait(tk.ID, task.Failed, task.Succeeded)
-	// The worker catches a URL that appears nowhere in its observations before asking the Core.
-	if done.State != task.Failed || fetched(h, tk.ID, "leak=secret") {
+	// The worker catches a URL that appears nowhere in its observations before asking the Core. That is a step
+	// failure the planner may recover from with another source, so the task may still finish: what must hold is
+	// that the step failed and the URL was never fetched.
+	if !stepFailed(h, tk.ID) || fetched(h, tk.ID, "leak=secret") {
 		t.Fatalf("%s %s denials=%v", done.State, deref(done.Reason), deniedReasons(t, h, tk.ID))
 	}
 	// A URL that only appears inside untrusted text (an injected snippet) passes the worker's check, and the
@@ -85,6 +87,16 @@ func TestDynamicFetchWithoutProvenanceDenied(t *testing.T) {
 		fetched(h2, tk2.ID, "leak=secret") {
 		t.Fatalf("%s %s denials=%v", done.State, deref(done.Reason), deniedReasons(t, h2, tk2.ID))
 	}
+}
+
+// stepFailed reports whether any step of the task failed.
+func stepFailed(h *harness, taskID string) bool {
+	for _, e := range h.events(taskID) {
+		if e.Type == "STEP_FAILED" {
+			return true
+		}
+	}
+	return false
 }
 
 // fetched reports whether any fetch of a URL containing s was started.
@@ -110,7 +122,8 @@ func TestDynamicFetchOfObjectiveURL(t *testing.T) {
 	h2 := newHarness(t, harnessOpts{respond: researchModel("http://fixture.test/two?leak=1"),
 		searcher: fakeSearcher{[]tools.SearchResult{{Title: "Solar", URL: "http://fixture.test/one"}}}})
 	tk2 := h2.submit(obj, nil)
-	if done := h2.wait(tk2.ID, task.Failed, task.Succeeded); done.State != task.Failed {
+	// The variant is refused (a failed step the planner may replace); it is never fetched.
+	if done := h2.wait(tk2.ID, task.Failed, task.Succeeded); !stepFailed(h2, tk2.ID) || fetched(h2, tk2.ID, "leak=1") {
 		t.Fatalf("a variant of the objective URL was accepted: %s", done.State)
 	}
 	if got := ObjectiveURLs("Fetch https://a.test/x, then (https://b.test/y). Done"); strings.Join(got, " ") != "https://a.test/x https://b.test/y" {

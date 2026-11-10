@@ -56,3 +56,27 @@ set it, so evaluation is not affected.
   respects the data class; `reply: none`; number grounding.
 - `view/view_test.go`: sanitiser. `intelligence/python/tests/test_agent.py`: planner and reply writer.
 - Android `ClientTest.parsesReplyAndView`.
+
+## Addendum (2026-11-10): a failed task also answers
+The first sandbox run showed that a failed task ended in silence: the owner saw a state and a reason code.
+- Before a root task moves to FAILED or BUDGET_EXCEEDED the Core stores a reply labelled with the note `task_failed`
+  (detail: canonical reason code). The state does not change: COMPLETED still means verified, and a failure reply is
+  never a result.
+- Failures while working (tool, verification, invalid plan or output, replan limit, blocked site) are explained by the
+  reply writer in failure mode (`task.reply` with `failure: {code, detail}`): what went wrong in plain words, what was
+  found, an optional answer from model knowledge that must be labelled unverified, and one next step. The failure
+  detail is given to the model as untrusted data. Basis `model_knowledge`.
+- Budget, wall time, provider, policy and crash failures are stated by the Core in fixed wording (basis `summary`),
+  with a "try again" action. No model speaks for a policy decision, and none is available when routes or budget ran out.
+- The failure reply is best effort (90 s limit) and can never fail or delay the transition beyond that.
+- Telegram appends the explanation to the failure notice. Web and Android show the note with the reason code.
+- Related fix: a step failure reported by the worker as an RPC error (for example "no suitable URL in the search
+  results") was not treated as replannable, although the worker raises it for exactly that purpose. It now leads to
+  a replan. Two tests asserted FAILED for a URL without provenance that the worker itself refused; they now assert
+  what the rule protects (the step failed and the URL was never fetched), because the planner may finish the task
+  with another source. The Core-side denial test (`argument_without_provenance`) is unchanged.
+- Conversation context marks the most recent exchange explicitly; a weak model took the oldest one for "what I just
+  asked" in the sandbox.
+- Evidence: `reply_test.go` `TestDirectAnswerFailsWithCoreExplanation`, `TestFailedTaskIsExplainedToTheOwner`,
+  `TestNoDirectAnswerWhenWorkIsRequired`; `test_agent.py` `test_failure_reply_explains_and_never_claims_done`,
+  `test_conversation_marks_the_most_recent_exchange`; sandbox suite S10, S11.

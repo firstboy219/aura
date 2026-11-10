@@ -18,6 +18,7 @@ const I18N = {
     "tasks.create": "Buat tugas", "tasks.empty": "Belum ada tugas.",
     "ask.title": "Tanya AURA", "ask.placeholder": "Tulis permintaan Tuan…", "ask.send": "Kirim", "ask.options": "Opsi lanjutan", "ask.working": "AURA sedang mengerjakan…",
     "reply.title": "Jawaban AURA", "reply.files": "File yang ditulis", "reply.details": "Rincian teknis",
+    "note.task_failed": "Tugas ini tidak selesai; isi balasan ini belum diverifikasi. Alasan:",
     "note.model_knowledge": "Dijawab dari pengetahuan model, tanpa alat — belum diperiksa terhadap sumber.",
     "note.core_summary": "Model penulis jawaban tidak tersedia; ini ringkasan apa adanya dari Core.",
     "note.ungrounded_numbers": "Angka berikut tidak ditemukan di bukti tugas — periksa dulu:",
@@ -61,6 +62,7 @@ const I18N = {
     "tasks.create": "Create task", "tasks.empty": "No tasks yet.",
     "ask.title": "Ask AURA", "ask.placeholder": "Write your request…", "ask.send": "Send", "ask.options": "Advanced options", "ask.working": "AURA is working…",
     "reply.title": "AURA's reply", "reply.files": "Files written", "reply.details": "Technical details",
+    "note.task_failed": "This task was not completed; nothing in this reply is verified. Reason:",
     "note.model_knowledge": "Answered from the model's own knowledge, without tools — not checked against a source.",
     "note.core_summary": "No model could write the reply; this is a plain summary from the Core.",
     "note.ungrounded_numbers": "These figures were not found in the task's evidence — check them first:",
@@ -303,7 +305,7 @@ function viewBlock(b, onAction) {
 function replyCard(tk, onAction) {
   const r = tk.reply;
   if (!r) return null;
-  const notes = (r.notes || []).map((n) => el("p", { class: "note", text: "ⓘ " + t("note." + n.code) + (n.code === "ungrounded_numbers" && n.detail ? " " + n.detail : "") }));
+  const notes = (r.notes || []).map((n) => el("p", { class: "note", text: "ⓘ " + t("note." + n.code) + ((n.code === "ungrounded_numbers" || n.code === "task_failed") && n.detail ? " " + n.detail : "") }));
   const files = (r.files || []).length ? el("p", { class: "muted" }, t("reply.files") + ": ", (r.files || []).map((f, i) => [i ? ", " : "",
     el("a", { href: "/api/v1/tasks/" + encodeURIComponent(tk.id) + "/files/" + String(f).split("/").map(encodeURIComponent).join("/"), target: "_blank", rel: "noopener noreferrer", text: f })])) : null;
   return el("div", { class: "card reply" }, el("p", { class: "pre lead", text: r.text }),

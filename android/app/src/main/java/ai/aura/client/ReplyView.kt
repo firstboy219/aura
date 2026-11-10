@@ -29,6 +29,7 @@ object ReplyView {
         "model_knowledge" -> "Dijawab dari pengetahuan model, tanpa alat — belum diperiksa terhadap sumber."
         "core_summary" -> "Model penulis jawaban tidak tersedia; ini ringkasan apa adanya dari Core."
         "ungrounded_numbers" -> "Angka berikut tidak ditemukan di bukti tugas — periksa dulu: ${n.detail}"
+        "task_failed" -> "Tugas ini tidak selesai; isi balasan ini belum diverifikasi. Alasan: ${n.detail}"
         "view_trimmed" -> "Sebagian tampilan dibuang oleh Core karena tidak aman atau tidak sah."
         else -> n.code
     }

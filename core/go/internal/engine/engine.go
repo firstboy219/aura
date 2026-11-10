@@ -350,6 +350,12 @@ func (e *Engine) finish(ctx context.Context, id string, err error) {
 		return // Core shutting down: leave the task for recovery
 	}
 	cause := err // the closure below shadows err
+	if to == task.Failed || to == task.BudgetExceeded {
+		// The owner is told why, before the task is closed (ADR-0055).
+		if cur, gerr := task.Get(ctx, e.st.R, id); gerr == nil && !cur.State.Terminal() && task.CanTransition(cur.State, to) {
+			e.failureReply(ctx, cur, reason, cause.Error())
+		}
+	}
 	werr := e.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
 		cur, err := task.Get(ctx, tx, id)
 		if err != nil || cur.State.Terminal() || cur.State == to {

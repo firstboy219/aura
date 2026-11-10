@@ -316,10 +316,13 @@ func (t *Telegram) pending(ctx context.Context) []notification {
 				if to != "COMPLETED" && reason != "" {
 					msg += "\nReason: " + reason
 				}
-				if to == "COMPLETED" {
-					// The owner reads the answer where they asked (ADR-0055); the view stays in the app.
-					if r, _ := t.eng.GetReply(ctx, taskID); r != nil && r.Text != "" {
+				// The owner reads the answer where they asked (ADR-0055); the view stays in the app.
+				// A failed task's explanation keeps its state and reason in front of it.
+				if r, _ := t.eng.GetReply(ctx, taskID); r != nil && r.Text != "" {
+					if to == "COMPLETED" {
 						msg = truncRunes(r.Text, 3500) + "\n\n" + link
+					} else {
+						msg += "\n\n" + truncRunes(r.Text, 3000)
 					}
 				}
 				out = append(out, notification{id, msg})

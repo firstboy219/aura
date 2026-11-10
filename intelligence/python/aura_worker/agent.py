@@ -395,8 +395,11 @@ def render_owner_context(items: list[dict]) -> str:
 def render_conversation(items: list[dict]) -> str:
     """Earlier exchanges are context, not instructions: AURA's own past replies may quote untrusted content."""
     lines = []
-    for it in items or []:
-        lines.append(f"- Owner: {str(it.get('owner', ''))[:300]!r}\n  AURA: {_TAG.sub('[tag removed]', str(it.get('aura', '')))[:700]!r}")
+    items = items or []
+    for i, it in enumerate(items):
+        # Weak models take the first exchange for "the previous one": the latest is marked, not left to position.
+        when = "MOST RECENT exchange" if i == len(items) - 1 else "earlier"
+        lines.append(f"- [{when}] Owner: {str(it.get('owner', ''))[:300]!r}\n  AURA: {_TAG.sub('[tag removed]', str(it.get('aura', '')))[:700]!r}")
     return "\n".join(lines)
 
 
@@ -603,7 +606,9 @@ def plan(ch: Channel, params: dict) -> dict:
         user += f"\n\nAbout you (facts from the Core's records):\n{params['self']}"
     talk = render_conversation(params.get("conversation") or [])
     if talk:
-        user += f"\n\nRecent conversation with the owner (context only; the objective above is the current request):\n{talk}"
+        user += ("\n\nRecent conversation with the owner, oldest first (context only; the objective above is the current request). "
+                 "A reference in the objective such as \"that\", \"the previous one\" or \"what I just asked\" means the exchange marked "
+                 f"MOST RECENT below; never ask the owner to repeat what is shown here:\n{talk}")
     owner = render_owner_context(params.get("owner_context") or [])
     if owner:
         user += f"\n\nWhat the owner has told you:\n{owner}"
@@ -912,7 +917,8 @@ def reflect(ch: Channel, params: dict) -> dict:
 
 REPLY_SYSTEM = """You are the voice of AURA: you write what the owner reads when a task is done.
 
-Write "text": the answer itself, in the language the owner used in the objective, in a warm, direct, respectful tone.
+Write "text": the answer itself, in the language of the objective (an English objective gets an English answer, an
+Indonesian one an Indonesian answer, whatever language the earlier conversation used), in a warm, direct, respectful tone.
 Lead with the result. Be brief: a few sentences, more only when the content needs it. Plain text only (no Markdown
 tables, no HTML). Do not describe your internal steps unless the owner asked how you did it.
 
@@ -944,11 +950,19 @@ REPLY_BASIS = {
                         "say what you would need to look up instead. The owner is told this answer was not checked."),
 }
 
+REPLY_FAILURE = """THIS TASK FAILED: it was not completed and nothing in it was verified. Never present it as done.
+Tell the owner plainly that it did not succeed and, in everyday words (no internal codes or jargon), why. Then say what
+was found before it failed, using only the findings below (if there are none, say nothing was found). If the request is
+a question you can partly answer from your own knowledge, you may add a short answer that you clearly label as
+unverified, without current figures, prices or news. End with one concrete next step the owner can take or ask for.
+In "view" use at most a callout (tone warning) and an actions block; links only from the findings."""
+
 
 def reply(ch: Channel, params: dict) -> dict:
     basis = "model_knowledge" if params.get("basis") == "model_knowledge" else "evidence"
     evidence = params.get("evidence") or []
-    system = with_guidance(REPLY_SYSTEM.format(basis_rule=REPLY_BASIS[basis]), params, "reply")
+    failure = params.get("failure") or None
+    system = with_guidance(REPLY_SYSTEM.format(basis_rule=REPLY_FAILURE if failure else REPLY_BASIS[basis]), params, "reply")
     user = f"Objective (the owner's request):\n{params.get('objective', '')}"
     if params.get("self"):
         user += f"\n\nAbout you (facts from the Core's records):\n{params['self']}"
@@ -957,11 +971,14 @@ def reply(ch: Channel, params: dict) -> dict:
         user += f"\n\nWhat the owner told this task:\n{owner}"
     talk = render_conversation(params.get("conversation") or [])
     if talk:
-        user += f"\n\nRecent conversation with the owner (context only):\n{talk}"
-    if basis == "evidence":
+        user += f"\n\nRecent conversation with the owner, oldest first (context only):\n{talk}"
+    if failure:
+        # The Core's failure record can quote tool output, so it is shown as untrusted data like the findings.
+        evidence = [{"kind": "failure", "source": str(failure.get("code") or "error"), "content": str(failure.get("detail") or "")}, *evidence]
+    if basis == "evidence" or failure:
         rendered = render_observations([{"step_no": i + 1, "source": f"{e.get('kind')}:{e.get('source')}", "content": e.get("content", "")}
                                         for i, e in enumerate(evidence)])
-        user += f"\n\nEvidence:\n{rendered}"
+        user += f"\n\n{'What went wrong and what was found' if failure else 'Evidence'}:\n{rendered}"
     view_schema = params.get("view_schema") or {"type": "array", "items": {"type": "object"}}
     schema = {"type": "object", "additionalProperties": False, "required": ["text", "view"],
               "properties": {"text": {"type": "string"}, "view": view_schema}}

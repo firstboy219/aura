@@ -515,6 +515,12 @@ func (e *Engine) criteria(ctx context.Context, taskID string) []string {
 
 // replannable failures can be handled by a new plan for the remaining work.
 func replannable(err error) bool {
+	// A failure the worker reports arrives as an RPC error whose reason code says
+	// what failed; its message starts with the RPC code, not the reason.
+	switch reasonCode(err) {
+	case "step_failed", "invalid_step_result", "tool_failed":
+		return true
+	}
 	msg := err.Error()
 	return strings.HasPrefix(msg, "step_failed") || strings.HasPrefix(msg, "invalid_step_result") ||
 		strings.HasPrefix(msg, "tool_failed")
@@ -765,6 +771,10 @@ func (e *Engine) retryOrFail(ctx context.Context, t *task.Task, reason string, c
 			_, err := task.AppendEvent(ctx, tx, t.ID, nil, "REPLAN_FAILED", "core", map[string]any{"error": truncate(err.Error(), 500), "cause": cause["kind"]})
 			return err
 		})
+	}
+	if ctx.Err() == nil {
+		detail, _ := json.Marshal(cause)
+		e.failureReply(ctx, t, reason, string(detail))
 	}
 	return true, e.st.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := task.Transition(ctx, tx, t.ID, task.Failed, reason, "", "core"); err != nil {

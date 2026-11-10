@@ -337,7 +337,7 @@ components:
             type: object
             required: [code]
             properties:
-              code: { enum: [model_knowledge, core_summary, ungrounded_numbers, view_trimmed] }
+              code: { enum: [model_knowledge, core_summary, ungrounded_numbers, view_trimmed, task_failed] }
               detail: { type: string }
         files: { type: array, items: { type: string } }
         created_at: { type: integer, description: Unix milliseconds }

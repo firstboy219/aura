@@ -123,7 +123,12 @@ func TestRS12ProactiveWatch(t *testing.T) {
 	if watchCalls.Load() != 1 {
 		t.Fatalf("changed source: %d model calls", watchCalls.Load())
 	}
+	// When the engine's loop ran the watch, its notification is written just after the model call returns.
 	ns, err := h.eng.Notifications(ctx, true)
+	for deadline := time.Now().Add(5 * time.Second); err == nil && len(ns) == 0 && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+		ns, err = h.eng.Notifications(ctx, true)
+	}
 	if err != nil || len(ns) != 1 || !strings.Contains(string(ns[0].Body), "price increase") || !strings.Contains(string(ns[0].Body), "untrusted") {
 		t.Fatalf("%v %+v", err, ns)
 	}
