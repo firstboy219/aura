@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -58,19 +59,20 @@ type Options struct {
 
 // App is a running Core.
 type App struct {
-	Cfg      *config.Config
-	Store    *store.Store
-	Engine   *engine.Engine
-	Worker   *worker.Supervisor
-	Governor *budget.Governor
-	API      *api.Server
-	MCP      map[string]*mcp.Client
-	Log      *slog.Logger
-	keyOK    bool
-	Vault    *vault.Vault // nil when secrets.master_key_file is not set
-	Sandbox  *sandbox.Runtime
-	Egress   *egress.Proxy // browser egress proxy (nil: browser automation off)
-	srv      *http.Server
+	Cfg         *config.Config
+	Store       *store.Store
+	Engine      *engine.Engine
+	Worker      *worker.Supervisor
+	Governor    *budget.Governor
+	API         *api.Server
+	MCP         map[string]*mcp.Client
+	Log         *slog.Logger
+	keyOK       bool
+	Vault       *vault.Vault // nil when secrets.master_key_file is not set
+	Sandbox     *sandbox.Runtime
+	Egress      *egress.Proxy // browser egress proxy (nil: browser automation off)
+	MoreWorkers []*worker.Supervisor
+	srv         *http.Server
 }
 
 // unconfigured is the provider used when no key file is configured: every call
@@ -198,8 +200,17 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		return nil, err
 	}
 	a.MCP = clients
-	a.Worker = worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot,
-		IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log})
+	gens := &atomic.Int64{} // worker generations unique across the pool (grants are bound to them)
+	newWorker := func() *worker.Supervisor {
+		return worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot,
+			IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log, GenSource: gens})
+	}
+	a.Worker = newWorker()
+	var moreWorkers []*worker.Supervisor
+	for i := 1; i < cfg.Worker.MaxConcurrentTasks; i++ { // ADR-0047: one worker per concurrently driven task
+		moreWorkers = append(moreWorkers, newWorker())
+	}
+	a.MoreWorkers = moreWorkers
 	// L2 tools (ADR-0038): the WASM sandbox is optional; without the pinned
 	// Python module, R3 remedies are escalated to the owner instead.
 	var sbx *sandbox.Runtime
@@ -217,7 +228,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Secret: a.secret, Vault: a.Vault, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)
@@ -518,6 +529,9 @@ func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
 	a.srv.Shutdown(sctx)
 	cancel()
 	a.Worker.Close()
+	for _, w := range a.MoreWorkers {
+		w.Close()
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
 	}

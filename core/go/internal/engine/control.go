@@ -200,9 +200,9 @@ func validDomain(d string) bool {
 func (e *Engine) interrupt(id, why string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.current == id && e.cancel != nil {
-		e.why = why
-		e.cancel()
+	if d, ok := e.driving[id]; ok && d.cancel != nil {
+		d.why = why
+		d.cancel()
 	}
 }
 
@@ -458,12 +458,16 @@ func (e *Engine) ExpireApprovals(ctx context.Context) {
 func (e *Engine) Stop(ctx context.Context, by string) (int, error) {
 	e.gov.Halt()
 	e.mu.Lock()
-	if e.cancel != nil {
-		e.why = "kill_switch"
-		e.cancel()
+	for _, d := range e.driving {
+		if d.cancel != nil {
+			d.why = "kill_switch"
+			d.cancel()
+		}
 	}
 	e.mu.Unlock()
-	e.sup.Kill()
+	for _, s := range e.sups {
+		s.Kill()
+	}
 	e.CloseAllBrowserSessions()
 	n := 0
 	err := e.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {

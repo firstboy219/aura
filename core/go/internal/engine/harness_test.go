@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,7 @@ type harnessOpts struct {
 	charter   string
 	noStart   bool // the test calls h.start() itself
 	sandbox   bool // attach the WASM sandbox (skips the test if the Python module is absent)
+	workers   int  // >1: a pool of workers and concurrent task drives (ADR-0047)
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -99,7 +101,14 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		cmd = []string{"python3", "-I", "-m", "aura_worker"}
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sup := worker.New(worker.Options{Command: cmd, ScratchRoot: cfg.Worker.ScratchRoot, Grace: 500 * time.Millisecond, Log: log})
+	gens := &atomic.Int64{}
+	sup := worker.New(worker.Options{Command: cmd, ScratchRoot: cfg.Worker.ScratchRoot, Grace: 500 * time.Millisecond, Log: log, GenSource: gens})
+	var more []*worker.Supervisor
+	for i := 1; i < o.workers; i++ {
+		ws := worker.New(worker.Options{Command: cmd, ScratchRoot: cfg.Worker.ScratchRoot, Grace: 500 * time.Millisecond, Log: log, GenSource: gens})
+		more = append(more, ws)
+		t.Cleanup(ws.Close)
+	}
 	fake := &gatewaytest.Fake{Respond: o.respond}
 	if fake.Respond == nil {
 		fake.Respond = goodModel
@@ -111,7 +120,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), MoreWorkers: more, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	if !o.noStart {
 		h.start()

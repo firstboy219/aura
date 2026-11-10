@@ -297,6 +297,25 @@ func List(ctx context.Context, q store.Querier, state State, limit int, cursor s
 }
 
 // Runnable returns the oldest task the engine should drive, if any.
+// RunnableExcept is Runnable skipping tasks already being driven.
+func RunnableExcept(ctx context.Context, q store.Querier, busy []string) (*Task, error) {
+	if len(busy) == 0 {
+		return Runnable(ctx, q)
+	}
+	args := make([]any, len(busy))
+	marks := make([]string, len(busy))
+	for i, id := range busy {
+		args[i], marks[i] = id, "?"
+	}
+	t, err := scanTask(q.QueryRowContext(ctx, "select "+taskCols+
+		" from tasks where state in ('CREATED','PLANNING','RUNNING') and agent_role not in ('watch','improvement') and id not in ("+
+		strings.Join(marks, ",")+") order by priority desc, created_at, id limit 1", args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return t, err
+}
+
 func Runnable(ctx context.Context, q store.Querier) (*Task, error) {
 	t, err := scanTask(q.QueryRowContext(ctx, "select "+taskCols+
 		" from tasks where state in ('CREATED','PLANNING','RUNNING') and agent_role not in ('watch','improvement') order by priority desc, created_at, id limit 1"))

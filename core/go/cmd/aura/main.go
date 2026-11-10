@@ -359,6 +359,7 @@ func workerHost(args []string) error {
 	sock := fs.String("socket", "/run/aura-worker/worker.sock", "Unix socket to listen on")
 	scratch := fs.String("scratch", "/tmp/aura-scratch", "per-worker scratch root (tmpfs)")
 	allow := fs.Int("allow-uid", 10001, "only this peer uid (the Core) may connect; -1 allows any")
+	maxConns := fs.Int("max-workers", 2, "concurrent workers (worker.max_concurrent_tasks + 1 for restarts)")
 	pub := fs.String("release-pubkey", "", "verify the signed release before serving (ADR-0037)")
 	manifest := fs.String("release-manifest", "/usr/local/share/aura/release.json", "release manifest")
 	if _, err := parse(fs, args); err != nil {
@@ -371,7 +372,7 @@ func workerHost(args []string) error {
 	defer stop()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	return workerhost.Serve(ctx, workerhost.Options{Socket: *sock, ScratchRoot: *scratch, AllowUID: *allow,
-		Command: []string{"python3", "-I", "-m", "aura_worker"}, Log: log})
+		Command: []string{"python3", "-I", "-m", "aura_worker"}, MaxConns: *maxConns, Log: log})
 }
 
 // workerConnect is the Core-side worker command when the worker is isolated:

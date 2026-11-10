@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 
+	"aura.local/core/internal/config"
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
@@ -51,6 +52,20 @@ func (e *Engine) delegate(ctx context.Context, parent *task.Task, st *task.Step,
 		return "", fmt.Errorf("%w: budget_carve_out", errDelegationDenied)
 	}
 	brief := args["brief"].(string)
+	profile, _ := args["profile"].(string)
+	sp, hasProfile := e.specialist(profile)
+	role := "You are a specialist subagent of a larger task."
+	tier := parent.TierOverride
+	if hasProfile {
+		role = "You are the " + sp.Name + " specialist of a larger task: " + sp.Description
+		if sp.Instructions != "" {
+			role += "\nOwner's instructions for this specialist: " + sp.Instructions
+		}
+		if sp.Tier != "" {
+			t := sp.Tier
+			tier = &t
+		}
+	}
 	var waitID string
 	err = e.st.Write(ctx, func(tx *sql.Tx) error {
 		// Idempotent per step: a re-run after a crash reuses the child.
@@ -59,15 +74,15 @@ func (e *Engine) delegate(ctx context.Context, parent *task.Task, st *task.Step,
 		}
 		pid := parent.ID
 		child := &task.Task{
-			Objective: "[Subagent briefing from task " + parent.ID + "]\n" + brief + "\n\nYou are a specialist subagent of a larger task. " +
-				"Work only on this brief, cite your sources, and do not ask the owner questions.",
+			Objective: "[Subagent briefing from task " + parent.ID + "]\n" + brief + "\n\n" + role +
+				" Work only on this brief, cite your sources, and do not ask the owner questions.",
 			ParentTaskID: &pid, RootTaskID: root.ID, AgentRole: "specialist", Depth: parent.Depth + 1,
 			Budget: task.Budget{MaxCostUSD: remaining / 2, MaxIterations: max(4, parent.Budget.MaxIterations/2),
 				MaxWallSeconds: parent.Budget.MaxWallSeconds},
 			Scope:        task.Scope{Tools: childTools, AllowDomains: parent.Scope.AllowDomains, DataClass: parent.Scope.DataClass, Recovery: parent.Scope.Recovery},
 			ConfigHash:   parent.ConfigHash,
 			Priority:     parent.Priority + 1, // finish the child before unrelated work
-			TierOverride: parent.TierOverride,
+			TierOverride: tier,
 		}
 		if err := task.Insert(ctx, tx, child); err != nil {
 			return err
@@ -82,8 +97,11 @@ func (e *Engine) delegate(ctx context.Context, parent *task.Task, st *task.Step,
 			return err
 		}
 		if _, err := task.AppendEvent(ctx, tx, parent.ID, &st.ID, "SUBAGENT_STARTED", "core", map[string]any{
-			"child_task_id": child.ID, "tools": childTools, "budget_usd": child.Budget.MaxCostUSD}); err != nil {
+			"child_task_id": child.ID, "tools": childTools, "budget_usd": child.Budget.MaxCostUSD, "profile": profile}); err != nil {
 			return err
+		}
+		if e.concurrency() > 1 {
+			return nil // parallel fan-out (ADR-0047): the parent's execute loop parks it when it needs the results
 		}
 		_, err := task.Transition(ctx, tx, parent.ID, task.Waiting, "", "subagent:"+child.ID, "core")
 		return err
@@ -248,4 +266,33 @@ func cancelDescendants(ctx context.Context, tx *sql.Tx, id string) ([]string, er
 		}
 	}
 	return ds, nil
+}
+
+// specialist returns an owner-defined subagent profile (ADR-0046).
+func (e *Engine) specialist(name string) (config.SpecialistProfile, bool) {
+	if name == "" {
+		return config.SpecialistProfile{}, false
+	}
+	for _, sp := range e.cfg.Specialists {
+		if sp.Name == name {
+			return sp, true
+		}
+	}
+	return config.SpecialistProfile{}, false
+}
+
+// specialistDocs tells the planner which specialists exist.
+func (e *Engine) specialistDocs() string {
+	if len(e.cfg.Specialists) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`Specialists (set "input" to {"profile": "<name>"} to delegate to one): `)
+	for i, sp := range e.cfg.Specialists {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(sp.Name + " — " + sp.Description + " (tools: " + strings.Join(sp.Tools, ", ") + ")")
+	}
+	return b.String()
 }

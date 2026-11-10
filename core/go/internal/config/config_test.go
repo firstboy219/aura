@@ -25,7 +25,7 @@ func TestUnknownKeyRefusesStart(t *testing.T) {
 func TestInvalidValuesRefuseStart(t *testing.T) {
 	cases := []string{
 		"config_version: 2\n",
-		"worker:\n  max_concurrent_tasks: 2\n",
+		"worker:\n  max_concurrent_tasks: 5\n", // P6 allows 1..4 (ADR-0047; the P1 limit of 1 is superseded)
 		"budgets:\n  task_default: {max_cost_usd: 0, max_iterations: 1, max_wall_seconds: 1}\n",
 		"models:\n  turbo: []\n",
 		"models:\n  fast: [{display_name: a, api_model_id: b, route_id: c}]\n", // no price

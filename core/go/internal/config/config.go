@@ -152,6 +152,8 @@ type Config struct {
 		// TrustedProxyCIDRs: requests from these addresses (the tunnel connector) carry the client IP in CF-Connecting-IP.
 		TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs" json:"trusted_proxy_cidrs"`
 	} `yaml:"web" json:"web"`
+	// Specialists are subagent profiles (ADR-0046).
+	Specialists []SpecialistProfile `yaml:"specialists" json:"specialists"`
 	// Connectors are integration pilots (ADR-0045).
 	Connectors struct {
 		GitHub struct {
@@ -218,6 +220,15 @@ type Config struct {
 
 // MCPServer is an owner-declared MCP server (ADR-0020). Only the tools listed
 // here are exposed, with the tier and side-effect class the owner set.
+// SpecialistProfile is an owner-defined subagent profile (Blueprint P6, ADR-0046).
+type SpecialistProfile struct {
+	Name         string   `yaml:"name" json:"name"`
+	Description  string   `yaml:"description" json:"description"`
+	Tools        []string `yaml:"tools" json:"tools"` // the most it may use; always intersected with the parent's grant
+	Tier         string   `yaml:"tier" json:"tier"`   // optional model tier for its work
+	Instructions string   `yaml:"instructions" json:"instructions"`
+}
+
 // LoginProfile is a site login the owner allows AURA to use (ADR-0040).
 type LoginProfile struct {
 	Name        string   `yaml:"name" json:"name"`
@@ -366,8 +377,9 @@ func (c *Config) Validate() error {
 	if len(c.Worker.Command) == 0 {
 		add("worker.command is required")
 	}
-	if c.Worker.MaxWorkers != 1 || c.Worker.MaxConcurrentTasks != 1 {
-		add("worker.max_workers and worker.max_concurrent_tasks must be 1 in Phase 1 (ADR-0003)")
+	// P6 (ADR-0047): up to 4 concurrently driven tasks, one worker each; max_workers follows it.
+	if c.Worker.MaxConcurrentTasks < 1 || c.Worker.MaxConcurrentTasks > 4 || c.Worker.MaxWorkers < 1 || c.Worker.MaxWorkers > 4 {
+		add("worker.max_concurrent_tasks and worker.max_workers must be 1..4 (ADR-0047)")
 	}
 	tb := c.Budgets.TaskDefault
 	if tb.MaxCostUSD <= 0 || tb.MaxIterations <= 0 || tb.MaxWallSeconds <= 0 {
@@ -499,6 +511,14 @@ func (c *Config) Validate() error {
 	}
 	if tg := c.Channels.Telegram; tg.Enabled && (tg.TokenRef == "" || len(tg.AllowedUserIDs) == 0) {
 		add("channels.telegram: token_ref and at least one allowed_user_ids entry are required")
+	}
+	specs := map[string]bool{}
+	for _, sp := range c.Specialists {
+		if !webhookNameRe.MatchString(sp.Name) || specs[sp.Name] || len(sp.Tools) == 0 || (sp.Tier != "" && !validTier(sp.Tier)) || len(sp.Instructions) > 2000 {
+			add("specialists: each needs a unique name [a-z0-9-]{1,40}, tools, an optional valid tier, instructions <= 2000 chars")
+			break
+		}
+		specs[sp.Name] = true
 	}
 	profiles := map[string]bool{}
 	for _, l := range c.Browser.Logins {

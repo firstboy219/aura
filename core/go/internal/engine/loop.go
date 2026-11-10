@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -84,6 +85,9 @@ func (e *Engine) runTask(ctx context.Context, t *task.Task) error {
 // toolDocs are owner-written descriptions of the task's MCP tools.
 func (e *Engine) toolDocs(t *task.Task) map[string]string {
 	out := e.l2Docs(context.Background(), t.Scope.Tools)
+	if d := e.specialistDocs(); d != "" && slices.Contains(t.Scope.Tools, "agent.delegate") {
+		out["agent.delegate"] = d
+	}
 	for _, id := range t.Scope.Tools {
 		if d, ok := e.docs[id]; ok {
 			out[id] = d
@@ -499,12 +503,42 @@ func (e *Engine) execute(ctx context.Context, t *task.Task) error {
 		if err != nil {
 			return err
 		}
+		// Steps whose subagent is still running (parallel fan-out, ADR-0047).
+		open := map[string]bool{}
+		if rows, err := e.st.R.QueryContext(ctx, "select step_id from task_waits where task_id=? and kind='tasks' and satisfied_at is null and step_id is not null", t.ID); err == nil {
+			for rows.Next() {
+				var id string
+				rows.Scan(&id)
+				open[id] = true
+			}
+			rows.Close()
+		}
 		var next *task.Step
+		blocked := false
 		for _, st := range steps {
-			if st.State != task.StepSucceeded && st.State != task.StepSkipped {
-				next = st
+			if st.State == task.StepSucceeded || st.State == task.StepSkipped {
+				continue
+			}
+			if open[st.ID] {
+				blocked = true // a child is running for this step
+				continue
+			}
+			if blocked && !(st.ToolID != nil && *st.ToolID == "agent.delegate" && st.State == task.StepPending) {
+				next = nil // this step needs the running children's results first
 				break
 			}
+			next = st
+			break
+		}
+		if next == nil && len(open) > 0 {
+			// Park until a child finishes; each finished child wakes the parent once.
+			if err := e.st.Write(ctx, func(tx *sql.Tx) error {
+				_, err := task.Transition(ctx, tx, t.ID, task.Waiting, "", fmt.Sprintf("subagents:%d", len(open)), "core")
+				return err
+			}); err != nil {
+				return err
+			}
+			return errStop
 		}
 		if next == nil {
 			done, err := e.finalize(ctx, t.ID)

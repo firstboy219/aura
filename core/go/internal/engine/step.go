@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -151,6 +152,9 @@ func (e *Engine) workerStep(ctx context.Context, t *task.Task, st *task.Step, ps
 	case "waiting":
 		if s.waitID == "" {
 			return errors.New("invalid_step_result: waiting without a supervisor wait")
+		}
+		if cur, err := task.Get(ctx, e.st.R, t.ID); err == nil && cur.State == task.Running && st.ToolID != nil && *st.ToolID == "agent.delegate" {
+			return nil // parallel fan-out: the child runs; the execute loop continues with the next step
 		}
 		return errStop // the task is parked in WAITING; the supervisor resumes it
 	case "fail":
@@ -507,8 +511,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 		return map[string]any{"path": p}, p, ""
 	case "agent.delegate":
 		var a struct {
-			Brief string   `json:"brief"`
-			Tools []string `json:"tools"`
+			Brief   string   `json:"brief"`
+			Tools   []string `json:"tools"`
+			Profile string   `json:"profile"`
 		}
 		if strictDecode(c.Arguments, &a) != nil || strings.TrimSpace(a.Brief) == "" {
 			return nil, "", "invalid_arguments"
@@ -516,8 +521,32 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 		if s.plan == nil || s.plan.Brief == nil || *s.plan.Brief != a.Brief {
 			return nil, "", "arguments_differ_from_plan"
 		}
+		var planned struct {
+			Profile string `json:"profile"`
+		}
+		if s.plan.Input != nil {
+			json.Unmarshal([]byte(*s.plan.Input), &planned)
+		}
+		if a.Profile != planned.Profile {
+			return nil, "", "arguments_differ_from_plan"
+		}
 		child := a.Tools
-		if len(child) == 0 {
+		var profileTools []string
+		if a.Profile != "" {
+			sp, ok := e.specialist(a.Profile)
+			if !ok {
+				return nil, "", "unknown_specialist"
+			}
+			profileTools = sp.Tools
+			if len(child) == 0 {
+				for _, tl := range sp.Tools {
+					if g.Scopes.HasTool(tl) {
+						child = append(child, tl)
+					}
+				}
+			}
+		}
+		if len(child) == 0 && a.Profile == "" {
 			child = g.Scopes.Tools
 		}
 		var out []any
@@ -525,9 +554,19 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			if !g.Scopes.HasTool(tl) {
 				return nil, "", "grant_widening" // a subagent gets at most the parent's tools
 			}
+			if profileTools != nil && !slices.Contains(profileTools, tl) {
+				return nil, "", "grant_widening" // and at most its profile's tools
+			}
 			out = append(out, tl)
 		}
-		return map[string]any{"brief": a.Brief, "tools": out}, "subagent", ""
+		if len(out) == 0 {
+			return nil, "", "no_tools_for_subagent"
+		}
+		args := map[string]any{"brief": a.Brief, "tools": out}
+		if a.Profile != "" {
+			args["profile"] = a.Profile
+		}
+		return args, "subagent", ""
 	case "wait.event":
 		var a struct {
 			Key string `json:"key"`

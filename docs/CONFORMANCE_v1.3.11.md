@@ -120,3 +120,13 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 | Encrypted secrets at rest; backup/restore and key rotation tested | ✔ | ADR-0036; `internal/vault` tests; production provider key now `vault:openrouter` |
 | Signed runtime artifact verification | ✔ | ADR-0037; release `0.2.0-p4` verified by Core and worker host; tampered images refused at start |
 | Browser Automation v1 and its security tests | ◐ | ADR-0039. Built and deployed: isolated runtime, egress proxy, tools, A2 click bound to page/element/values, SITE_BLOCKED, session isolation. Evidence: unit/integration tests, `deploy/checks/browser-egress.sh` PASS, live proxy checks, PERF-14 (`benchmarks/reports/p4-browser-20261110.md`). Login profiles with Core-typed credentials (A2), one-time codes through a Core-only channel, encrypted saved and imported sessions, quarantined downloads, uploads off by default with hash-bound A2 (ADR-0040). Missing: RS-8 and login with a real model and site (free quota exhausted, no credit), browser image signing, remote headed browser |
+
+## P6 progress (owner instruction 2026-11-10: "lanjutkan sampai phase terakhir")
+
+| D.1 P6 item | Status | Evidence |
+|---|---|---|
+| Specialist subagent profiles (owner-configured, intersected grants) | ✔ implementation-verified | ADR-0046, `engine/specialists_test.go` |
+| Parallel subagents, worker pool 1..4 | ✔ implementation-verified | ADR-0047, `engine/parallel_test.go` |
+| L3/R4 brain remedies via AURA Lab (variants, eval, owner approval, staged rollout, auto-rollback) | in progress | — |
+| Enterprise admin: audit search/export, usage reports | pending | — |
+| SSO/OIDC | blocked: needs an identity provider from the owner | — |

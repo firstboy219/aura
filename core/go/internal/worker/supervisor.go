@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -44,6 +45,9 @@ type Options struct {
 	Log         *slog.Logger
 	// ExtraEnv is appended to the allowlisted environment (tests only; never secrets).
 	ExtraEnv []string
+	// GenSource, when set, is shared by a pool of supervisors so that worker
+	// generations (to which grants are bound) are unique across the pool.
+	GenSource *atomic.Int64
 }
 
 // allowedEnv are the only variables inherited from the Core environment.
@@ -138,7 +142,11 @@ func (s *Supervisor) env(scratch string) []string {
 }
 
 func (s *Supervisor) spawnLocked() (int64, error) {
-	s.gen++
+	if s.opt.GenSource != nil {
+		s.gen = s.opt.GenSource.Add(1)
+	} else {
+		s.gen++
+	}
 	gen := s.gen
 	scratch := filepath.Join(s.opt.ScratchRoot, "gen-"+strconv.FormatInt(gen, 10))
 	if err := os.MkdirAll(scratch, 0o700); err != nil {

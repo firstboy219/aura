@@ -62,9 +62,16 @@ type Engine struct {
 
 	wake    chan struct{}
 	mu      sync.Mutex
-	current string             // task being driven
-	cancel  context.CancelFunc // cancels the current task's context
-	why     string             // reason for cancel: pause | cancel | kill_switch
+	driving map[string]*drivingTask // tasks being driven now (up to worker.max_concurrent_tasks)
+	pool    chan *worker.Supervisor // idle workers; each driven task holds one (ADR-0047)
+	sups    []*worker.Supervisor    // every worker in the pool (sups[0] = e.sup)
+	taskSup map[string]*worker.Supervisor
+}
+
+// drivingTask is one task being driven: its cancel function and why it was cancelled.
+type drivingTask struct {
+	cancel context.CancelFunc
+	why    string // pause | cancel | kill_switch
 }
 
 // Deps are the engine's collaborators.
@@ -86,15 +93,39 @@ type Deps struct {
 	Secret func(ctx context.Context, ref string) (string, error)
 	// Vault stores browser login sessions encrypted (nil: sessions are not saved).
 	Vault *vault.Vault
-	Log   *slog.Logger
+	// MoreWorkers are extra worker supervisors for concurrent tasks (ADR-0047);
+	// with none, tasks run one at a time on Worker.
+	MoreWorkers []*worker.Supervisor
+	Log         *slog.Logger
 }
 
 func New(d Deps) *Engine {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
-	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+	e := &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
+		driving: map[string]*drivingTask{}, taskSup: map[string]*worker.Supervisor{}}
+	e.sups = append([]*worker.Supervisor{d.Worker}, d.MoreWorkers...)
+	e.pool = make(chan *worker.Supervisor, len(e.sups))
+	for _, s := range e.sups {
+		e.pool <- s
+	}
+	return e
+}
+
+// concurrency is how many tasks may be driven at once (one worker each).
+func (e *Engine) concurrency() int { return len(e.sups) }
+
+// supFor is the worker serving a task: the one its drive holds, else the
+// first (improvement work and diagnostics; Supervisor.Call serializes).
+func (e *Engine) supFor(taskID string) *worker.Supervisor {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if s, ok := e.taskSup[taskID]; ok {
+		return s
+	}
+	return e.sup
 }
 
 // Wake nudges the scheduler loop.
@@ -115,7 +146,16 @@ func (e *Engine) Run(ctx context.Context) error {
 	for {
 		if !e.gov.Halted() {
 			for {
-				t, err := task.Runnable(ctx, e.st.R)
+				e.mu.Lock()
+				busy := make([]string, 0, len(e.driving))
+				for id := range e.driving {
+					busy = append(busy, id)
+				}
+				e.mu.Unlock()
+				if len(busy) >= e.concurrency() {
+					break // every worker is busy; a finishing drive wakes the loop
+				}
+				t, err := task.RunnableExcept(ctx, e.st.R, busy)
 				if err != nil {
 					e.log.Error("scheduler", "err", err)
 					break
@@ -123,7 +163,21 @@ func (e *Engine) Run(ctx context.Context) error {
 				if t == nil || ctx.Err() != nil || e.gov.Halted() {
 					break
 				}
-				e.drive(ctx, t)
+				sup := <-e.pool
+				e.mu.Lock()
+				e.driving[t.ID] = &drivingTask{}
+				e.taskSup[t.ID] = sup
+				e.mu.Unlock()
+				if e.concurrency() == 1 {
+					e.drive(ctx, t) // one worker: drive inline, exactly as before
+					e.release(t.ID, sup)
+					continue
+				}
+				go func(t *task.Task, sup *worker.Supervisor) {
+					e.drive(ctx, t)
+					e.release(t.ID, sup)
+					e.Wake()
+				}(t, sup)
 			}
 		}
 		select {
@@ -240,14 +294,13 @@ func (e *Engine) drive(parent context.Context, t *task.Task) {
 	deadline := time.UnixMilli(start).Add(wall)
 	ctx, cancel := context.WithDeadline(parent, deadline)
 	e.mu.Lock()
-	e.current, e.cancel, e.why = t.ID, cancel, ""
+	if d, ok := e.driving[t.ID]; ok {
+		d.cancel, d.why = cancel, ""
+	} else {
+		e.driving[t.ID] = &drivingTask{cancel: cancel}
+	}
 	e.mu.Unlock()
-	defer func() {
-		cancel()
-		e.mu.Lock()
-		e.current, e.cancel = "", nil
-		e.mu.Unlock()
-	}()
+	defer cancel()
 
 	err := e.st.Write(ctx, func(tx *sql.Tx) error {
 		return task.SetLease(ctx, tx, t.ID, e.runID, deadline.UnixMilli())
@@ -269,7 +322,10 @@ func (e *Engine) finish(ctx context.Context, id string, err error) {
 		return
 	}
 	e.mu.Lock()
-	why := e.why
+	why := ""
+	if d, ok := e.driving[id]; ok {
+		why = d.why
+	}
 	e.mu.Unlock()
 	to, reason, wait := task.Failed, reasonCode(err), ""
 	switch {
@@ -365,8 +421,17 @@ type session struct {
 	denied     bool   // a request in this call was denied by policy: no replanning around it
 }
 
+// release returns a task's worker to the pool.
+func (e *Engine) release(taskID string, sup *worker.Supervisor) {
+	e.mu.Lock()
+	delete(e.driving, taskID)
+	delete(e.taskSup, taskID)
+	e.mu.Unlock()
+	e.pool <- sup
+}
+
 func (e *Engine) newSession(ctx context.Context, t *task.Task) (*session, error) {
-	gen, err := e.sup.Ensure()
+	gen, err := e.supFor(t.ID).Ensure()
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +475,7 @@ func (e *Engine) callWorker(ctx context.Context, s *session, method string, para
 			m["charter"] = e.charter
 		}
 	}
-	raw, err := e.sup.Call(cctx, method, e.meta(s), params, func(hctx context.Context, req *rpc.Envelope) (any, *rpc.Error) {
+	raw, err := e.supFor(s.t.ID).Call(cctx, method, e.meta(s), params, func(hctx context.Context, req *rpc.Envelope) (any, *rpc.Error) {
 		return e.serve(hctx, s, req)
 	})
 	if err != nil && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {

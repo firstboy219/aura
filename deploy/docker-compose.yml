@@ -49,14 +49,14 @@ services:
     image: aura-core:local
     container_name: aura-worker
     # AURA_RELEASE_PUBKEY (deploy/.env, not committed): the worker host verifies the signed release first (ADR-0037).
-    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001", "--release-pubkey", "${AURA_RELEASE_PUBKEY:-}"]
+    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001", "--release-pubkey", "${AURA_RELEASE_PUBKEY:-}", "--max-workers", "3"]
     user: "10002:10002"
     restart: unless-stopped
     network_mode: none
     volumes:
       - aura-worker-sock:/run/aura-worker
     cpus: 1.0
-    mem_limit: 512m
+    mem_limit: 768m
     pids_limit: 64
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]

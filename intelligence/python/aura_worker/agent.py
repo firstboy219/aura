@@ -401,7 +401,10 @@ def tool_docs(granted: list[str], domains: list[str], extra: dict | None = None)
     lines = []
     for t in granted:
         if t in TOOL_DOCS:
-            lines.append("- " + TOOL_DOCS[t].format(domains=", ".join(domains) or "(none)"))
+            line = "- " + TOOL_DOCS[t].format(domains=", ".join(domains) or "(none)")
+            if extra and extra.get(t):
+                line += " " + str(extra[t])  # e.g. the owner's specialist profiles for agent.delegate
+            lines.append(line)
         elif t.startswith("mcp."):
             desc = (extra or {}).get(t, "an external tool")
             lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments.')
@@ -737,6 +740,9 @@ def step(ch: Channel, params: dict) -> dict:
         args: dict = {"brief": s.get("brief")}
         if s.get("tools"):
             args["tools"] = s.get("tools")
+        inp = _parse_json(s.get("input")) or {}
+        if isinstance(inp, dict) and inp.get("profile"):
+            args["profile"] = str(inp["profile"])
         return _result(_invoke(ch, tool, args))
     if tool == "workspace.write":
         user = (f"Objective:\n{params.get('objective', '')}\n\nThis step: {s.get('description', '')}\n"
