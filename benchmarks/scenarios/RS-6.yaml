@@ -1,14 +1,14 @@
 id: RS-6
 phase: "P4"
-status: placeholder
+status: implemented (fixture)  # core/go/internal/engine/l2_test.go TestRS6L2ToolRemedyEndToEnd
 scenario: "Convert CSV in workspace into chart summary when no CSV tool exists"
 proves: "L2 tool evolution, test, sandbox, registration, capability approval"
 # Fields below are required before this test is executable (Blueprint D.1 P0).
-fixtures: TBD
-preconditions: TBD
-procedure: TBD
-assertions: TBD
-evidence_artifacts: TBD
+fixtures: data/sales.csv (4 rows, amount column); fake model drafts csv_column_stats (first draft imports os)
+preconditions: WASM sandbox configured; no L2 tool exists; task granted only workspace.write fails
+procedure: owner adds capability_gap limitation -> improvement cycle -> R3 draft, static check, repair, sandbox tests + benchmark -> owner approves exact sha256 -> re-test with the tool
+assertions: unapproved tool cannot be granted; wrong hash refused; re-test uses l2.csv_column_stats; output rows 4 and sum 4082345.85; limitation resolved
+evidence_artifacts: l2_tools row with report (static_check, tests, benchmark); audit L2_TOOL_PROPOSED/L2_TOOL_APPROVED/REMEDY_PROMOTED
 severity: TBD_OWNER        # from RESEARCH_BENCHMARK.md (MISSING)
 weight: TBD_OWNER          # from RESEARCH_BENCHMARK.md (MISSING)
 repetitions: TBD

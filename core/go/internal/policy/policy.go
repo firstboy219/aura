@@ -111,7 +111,7 @@ func RegisterL2Tool(id string, version int) {
 	}
 	manifestMu.Lock()
 	defer manifestMu.Unlock()
-	Manifest[id] = ToolSpec{ID: id, Version: fmt.Sprintf("l2-%d", version), SideEffect: "none", Tier: func(map[string]any) Tier { return A0 }}
+	Manifest[id] = ToolSpec{ID: id, Version: fmt.Sprintf("l2-%d", version), SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }}
 }
 
 // UnregisterL2Tool removes an L2 tool (disabled or rolled back).

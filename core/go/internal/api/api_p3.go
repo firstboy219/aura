@@ -322,3 +322,55 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"read": r.PathValue("id")})
 }
+
+// L2 tools (ADR-0038): the owner reviews the full source, tests and benchmark,
+// then approves the exact source hash, rejects, or disables.
+func (s *Server) listL2(w http.ResponseWriter, r *http.Request) {
+	ts, err := s.Engine.ListL2(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"tools": ts})
+}
+
+func (s *Server) getL2(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Engine.GetL2(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, t)
+}
+
+func (s *Server) l2Action(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in struct {
+		SHA256 string `json:"sha256"`
+		Reason string `json:"reason"`
+	}
+	if r.ContentLength != 0 {
+		if err := decodeStrict(r, &in); err != nil {
+			s.mapErr(w, r, err)
+			return
+		}
+	}
+	var t any
+	var err error
+	switch r.PathValue("action") {
+	case "approve":
+		t, err = s.Engine.DecideL2(r.Context(), id, true, in.SHA256, "owner")
+	case "reject":
+		t, err = s.Engine.DecideL2(r.Context(), id, false, "", "owner")
+	case "disable":
+		t, err = s.Engine.DisableL2(r.Context(), id, "owner", in.Reason)
+	default:
+		s.fail(w, r, 404, "not_found", "no such action")
+		return
+	}
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, t)
+}

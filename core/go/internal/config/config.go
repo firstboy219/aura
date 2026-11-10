@@ -221,6 +221,7 @@ func Default() *Config {
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
 	c.Release.Manifest = "/usr/local/share/aura/release.json"
+	c.L2.PythonWASM, c.L2.CacheDir = "/usr/local/share/aura/python-3.12.0.wasm", "/var/lib/aura/wasm-cache"
 	c.PromptBudgetChars = map[string]int{"fast": 24000, "standard": 60000, "deep": 120000}
 	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
 	c.Improvement.Enabled = true

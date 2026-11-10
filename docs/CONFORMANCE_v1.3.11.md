@@ -115,8 +115,8 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 |---|---|---|
 | Worker OS-isolated under a separate unprivileged identity; default-deny network; direct DB/network/secret access fails | ✔ | ADR-0035; `deploy/checks/worker-isolation.sh` → `benchmarks/reports/p4-worker-isolation-20261110.md` (PASS) |
 | RS-4 prompt injection passes with no out-of-scope action and an audit event | ◐ | Injection baseline and E12 pass; RS-4 against the isolated worker to be re-run |
-| Sandbox cannot reach host files, secrets or network except granted host functions | ⏳ | P4-M4 (WASM) |
-| RS-6 / L2 tool built, tested, approved, used; undeclared WASM host calls fail; Ledger R3 end-to-end | ⏳ | P4-M4 |
+| Sandbox cannot reach host files, secrets or network except granted host functions | ✔ | ADR-0038; wazero with WASI only, nothing mounted; `internal/sandbox` tests |
+| RS-6 / L2 tool built, tested, approved, used; undeclared WASM host calls fail; Ledger R3 end-to-end | ✔ (fixture) | `TestRS6L2ToolRemedyEndToEnd` (fake model, real sandbox), `TestUndeclaredHostCallFails`; not yet run with a real model |
 | Encrypted secrets at rest; backup/restore and key rotation tested | ✔ | ADR-0036; `internal/vault` tests; production provider key now `vault:openrouter` |
 | Signed runtime artifact verification | ✔ | ADR-0037; release `0.2.0-p4` verified by Core and worker host; tampered images refused at start |
 | Browser Automation v1 and its security tests | ⏳ | P4-M5 |

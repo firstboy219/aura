@@ -62,6 +62,7 @@ type harnessOpts struct {
 	toolDocs  map[string]string
 	charter   string
 	noStart   bool // the test calls h.start() itself
+	sandbox   bool // attach the WASM sandbox (skips the test if the Python module is absent)
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -110,7 +111,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	if !o.noStart {
 		h.start()

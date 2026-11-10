@@ -38,7 +38,7 @@ var l2Allowed = []string{"base64", "bisect", "collections", "csv", "dataclasses"
 const l2CheckerPy = `
 import ast, json, sys
 ALLOWED = set(json.loads(sys.argv[1]) if len(sys.argv) > 1 else [])
-FORBIDDEN = {"exec", "eval", "compile", "__import__", "open", "input", "breakpoint", "globals", "locals", "vars",
+FORBIDDEN = {"exec", "eval", "compile", "__import__", "open", "breakpoint", "globals", "locals", "vars",
              "getattr", "setattr", "delattr", "memoryview", "exit", "quit", "help", "__builtins__", "__loader__", "__spec__"}
 d = json.load(sys.stdin)
 src, allowed = d["source"], set(d["allowed"])

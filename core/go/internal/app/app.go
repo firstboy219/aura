@@ -30,6 +30,7 @@ import (
 	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/obs"
 	"aura.local/core/internal/policy"
+	"aura.local/core/internal/sandbox"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/tools"
 	"aura.local/core/internal/vault"
@@ -62,6 +63,7 @@ type App struct {
 	Log      *slog.Logger
 	keyOK    bool
 	Vault    *vault.Vault // nil when secrets.master_key_file is not set
+	Sandbox  *sandbox.Runtime
 	srv      *http.Server
 }
 
@@ -192,10 +194,28 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	a.MCP = clients
 	a.Worker = worker.New(worker.Options{Command: cfg.Worker.Command, ScratchRoot: cfg.Worker.ScratchRoot,
 		IdleTimeout: time.Duration(cfg.Worker.IdleTimeoutSeconds) * time.Second, Log: log})
+	// L2 tools (ADR-0038): the WASM sandbox is optional; without the pinned
+	// Python module, R3 remedies are escalated to the owner instead.
+	var sbx *sandbox.Runtime
+	if cfg.L2.PythonWASM != "" {
+		if _, err := os.Stat(cfg.L2.PythonWASM); err == nil {
+			sbx, err = sandbox.NewPython(ctx, cfg.L2.PythonWASM, cfg.L2.CacheDir, sandbox.Limits{})
+			if err != nil {
+				st.Close()
+				return nil, fmt.Errorf("l2 sandbox: %w", err)
+			}
+			a.Sandbox = sbx
+		} else {
+			log.Info("L2 sandbox disabled: python module not found", "path", cfg.L2.PythonWASM)
+		}
+	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
+	if n := a.Engine.RegisterActiveL2(ctx); n > 0 {
+		log.Info("L2 tools registered", "count", n)
+	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{}}
 	for _, h := range cfg.Webhooks {

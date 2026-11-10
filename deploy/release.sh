@@ -16,11 +16,13 @@ mkdir -p "$work/root/usr/local/bin" "$work/root$(dirname $SITE)" "$work/out"
 cid=$(docker create aura-core:local)
 docker cp "$cid:/usr/local/bin/aura" "$work/root/usr/local/bin/aura"
 docker cp "$cid:$SITE" "$work/root$(dirname $SITE)/"
+mkdir -p "$work/root/usr/local/share/aura"
+docker cp "$cid:/usr/local/share/aura/python-3.12.0.wasm" "$work/root/usr/local/share/aura/"
 docker rm "$cid" >/dev/null
 chown -R 10001:10001 "$work/out"
 docker run --rm --network none --user 10001:10001 -v "$work/root:/rel:ro" -v "$work/out:/out" -v "$KEY_DIR:/key:ro" \
   --entrypoint aura aura-core:local release sign --key /key/signing.key --version "$VERSION" --root /rel --out /out/release.json \
-  /usr/local/bin/aura "$SITE"
+  /usr/local/bin/aura "$SITE" /usr/local/share/aura/python-3.12.0.wasm
 printf 'FROM aura-core:local\nCOPY release.json /usr/local/share/aura/release.json\n' > "$work/out/Dockerfile"
 docker build -q -t aura-core:local "$work/out" >/dev/null
 docker compose up -d

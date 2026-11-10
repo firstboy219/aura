@@ -30,6 +30,7 @@ import (
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/release"
 	"aura.local/core/internal/rpc"
+	"aura.local/core/internal/sandbox"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/vault"
 	"aura.local/core/internal/worker"
@@ -72,6 +73,7 @@ func usage(w io.Writer) {
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
+  tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
   worker-host [--socket P]      (isolated worker container) serve workers over a Unix socket
@@ -359,7 +361,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
-		"self", "limitations", "limitation", "trigger", "notifications":
+		"self", "limitations", "limitation", "trigger", "notifications", "tools":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -447,6 +449,22 @@ func doctor(out io.Writer) int {
 	} else {
 		_, err := config.ReadSecret(cfg.Providers.OpenRouter.KeyFile)
 		check("provider_key", err, "mode and owner ok (value not shown)")
+	}
+	if _, err := os.Stat(cfg.L2.PythonWASM); err == nil {
+		start := time.Now()
+		rt, err := sandbox.NewPython(context.Background(), cfg.L2.PythonWASM, cfg.L2.CacheDir, sandbox.Limits{})
+		detail := ""
+		if err == nil {
+			var res *sandbox.Result
+			if res, err = rt.RunPython(context.Background(), "print(6*7)", nil); err == nil && strings.TrimSpace(string(res.Stdout)) != "42" {
+				err = fmt.Errorf("unexpected output %q", res.Stdout)
+			}
+			rt.Close(context.Background())
+			detail = fmt.Sprintf("WASM sandbox ready, CPython 3.12 WASI pinned (%d ms incl. compile)", time.Since(start).Milliseconds())
+		}
+		check("l2_sandbox", err, detail)
+	} else {
+		warn("l2_sandbox", "python WASM module not found; L2 tools (R3 remedies) unavailable")
 	}
 	if cfg.Release.PublicKey != "" {
 		err := verifyRelease(cfg.Release.PublicKey, cfg.Release.Manifest, true, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -818,6 +836,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		printJSON(stdout, out)
 		return nil
+	case "tools":
+		return toolsCmd(c, rest, stdin, stdout)
 	case "approve":
 		fs := flag.NewFlagSet("approve", flag.ContinueOnError)
 		yes := fs.Bool("yes", false, "do not ask for confirmation")
@@ -1046,6 +1066,76 @@ func runConsole() error {
 }
 
 // ownerData implements the memory, skill and profile commands.
+// toolsCmd reviews and decides AURA-built L2 tools (ADR-0038).
+func toolsCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
+	const use = "tools list | show <id> | approve <id> [--yes] | reject <id> | disable <id> [reason]"
+	if len(rest) == 0 {
+		return usageErr(use)
+	}
+	switch rest[0] {
+	case "list":
+		var out struct {
+			Tools []map[string]any `json:"tools"`
+		}
+		if err := c.do("GET", "/tools", nil, nil, &out); err != nil {
+			return err
+		}
+		for _, t := range out.Tools {
+			fmt.Fprintf(stdout, "%s  l2.%-28v v%-3v %-18v %v\n", t["id"], t["name"], t["version"], t["status"], t["description"])
+		}
+		return nil
+	case "show", "approve":
+		fs := flag.NewFlagSet("tools "+rest[0], flag.ContinueOnError)
+		yes := fs.Bool("yes", false, "do not ask for confirmation")
+		pos, err := parse(fs, rest[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr("tools " + rest[0] + " <id>")
+		}
+		var t map[string]any
+		if err := c.do("GET", "/tools/"+pos[0], nil, nil, &t); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "l2.%v version %v — %v\nstatus: %v\nsha256: %v\n\n--- source ---\n%v\n--- input schema ---\n", t["name"], t["version"],
+			t["description"], t["status"], t["source_sha256"], t["source"])
+		printJSON(stdout, t["input_schema"])
+		fmt.Fprintln(stdout, "--- tests (input → expected) ---")
+		printJSON(stdout, t["tests"])
+		fmt.Fprintln(stdout, "--- sandbox report (static check, test results, benchmark) ---")
+		printJSON(stdout, t["report"])
+		if rest[0] == "show" {
+			return nil
+		}
+		fmt.Fprintln(stdout, "The tool runs only in the WASM sandbox (no network, no files); approving lets tasks that list it call it.")
+		if !*yes && !confirm(stdin, stdout, "Approve exactly this source?") {
+			return errors.New("not approved")
+		}
+		var out map[string]any
+		if err := c.do("POST", "/tools/"+pos[0]+"/approve", map[string]any{"sha256": t["source_sha256"]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "l2.%v v%v %v\n", out["name"], out["version"], out["status"])
+		return nil
+	case "reject", "disable":
+		if len(rest) < 2 {
+			return usageErr("tools " + rest[0] + " <id>")
+		}
+		body := map[string]any{}
+		if rest[0] == "disable" && len(rest) > 2 {
+			body["reason"] = strings.Join(rest[2:], " ")
+		}
+		var out map[string]any
+		if err := c.do("POST", "/tools/"+rest[1]+"/"+rest[0], body, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "l2.%v v%v %v\n", out["name"], out["version"], out["status"])
+		return nil
+	}
+	return usageErr(use)
+}
+
 func ownerData(c *apiClient, cmd string, rest []string, stdout io.Writer) error {
 	if len(rest) == 0 {
 		return usageErr(cmd + " needs a subcommand")

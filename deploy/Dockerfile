@@ -16,6 +16,11 @@ RUN pip install --no-cache-dir --root-user-action=ignore /tmp/worker && rm -rf /
  && mkdir -p /var/lib/aura /run/aura-worker && chown aura:aura /var/lib/aura \
  && chown aura-worker:aura-worker /run/aura-worker && chmod 0755 /run/aura-worker
 COPY --from=core /out/aura /usr/local/bin/aura
+# L2 sandbox (ADR-0038): pinned CPython 3.12 WASI module, verified by sha256 at build time and again by the Core at start.
+ADD --checksum=sha256:e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a763 \
+    https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm \
+    /usr/local/share/aura/python-3.12.0.wasm
+RUN chmod 0444 /usr/local/share/aura/python-3.12.0.wasm
 USER aura
 WORKDIR /var/lib/aura
 EXPOSE 7400
