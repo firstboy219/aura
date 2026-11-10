@@ -229,6 +229,18 @@ func (e *Engine) Detect(ctx context.Context) ([]*Limitation, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Weaknesses the most recent runs no longer show stay closed (decided before the write: it reads).
+	gone := map[string]bool{}
+	for c, s := range stats {
+		if _, ok := e.recovered(ctx, c, "rate:"+c, ""); ok {
+			gone["rate:"+c] = true
+		}
+		for code := range s.Failures {
+			if _, ok := e.recovered(ctx, c, "code:"+c+":"+code, code); ok {
+				gone["code:"+c+":"+code] = true
+			}
+		}
+	}
 	var opened []*Limitation
 	err = e.st.Write(ctx, func(tx *sql.Tx) error {
 		classes := make([]string, 0, len(stats))
@@ -240,7 +252,7 @@ func (e *Engine) Detect(ctx context.Context) ([]*Limitation, error) {
 			s := stats[c]
 			rate := float64(s.Verified) / float64(max(s.Runs, 1))
 			// (1) verified success rate below target with enough runs
-			if s.Runs >= cfg.MinClassRuns && rate < cfg.SuccessRateTarget {
+			if s.Runs >= cfg.MinClassRuns && rate < cfg.SuccessRateTarget && !gone["rate:"+c] {
 				l, created, err := e.recordLimitation(ctx, tx, &Limitation{Category: "quality", TaskClass: c, DetectedBy: "self_model",
 					Title: fmt.Sprintf("Verified success rate %.0f%% for %q is below the %.0f%% target", rate*100, c, cfg.SuccessRateTarget*100),
 					Evidence: map[string]any{"runs": s.Runs, "verified": s.Verified, "completed": s.Completed, "failures_by_code": s.Failures,
@@ -263,7 +275,7 @@ func (e *Engine) Detect(ctx context.Context) ([]*Limitation, error) {
 			sort.Strings(codes)
 			for _, code := range codes {
 				n := s.Failures[code]
-				if n < cfg.MinRepeatedFailures {
+				if n < cfg.MinRepeatedFailures || gone["code:"+c+":"+code] {
 					continue
 				}
 				l, created, err := e.recordLimitation(ctx, tx, &Limitation{Category: categoryOf(code), TaskClass: c, DetectedBy: "runtime_monitor",
@@ -776,27 +788,9 @@ func (e *Engine) CloseRecovered(ctx context.Context) int {
 		if total == 0 {
 			result = map[string]any{"closed_as": "superseded", "note": "no finished tasks carry this task class any more (evidence was re-attributed)"}
 		} else {
-			recent, err := e.recentRuns(ctx, l.TaskClass, e.ledgerCfg.MinClassRuns)
-			if err != nil || len(recent) < e.ledgerCfg.MinClassRuns {
-				continue
-			}
-			ok, bad := 0, 0
 			code, _ := l.Evidence["reason_code"].(string)
-			for _, r := range recent {
-				if r.success {
-					ok++
-				}
-				if code != "" && r.code == code {
-					bad++
-				}
-			}
-			rate := float64(ok) / float64(len(recent))
-			switch {
-			case strings.HasPrefix(it.key, "rate:") && rate >= e.ledgerCfg.SuccessRateTarget:
-				result = map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "verified_success_rate": rate, "target": e.ledgerCfg.SuccessRateTarget}
-			case strings.HasPrefix(it.key, "code:") && bad == 0:
-				result = map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "occurrences_of_code": 0, "reason_code": code}
-			default:
+			var ok bool
+			if result, ok = e.recovered(ctx, l.TaskClass, it.key, code); !ok {
 				continue
 			}
 		}
@@ -813,6 +807,35 @@ func (e *Engine) CloseRecovered(ctx context.Context) int {
 		}
 	}
 	return n
+}
+
+// recovered reports whether the most recent MinClassRuns finished runs of a class no longer
+// show the weakness behind a dedupe key (success rate back at target, or the failure code
+// gone), with the evidence. Detection and closing share it: a weakness that closing would
+// resolve at once is not opened, or the two would disagree every cycle and open a new entry
+// each time (the lookback window still holds old failures that recent runs no longer show).
+func (e *Engine) recovered(ctx context.Context, class, key, code string) (map[string]any, bool) {
+	recent, err := e.recentRuns(ctx, class, e.ledgerCfg.MinClassRuns)
+	if err != nil || len(recent) < e.ledgerCfg.MinClassRuns {
+		return nil, false
+	}
+	ok, bad := 0, 0
+	for _, r := range recent {
+		if r.success {
+			ok++
+		}
+		if code != "" && r.code == code {
+			bad++
+		}
+	}
+	rate := float64(ok) / float64(len(recent))
+	switch {
+	case strings.HasPrefix(key, "rate:") && rate >= e.ledgerCfg.SuccessRateTarget:
+		return map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "verified_success_rate": rate, "target": e.ledgerCfg.SuccessRateTarget}, true
+	case strings.HasPrefix(key, "code:") && bad == 0:
+		return map[string]any{"closed_as": "recovered", "recent_runs": len(recent), "occurrences_of_code": 0, "reason_code": code}, true
+	}
+	return nil, false
 }
 
 type runOutcome struct {

@@ -172,7 +172,7 @@ func (e *Engine) selfBrief(ctx context.Context, t *task.Task) string {
 	}
 	var finished, completed, open int
 	e.st.R.QueryRowContext(ctx, `select count(*), coalesce(sum(state='COMPLETED'),0) from tasks where parent_task_id is null
-		and state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED')`).Scan(&finished, &completed)
+		and agent_role='main' and state in ('COMPLETED','FAILED','CANCELLED','BUDGET_EXCEEDED')`).Scan(&finished, &completed)
 	e.st.R.QueryRowContext(ctx, "select count(distinct title) from limitations where status in ('open','diagnosing','remedy_proposed','escalated')").Scan(&open)
 	fmt.Fprintf(&sb, "Your record: %d owner tasks finished, %d completed. Known limitations on record: %d.\n", finished, completed, open)
 	sb.WriteString("How you improve: a limitation is recorded only from measured evidence, diagnosed, remedied inside your permission class " +

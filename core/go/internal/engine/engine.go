@@ -209,6 +209,30 @@ func (e *Engine) Recover(ctx context.Context) error {
 		_, err := tx.ExecContext(ctx, "update tasks set state='FAILED', reason='interrupted_watch', updated_at=? where agent_role='watch' and state in ('CREATED','PLANNING','RUNNING')", ids.NowMs())
 		return err
 	})
+	// Improvement housekeeping (a diagnosis or a remedy draft) holds no resumable state: an interrupted one is
+	// failed and its grants revoked; the next improvement cycle starts the work again inside its budget.
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "select id from tasks where agent_role='improvement' and state in ('CREATED','PLANNING','RUNNING')")
+		if err != nil {
+			return err
+		}
+		var stale []string
+		for rows.Next() {
+			var id string
+			rows.Scan(&id)
+			stale = append(stale, id)
+		}
+		rows.Close()
+		for _, id := range stale {
+			if _, err := tx.ExecContext(ctx, "update tasks set state='FAILED', reason='interrupted_improvement', updated_at=? where id=?", ids.NowMs(), id); err != nil {
+				return err
+			}
+			if err := policy.RevokeTask(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	rows, err := e.st.R.QueryContext(ctx, "select id from tasks where state in ('PLANNING','RUNNING') and agent_role not in ('watch','improvement') and coalesce(lease_owner,'') != ?", e.runID)
 	if err != nil {
 		return err

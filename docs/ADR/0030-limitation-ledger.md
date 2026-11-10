@@ -28,3 +28,14 @@ Status: **Proposed** (checkpoint v1.3.11, 2026-11-09).
 - **Honest disclosure**: `/self` and `/self-model` print open limitations with measured rates, computed without a model.
 - **L4 protection (AGENTS rule 23)**: no runtime path lets the loop change the Core, policies, the Charter or the evaluation
   harness; skills can only use manifest tools, and policy/identity/Charter topics are rejected and audited.
+
+## Addendum 2026-11-10 (P10-M5 review): detection and closing decide on the same evidence
+
+Review of the live ledger found 4,165 entries in 16 hours. Detection used the whole lookback window while closing by evidence
+used the most recent `MinClassRuns` runs, so a recovered weakness was resolved and reopened every 30-second cycle (a new entry
+and a new R0/R2 remedy record each time). Detection now skips a weakness that closing would resolve at once (`recovered`, shared
+by both); a returning failure is new evidence and opens an entry again. Improvement housekeeping tasks interrupted by a Core
+restart are failed on recovery (`interrupted_improvement`) with their grants revoked instead of staying RUNNING. The self brief
+counts only owner (`main`) tasks. Tests: `TestRecoveredLimitationIsNotReopenedByOldFailures`,
+`TestInterruptedImprovementTaskIsFailedOnRecovery`. The duplicate entries already stored are history; removing them is an owner
+decision (dismiss), not something the loop does to its own record.

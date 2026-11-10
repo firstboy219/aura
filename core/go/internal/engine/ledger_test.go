@@ -563,3 +563,58 @@ func TestImprovementDailyCallCap(t *testing.T) {
 		t.Fatal("free calls were not counted against the daily cap")
 	}
 }
+
+// 2026-11-10 churn: detection looked at the whole lookback window while closing looked at the
+// most recent runs, so a recovered weakness was resolved and reopened every cycle (a new
+// ledger entry and a new remedy attempt each time). Both now decide on the same evidence.
+func TestRecoveredLimitationIsNotReopenedByOldFailures(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	const class = "web.fetch+workspace.write"
+	seedTasks(t, h, class, 4, task.Failed, taxonomy.ToolFailed, false)
+	h.eng.Detect(ctx)
+	seedTasks(t, h, class, 10, task.Succeeded, "", true) // old failures stay inside the lookback window
+	count := func() int {
+		var n int
+		h.st.R.QueryRow("select count(*) from limitations where task_class=?", class).Scan(&n)
+		return n
+	}
+	first := count()
+	if first == 0 {
+		t.Fatal("nothing detected")
+	}
+	for i := 0; i < 3; i++ {
+		h.eng.CloseRecovered(ctx)
+		if opened, _ := h.eng.Detect(ctx); len(opened) != 0 {
+			t.Fatalf("cycle %d reopened a recovered limitation: %+v", i, opened[0])
+		}
+	}
+	if n := count(); n != first {
+		t.Fatalf("ledger grew from %d to %d entries", first, n)
+	}
+	if len(limByKey(t, h, "open")) != 0 {
+		t.Fatal("a recovered limitation is still open")
+	}
+	// The weakness coming back is new evidence: it opens again.
+	seedTasks(t, h, class, 3, task.Failed, taxonomy.ToolFailed, false)
+	if opened, _ := h.eng.Detect(ctx); len(opened) == 0 {
+		t.Fatal("a returning weakness was not detected")
+	}
+}
+
+// Improvement housekeeping interrupted by a Core restart is closed, not left RUNNING for ever.
+func TestInterruptedImprovementTaskIsFailedOnRecovery(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	tk, err := h.eng.improvementTask(ctx, "diagnose x", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.eng.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := task.Get(ctx, h.st.R, tk.ID)
+	if got.State != task.Failed || deref(got.Reason) != "interrupted_improvement" {
+		t.Fatalf("%s %s", got.State, deref(got.Reason))
+	}
+}
