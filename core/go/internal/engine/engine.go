@@ -188,11 +188,23 @@ func (e *Engine) Recover(ctx context.Context) error {
 			var waiting int
 			tx.QueryRowContext(ctx, "select count(*) from task_steps where task_id=? and state='WAITING_APPROVAL'", id).Scan(&waiting)
 			if waiting > 0 {
-				if _, err := task.Transition(ctx, tx, id, task.WaitingApproval, "OUTCOME_UNKNOWN", "outcome_unknown", "core"); err != nil {
-					return err
+				_, err := task.Transition(ctx, tx, id, task.WaitingApproval, "OUTCOME_UNKNOWN", "outcome_unknown", "core")
+				return err
+			}
+			// Per-task recovery policy (Blueprint §8.2); "auto" resumes as before.
+			cur, err := task.Get(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			switch cur.Scope.Recovery {
+			case "manual":
+				_, err = task.Transition(ctx, tx, id, task.Paused, "interrupted_recovery_manual", "", "core")
+			case "never":
+				if _, err = task.Transition(ctx, tx, id, task.Failed, "interrupted_recovery_never", "", "core"); err == nil {
+					err = policy.RevokeTask(ctx, tx, id)
 				}
 			}
-			return nil
+			return err
 		})
 		if err != nil {
 			return err

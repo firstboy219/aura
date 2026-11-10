@@ -64,7 +64,7 @@ func (e *Engine) delegate(ctx context.Context, parent *task.Task, st *task.Step,
 			ParentTaskID: &pid, RootTaskID: root.ID, AgentRole: "specialist", Depth: parent.Depth + 1,
 			Budget: task.Budget{MaxCostUSD: remaining / 2, MaxIterations: max(4, parent.Budget.MaxIterations/2),
 				MaxWallSeconds: parent.Budget.MaxWallSeconds},
-			Scope:        task.Scope{Tools: childTools, AllowDomains: parent.Scope.AllowDomains, DataClass: parent.Scope.DataClass},
+			Scope:        task.Scope{Tools: childTools, AllowDomains: parent.Scope.AllowDomains, DataClass: parent.Scope.DataClass, Recovery: parent.Scope.Recovery},
 			ConfigHash:   parent.ConfigHash,
 			Priority:     parent.Priority + 1, // finish the child before unrelated work
 			TierOverride: parent.TierOverride,

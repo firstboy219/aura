@@ -28,6 +28,7 @@ type CreateInput struct {
 	IdempotencyKey string
 	DataClass      string // "private" (default) or "public"
 	Tier           string // optional owner override: fast | standard | deep
+	Recovery       string // auto (default) | manual | never (Blueprint §8.2)
 	// Attachments are owner-provided input files (workspace path → text content).
 	Attachments map[string]string
 }
@@ -128,7 +129,16 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	default:
 		return nil, bad("data_class must be private or public")
 	}
-	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc}, ConfigHash: e.cfg.Hash()}
+	switch in.Recovery {
+	case "", "auto", "manual", "never":
+	default:
+		return nil, bad("recovery must be auto, manual or never")
+	}
+	rec := in.Recovery
+	if rec == "auto" {
+		rec = ""
+	}
+	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec}, ConfigHash: e.cfg.Hash()}
 	switch in.Tier {
 	case "":
 	case "fast", "standard", "deep":

@@ -79,6 +79,11 @@ type Scope struct {
 	// DataClass is "private" (default) or "public". Only public tasks may use
 	// model routes that may log prompts (e.g. free endpoints).
 	DataClass string `json:"data_class"`
+	// Recovery is what a Core restart does with the interrupted task
+	// (Blueprint §8.2): "auto" (default, also when empty), "manual" (PAUSED
+	// for the owner) or "never" (FAILED). An unknown external outcome always
+	// waits for the owner, whatever the policy.
+	Recovery string `json:"recovery,omitempty"`
 	// Attachments are owner-provided input files written into the task workspace at creation.
 	Attachments []string `json:"attachments,omitempty"`
 }

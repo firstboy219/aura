@@ -367,6 +367,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			idem := fs.String("idempotency-key", "", "Idempotency-Key header")
 			public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
 			tier := fs.String("tier", "", "force a model tier for the whole task: fast | standard | deep")
+			recovery := fs.String("recovery", "", "after a Core restart: auto (default) | manual (pause for me) | never (fail)")
 			var attach multiFlag
 			fs.Var(&attach, "attach", "input file: workspace/path=local-file (repeatable)")
 			pos, err := parse(fs, rest)
@@ -382,6 +383,9 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			}
 			if *tier != "" {
 				body["tier"] = *tier
+			}
+			if *recovery != "" {
+				body["recovery"] = *recovery
 			}
 			if len(attach) > 0 {
 				files := map[string]string{}

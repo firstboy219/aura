@@ -61,6 +61,7 @@ type harnessOpts struct {
 	mcp       map[string]*mcp.Client
 	toolDocs  map[string]string
 	charter   string
+	noStart   bool // the test calls h.start() itself
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -111,7 +112,9 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
 		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
-	h.start()
+	if !o.noStart {
+		h.start()
+	}
 	t.Cleanup(h.close)
 	return h
 }

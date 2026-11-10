@@ -248,6 +248,7 @@ components:
         allow_domains: { type: array, items: { type: string }, maxItems: 50 }
         data_class: { enum: [private, public], default: private, description: Only public tasks may use model routes that may log prompts (free endpoints) }
         tier: { enum: [fast, standard, deep], description: Owner override of the cascade policy for the whole task }
+        recovery: { enum: [auto, manual, never], default: auto, description: "What a Core restart does with the interrupted task: resume, PAUSED for the owner, or FAILED. An unknown external outcome always waits for the owner." }
         budget:
           type: object
           additionalProperties: false
@@ -274,6 +275,7 @@ components:
         tools: { type: array, items: { type: string } }
         allow_domains: { type: array, items: { type: string } }
         data_class: { enum: [private, public] }
+        recovery: { enum: [auto, manual, never] }
         priority: { type: integer }
         replans: { type: integer }
         tier: { type: [string, 'null'] }
