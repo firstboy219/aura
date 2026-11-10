@@ -328,10 +328,12 @@ func (e *Engine) serveLLM(ctx context.Context, s *session, req *rpc.Envelope) (a
 		// No route / all routes failed for this tier: the worker may escalate to another tier.
 		return nil, rpc.Errf(rpc.CodeProvider, reasonCode(err), "provider failed: %s", truncate(err.Error(), 300))
 	}
+	budget, over := e.cfg.PromptBudgetChars[p.Tier], false
+	over = budget > 0 && size > budget
 	e.st.Write(ctx, func(tx *sql.Tx) error {
 		_, err := task.AppendEvent(ctx, tx, s.t.ID, ptr(stepID(s)), "MODEL_CALLED", "core", map[string]any{
 			"tier": p.Tier, "route_id": res.RouteID, "structured": len(res.Structured) > 0, "purpose": p.Purpose,
-			"prompt_chars": size}) // OL-05: prompt size per step is recorded in the trace
+			"prompt_chars": size, "over_budget": over}) // OL-05: prompt size per step is recorded in the trace
 		return err
 	})
 	return res, nil

@@ -62,7 +62,10 @@ type Config struct {
 	// Timezone is the workspace time zone (Blueprint OL-08): every "today",
 	// schedule and deadline uses it, never UTC by accident.
 	Timezone string `yaml:"timezone" json:"timezone"`
-	Server   struct {
+	// PromptBudgetChars is the per-tier prompt budget (Blueprint OL-05): the
+	// worker trims untrusted observations to fit; calls still over it are flagged.
+	PromptBudgetChars map[string]int `yaml:"prompt_budget_chars" json:"prompt_budget_chars"`
+	Server            struct {
 		Bind      string `yaml:"bind" json:"bind"`
 		TokenFile string `yaml:"token_file" json:"token_file"`
 		RatePerS  int    `yaml:"rate_per_second" json:"rate_per_second"`
@@ -190,6 +193,7 @@ func Default() *Config {
 	c.Tools.WebSearch.WikipediaLang = "en"
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
+	c.PromptBudgetChars = map[string]int{"fast": 24000, "standard": 60000, "deep": 120000}
 	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
 	c.Improvement.Enabled = true
 	c.Improvement.MinClassRuns, c.Improvement.SuccessRateTarget, c.Improvement.MinRepeatedFailures = 10, 0.70, 3
@@ -380,6 +384,12 @@ func (c *Config) Validate() error {
 	if i := c.Improvement; i.MinClassRuns < 1 || i.MinRepeatedFailures < 1 || i.LookbackDays < 1 || i.RetestRuns < 1 ||
 		i.SuccessRateTarget <= 0 || i.SuccessRateTarget > 1 || i.NoiseMargin < 0 || i.NoiseMargin > 1 || i.DailyCostUSD < 0 {
 		add("improvement: thresholds must be positive; success_rate_target in (0,1]; noise_margin in [0,1]; daily_cost_usd >= 0")
+	}
+	for tier, n := range c.PromptBudgetChars {
+		if !validTier(tier) || n < 4000 {
+			add("prompt_budget_chars: keys fast|standard|deep, each at least 4000")
+			break
+		}
 	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")

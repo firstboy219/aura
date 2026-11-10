@@ -65,7 +65,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | OL-02 raw tool-call markup | ✔ | Treated as failed attempt, audited. |
 | OL-03 free endpoints | ◐ | **Deviation (owner choice, A-20):** free routes are first in each tier because OpenRouter credit is 0; they serve only tasks marked public. Circuit breaker marks failing routes; **no pre-enable probe call** yet (the catalog check is a probe without spend). |
 | OL-04 orphaned runs / leases | ✔ | Leases, startup reconciliation, watch runs interrupted by a crash are failed. |
-| OL-05 prompt size | ◐ | Prompt size per call is in the trace; per-tier prompt budgets are missing (§8.6 gap). |
+| OL-05 prompt size | ✔ | Prompt size per call in the trace; per-tier prompt budget `prompt_budget_chars` (fast 24k, standard 60k, deep 120k characters): the worker trims untrusted observation bodies (longest first, delimiters kept) to fit, and a call still over budget is flagged `over_budget` in `MODEL_CALLED`. Tool docs are sent only for granted tools. |
 | OL-08 workspace time zone | ✔ | `timezone` (default Asia/Jakarta); budget day, schedules; 23:59–01:00 WIB tests. |
 | OL-09 short replies | ◐ | A question and its answer travel together to planning; no dedicated short-reply interpreter (Haiku) yet. |
 | OL-10 agent must not grade itself | ✔ | No runtime path to tests/eval harness; verification needs evidence found by the Core. |

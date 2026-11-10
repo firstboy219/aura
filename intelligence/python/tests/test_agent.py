@@ -227,3 +227,22 @@ def test_plan_with_non_arithmetic_calc_is_invalid():
 def test_owner_context_renders_unanswered_question():
     out = agent.render_owner_context([{"kind": "unanswered", "question": "Which page?", "answer": "State every assumption."}])
     assert "did not answer" in out and "State every assumption." in out
+
+
+def test_fit_prompt_trims_observations_and_keeps_delimiters():
+    agent.set_preamble({"prompt_budget_chars": {"fast": 5000}})
+    try:
+        obs = agent.render_observations([{"step_no": 1, "source": "a", "content": "x" * 6000},
+                                         {"step_no": 2, "source": "b", "content": "short page"}])
+        msgs = [{"role": "system", "content": "rules"}, {"role": "user", "content": "Objective: keep me\n\n" + obs}]
+        out = agent.fit_prompt("fast", msgs)
+        user = out[1]["content"]
+        assert sum(len(m["content"]) for m in out) <= 5200  # within budget (+ the omission notes)
+        assert user.count("<untrusted_observation ") == 2 and user.count("</untrusted_observation>") == 2
+        assert "Objective: keep me" in user and "short page" in user and "omitted to fit the fast prompt budget" in user
+        assert out[0]["content"] == "rules"
+        assert agent.fit_prompt("standard", msgs) == msgs  # no budget for that tier: unchanged
+        small = [{"role": "user", "content": "tiny"}]
+        assert agent.fit_prompt("fast", small) == small
+    finally:
+        agent.set_preamble({})

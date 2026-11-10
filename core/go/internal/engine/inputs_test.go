@@ -110,7 +110,8 @@ func TestUnansweredQuestionContinuesWithStatedAssumptions(t *testing.T) {
 }
 
 func TestInputPolicyValidation(t *testing.T) {
-	for _, y := range []string{"inputs: {on_timeout: maybe}", "inputs: {timeout_seconds: 60, remind_after_seconds: 60}", "inputs: {timeout_seconds: 0}"} {
+	for _, y := range []string{"inputs: {on_timeout: maybe}", "inputs: {timeout_seconds: 60, remind_after_seconds: 60}", "inputs: {timeout_seconds: 0}",
+		"prompt_budget_chars: {fast: 100}", "prompt_budget_chars: {turbo: 50000}"} {
 		if _, err := config.Parse([]byte("config_version: 1\n"+y+"\n"), func(string) string { return "" }); err == nil {
 			t.Fatalf("accepted %q", y)
 		}

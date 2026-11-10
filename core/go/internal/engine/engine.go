@@ -386,6 +386,7 @@ func (e *Engine) callWorker(ctx context.Context, s *session, method string, para
 	defer cancel()
 	if m, ok := params.(map[string]any); ok {
 		m["identity"] = Identity
+		m["prompt_budget_chars"] = e.cfg.PromptBudgetChars
 		if e.charter != "" {
 			m["charter"] = e.charter
 		}

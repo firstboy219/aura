@@ -65,6 +65,8 @@ tools:
   web.search: { provider: wikipedia, wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800
+# Per-tier prompt budget in characters (Blueprint OL-05): observations are trimmed to fit.
+prompt_budget_chars: { fast: 24000, standard: 60000, deep: 120000 }
 # Unanswered clarification questions (Blueprint §8.2, ADR-0032): one reminder, then fail (or continue with stated assumptions).
 inputs: { remind_after_seconds: 14400, timeout_seconds: 172800, on_timeout: fail }
 # MCP servers (ADR-0020): only the tools listed here are exposed, with the tier and side effect YOU set.
