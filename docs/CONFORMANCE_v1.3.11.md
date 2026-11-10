@@ -141,3 +141,13 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 | Undeclared capabilities fail static checks | ✔ implementation-verified | `aul/aul_test.go` TestCompileChecksCapabilities |
 | AUL executes as WASM under Core grants | ✔ implementation-verified | `aul/aul_test.go` TestRunsAsWASM, `engine/aul_test.go` TestP8AULWorkflows |
 | Agents/policies in AUL, enterprise packaging | not started (later scope) | — |
+
+## P9 progress
+
+| D.1 P9 item | Status | Evidence |
+|---|---|---|
+| Reproducible deployment (Core binary, AUL VM) | ✔ implementation-verified | ADR-0051, `deploy/checks/reproducible-build.sh`, report p9-supply-chain-20261110 |
+| Signed release pipeline | ✔ (ADR-0037; AUL VM added) | release 0.10.0-p8 verified 460 files |
+| Dependency/license audit | ✔ implementation-verified | `./dev audit`: 34/34 OK |
+| Workspace isolation verification, metering correctness | ◐ single-workspace tests exist (budget, usage attribution); multi-workspace not built | — |
+| VM recovery, license/offline, subscription lifecycle, Enterprise package, AURA-hosted ops, benchmark publication | blocked: owner decisions (billing, licensing, cloud, publication) | ADR-0051 |

@@ -2,7 +2,7 @@
 # AURA task runner (Blueprint E.1 "Makefile or equivalent"). `make` is not installed on the host.
 # Every command runs in a throwaway container from the dev image (Python 3.12 + Go 1.26 + uv, deploy/dev.Dockerfile).
 # Caches use AURA-only volumes (aura-gomod, aura-uvcache); nothing is shared with other products.
-# Usage: ./dev <build|test|test-go|test-py|lint|lock|image|clean> [go test args]   (prefix with sudo if docker needs it)
+# Usage: ./dev <build|test|test-go|test-py|lint|lock|audit|image|clean> [go test args]   (prefix with sudo if docker needs it)
 set -euo pipefail
 cd "$(dirname "$0")"
 DEV_IMAGE=${DEV_IMAGE:-aura-dev:local}
@@ -23,7 +23,8 @@ case "${1:-}" in
   lint)    run "$PYENV && cd core/go && test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }; cd /src/intelligence/python && ruff check ." ;;
   fmt)     run "$PYENV && cd core/go && gofmt -w . && cd /src/intelligence/python && ruff check --fix . ; chown -R $(id -u):$(id -g) /src" ;;
   lock)    run "cd intelligence/python && uv lock" ;;
+  audit)   run "cd core/go && go mod download && python3 -I /src/deploy/checks/license_audit.py" ;;
   image)   docker build -f deploy/Dockerfile --build-arg VERSION="$VERSION" -t aura-core:local . ;;
   clean)   docker volume rm -f aura-gomod aura-uvcache ;;
-  *) echo "usage: ./dev <build|test|test-go|test-py|lint|fmt|lock|image|clean>" >&2; exit 2 ;;
+  *) echo "usage: ./dev <build|test|test-go|test-py|lint|fmt|lock|audit|image|clean>" >&2; exit 2 ;;
 esac
