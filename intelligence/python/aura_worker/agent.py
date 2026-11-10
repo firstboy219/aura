@@ -246,6 +246,8 @@ def render_owner_context(items: list[dict]) -> str:
     for it in items or []:
         if it.get("kind") == "answer":
             lines.append(f"- The owner was asked: {it.get('question')!r} and answered: {it.get('answer')!r}")
+        elif it.get("kind") == "unanswered":
+            lines.append(f"- The owner was asked: {it.get('question')!r} and did not answer. {it.get('answer')}")
         else:
             lines.append(f"- Owner ({it.get('kind')}): {it.get('content')!r}")
     return "\n".join(lines)

@@ -118,6 +118,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		case <-e.wake:
 		case <-tick.C:
 			e.ExpireApprovals(ctx)
+			e.ExpireInputs(ctx)
 		}
 		e.Supervise(ctx)
 		e.RunTriggers(ctx)

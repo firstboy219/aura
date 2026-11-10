@@ -28,7 +28,7 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 | tasks rebuilt | states `WAITING_INPUT`, `WAITING`; columns `priority`, `replans`, `tier_override` (SQLite table-rebuild procedure with foreign keys off and `foreign_key_check`) |
 | task_steps.plan_json | planned arguments per step (replanning, provenance checks) |
 | task_waits | supervisor waits: event / time / child tasks; exactly-once wake (ADR-0018) |
-| task_inputs | clarification questions and owner answers |
+| task_inputs | clarification questions and owner answers; status pending/answered/cancelled/timed_out, `reminded_at` (0004, ADR-0032) |
 | shared_context | Shared Task Context per root task with trust and provenance (ADR-0019) |
 | external_events | idempotent external dependency events `(key, dedup_id)` |
 

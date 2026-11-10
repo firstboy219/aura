@@ -120,6 +120,12 @@ type Config struct {
 	Approvals struct {
 		TTLSeconds int `yaml:"ttl_seconds" json:"ttl_seconds"`
 	} `yaml:"approvals" json:"approvals"`
+	// Inputs is the timeout policy for unanswered clarification questions (Blueprint §8.2).
+	Inputs struct {
+		RemindAfterSeconds int    `yaml:"remind_after_seconds" json:"remind_after_seconds"` // 0 = no reminder
+		TimeoutSeconds     int    `yaml:"timeout_seconds" json:"timeout_seconds"`
+		OnTimeout          string `yaml:"on_timeout" json:"on_timeout"` // fail | continue (with stated assumptions)
+	} `yaml:"inputs" json:"inputs"`
 	MCP struct {
 		Servers []MCPServer `yaml:"servers" json:"servers"`
 	} `yaml:"mcp" json:"mcp"`
@@ -184,6 +190,7 @@ func Default() *Config {
 	c.Tools.WebSearch.WikipediaLang = "en"
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
+	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
 	c.Improvement.Enabled = true
 	c.Improvement.MinClassRuns, c.Improvement.SuccessRateTarget, c.Improvement.MinRepeatedFailures = 10, 0.70, 3
 	c.Improvement.LookbackDays, c.Improvement.RetestRuns, c.Improvement.NoiseMargin, c.Improvement.DailyCostUSD = 14, 5, 0.10, 0.25
@@ -376,6 +383,10 @@ func (c *Config) Validate() error {
 	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")
+	}
+	if in := c.Inputs; in.TimeoutSeconds <= 0 || in.RemindAfterSeconds < 0 || in.RemindAfterSeconds >= in.TimeoutSeconds ||
+		(in.OnTimeout != "fail" && in.OnTimeout != "continue") {
+		add("inputs: timeout_seconds must be positive, remind_after_seconds in [0, timeout_seconds), on_timeout fail|continue")
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("config invalid: %s", strings.Join(errs, "; "))

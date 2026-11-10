@@ -113,6 +113,16 @@ func (e *Engine) ownerContext(ctx context.Context, t *task.Task) ([]map[string]s
 		out = append(out, map[string]string{"kind": "answer", "question": q, "answer": a})
 	}
 	rows.Close()
+	rows, err = e.st.R.QueryContext(ctx, "select question from task_inputs where task_id=? and status='timed_out' order by created_at", t.ID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var q string
+		rows.Scan(&q)
+		out = append(out, map[string]string{"kind": "unanswered", "question": q, "answer": noAnswer})
+	}
+	rows.Close()
 	rows, err = e.st.R.QueryContext(ctx, "select kind, content from shared_context where root_task_id=? and trust='owner' order by id", t.RootTaskID)
 	if err != nil {
 		return nil, err
@@ -135,11 +145,12 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	if err != nil {
 		return err
 	}
-	var asked int
-	e.st.R.QueryRowContext(ctx, "select count(*) from task_inputs where task_id=?", t.ID).Scan(&asked)
+	var asked, unanswered int
+	e.st.R.QueryRowContext(ctx, "select count(*), coalesce(sum(status='timed_out'),0) from task_inputs where task_id=?", t.ID).Scan(&asked, &unanswered)
+	mayAsk := asked < maxQuestions && unanswered == 0 && t.ParentTaskID == nil // an owner who did not answer is not asked again
 	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{
 		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
-		"budget": t.Budget, "owner_context": octx, "may_ask": asked < maxQuestions && t.ParentTaskID == nil, "tier": tierFor(t),
+		"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
 		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
 		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t)})
 	if s.fatal != nil {

@@ -222,3 +222,8 @@ def test_plan_with_non_arithmetic_calc_is_invalid():
     steps = [{"step_no": 1, "description": "total", "tool_id": "calc", "expression": "sum(amount)"}]
     with pytest.raises(agent.StepFailure, match="not plain arithmetic"):
         agent.validate_steps(steps, ["calc"])
+
+
+def test_owner_context_renders_unanswered_question():
+    out = agent.render_owner_context([{"kind": "unanswered", "question": "Which page?", "answer": "State every assumption."}])
+    assert "did not answer" in out and "State every assumption." in out
