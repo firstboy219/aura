@@ -719,6 +719,21 @@ def _result(res: dict) -> dict:
     return {"decision": "fail", "reason": f"tool {status}: {res.get('reason_code')}"}
 
 
+def pick_url(ch: Channel, tier: str, user: str, observations: list[dict], objective: str = "") -> str:
+    """Choose a URL for a dynamic fetch. The Core only accepts URLs it has seen (provenance), so a URL that is not in
+    the observations is caught here: one retry with feedback, then a step failure the planner can recover from
+    (a different search or source) instead of a capability denial that ends the task."""
+    seen = objective + "\n" + render_observations(observations)  # URLs the owner wrote also have provenance
+    prompt = user
+    for _ in range(2):
+        url = str(complete(ch, tier or "fast", PICK_URL_SYSTEM, prompt, URL_SCHEMA, 300, "pick_url").get("url") or "").strip()
+        if url and url in seen:
+            return url
+        prompt = (user + "\n\nYour previous answer " + (repr(url[:200]) if url else "(empty)") + " is not a URL that appears in "
+                  "the observations. Copy one URL exactly as it appears there.")
+    raise StepFailure("no suitable URL in the search results or page links; try a different search or source", "step_failed")
+
+
 def step(ch: Channel, params: dict) -> dict:
     s = params.get("step") or {}
     tool = s.get("tool_id")
@@ -729,9 +744,7 @@ def step(ch: Channel, params: dict) -> dict:
         if not url:
             user = (f"Objective:\n{params.get('objective', '')}\n\nThis step: {s.get('description', '')}\n\n"
                     f"Observations:\n{render_observations(observations)}")
-            url = complete(ch, tier or "fast", PICK_URL_SYSTEM, user, URL_SCHEMA, 300, "pick_url").get("url")
-            if not url:
-                raise StepFailure("no URL chosen for a dynamic fetch", "invalid_model_output")
+            url = pick_url(ch, tier, user, observations, str(params.get("objective", "")))
         return _result(_invoke(ch, tool, {"url": url}))
     if tool in ("workspace.read", "data.read"):
         return _result(_invoke(ch, tool, {"path": s.get("path")}))

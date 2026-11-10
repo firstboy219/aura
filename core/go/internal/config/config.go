@@ -210,6 +210,9 @@ type Config struct {
 		RetestRuns          int     `yaml:"retest_runs" json:"retest_runs"`
 		NoiseMargin         float64 `yaml:"noise_margin" json:"noise_margin"`
 		DailyCostUSD        float64 `yaml:"daily_cost_usd" json:"daily_cost_usd"`
+		// DailyModelCalls caps improvement model calls per day: free routes cost $0, so the cost cap alone does not
+		// protect a shared free quota (2026-11-10 incident).
+		DailyModelCalls int `yaml:"daily_model_calls" json:"daily_model_calls"`
 	} `yaml:"improvement" json:"improvement"`
 	// AUL runs owner-registered workflows in the AUL VM (WebAssembly, ADR-0050); "" vm_wasm disables it.
 	AUL struct {
@@ -310,6 +313,7 @@ func Default() *Config {
 	c.Improvement.Enabled = true
 	c.Improvement.MinClassRuns, c.Improvement.SuccessRateTarget, c.Improvement.MinRepeatedFailures = 10, 0.70, 3
 	c.Improvement.LookbackDays, c.Improvement.RetestRuns, c.Improvement.NoiseMargin, c.Improvement.DailyCostUSD = 14, 5, 0.10, 0.25
+	c.Improvement.DailyModelCalls = 40
 	c.Lab.CanaryPercent, c.Lab.CanaryMinTasks, c.Lab.MaxTaskCostUSD = 25, 6, 0.10
 	c.AUL.VMWasm, c.AUL.MaxCalls, c.AUL.TimeoutSeconds = "/usr/local/share/aura/aulvm.wasm", 50, 120
 	return c

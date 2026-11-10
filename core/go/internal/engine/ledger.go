@@ -97,16 +97,34 @@ func scanLimitation(sc interface{ Scan(...any) error }) (*Limitation, error) {
 
 func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 
+// reopenCooldown is how long a rolled-back limitation stays closed before the same weakness may reopen it.
+const reopenCooldown = 24 * time.Hour
+
 // openStatuses are the non-closed statuses.
 const openStatuses = "('open','diagnosing','remedy_proposed','remedy_testing','escalated')"
 
 // recordLimitation inserts a limitation unless an open one with the same dedupe
 // key exists; it returns the existing/new entry and whether it was created.
 func (e *Engine) recordLimitation(ctx context.Context, tx *sql.Tx, l *Limitation, key string) (*Limitation, bool, error) {
+	// The key family is the key and its suffixed reopenings (key#2, key#3, ...): an open entry of the family is
+	// the same limitation. Matching only the bare key reopened a new entry every cycle (2026-11-10 incident).
+	family := "(dedupe_key = ? or dedupe_key like ?)"
 	var id string
-	if err := tx.QueryRowContext(ctx, "select id from limitations where dedupe_key=? and status in "+openStatuses, key).Scan(&id); err == nil {
+	if err := tx.QueryRowContext(ctx, "select id from limitations where "+family+" and status in "+openStatuses+" order by created_at desc limit 1",
+		key, key+"#%").Scan(&id); err == nil {
 		row, gerr := scanLimitation(tx.QueryRowContext(ctx, "select "+limCols+" from limitations where id=?", id))
 		return row, false, gerr
+	}
+	// The owner said won't fix: never reopen. A remedy rolled back in the last 24 h: not again yet, so a weakness
+	// that a remedy could not fix does not spend the improvement budget every cycle.
+	// Only the most recently closed entry of the family decides (dismissing an old duplicate blocks nothing).
+	var lastStatus string
+	var lastAt int64
+	tx.QueryRowContext(ctx, "select status, updated_at from limitations where "+family+" order by updated_at desc, created_at desc limit 1",
+		key, key+"#%").Scan(&lastStatus, &lastAt)
+	blocked := lastStatus == "wont_fix" || (lastStatus == "rolled_back" && lastAt > ids.NowMs()-reopenCooldown.Milliseconds())
+	if blocked && l.DetectedBy != "owner_feedback" { // the owner can always add one
+		return nil, false, nil
 	}
 	// A closed entry with the same key keeps its row (history); the new one gets a suffix.
 	dk := key
@@ -480,11 +498,24 @@ func (e *Engine) improvementSpentToday(ctx context.Context) float64 {
 	return s
 }
 
+// improvementCallsToday counts today's model calls made for improvement work (any price).
+func (e *Engine) improvementCallsToday(ctx context.Context) int {
+	n := time.Now().In(e.cfg.Location())
+	start := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, e.cfg.Location()).UnixMilli()
+	var c int
+	e.st.R.QueryRowContext(ctx, `select count(*) from usage_records u join tasks t on t.id = u.task_id
+		where t.agent_role in ('improvement','retest','lab') and u.created_at >= ?`, start).Scan(&c)
+	return c
+}
+
 // improvementAllowed reports whether improvement work may run now: inside its own
 // daily cap, not halted by the kill switch, and only when no owner task is runnable
 // (lowest priority: it never delays the owner's work).
 func (e *Engine) improvementAllowed(ctx context.Context) bool {
 	if e.gov.Halted() || e.improvementSpentToday(ctx) >= e.ledgerCfg.ImprovementUSDDaily {
+		return false
+	}
+	if max := e.cfg.Improvement.DailyModelCalls; max > 0 && e.improvementCallsToday(ctx) >= max {
 		return false
 	}
 	t, err := task.Runnable(ctx, e.st.R)

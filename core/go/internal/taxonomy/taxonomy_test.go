@@ -8,7 +8,8 @@ func TestCanonicalCoversEngineReasons(t *testing.T) {
 		"budget_exceeded_iterations": MaxIterations, "max_wall_seconds": MaxWallTime, "capability_denied": PolicyDenied,
 		"approval_rejected": OwnerRejected, "approval_expired": ApprovalExpired, "verification_failed": VerificationFailed,
 		"completion_check_failed": VerificationFailed, "all_routes_failed": ProviderUnavailable, "worker_crashed": WorkerCrash,
-		"step_failed: tool_failed: HTTP 404": ToolFailed, "replan_limit": ReplanLimit, "weird thing": InternalError, "": "",
+		"step_failed: tool_failed: HTTP 404": ToolFailed, "replan_limit": ReplanLimit, "argument_without_provenance": PolicyDenied,
+		"domain_not_allowed": PolicyDenied, "aul_integrity": AULIntegrity, "aul_workflow_failed: x": AULFailed, "weird thing": InternalError, "": "",
 	}
 	for in, want := range cases {
 		if got := Canonical(in); got != want {

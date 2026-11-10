@@ -115,6 +115,11 @@ func TestRS12ProactiveWatch(t *testing.T) {
 		pages["/one"] = `<html><head><title>Solar</title></head><body><p>Solar panels convert sunlight into electricity using photovoltaic cells.</p></body></html>`
 	}()
 	run()
+	// The engine's own loop may pick the due watch up before RunTriggers does; wait for whichever ran it.
+	for deadline := time.Now().Add(10 * time.Second); watchCalls.Load() == 0 && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+		h.eng.RunTriggers(ctx)
+	}
 	if watchCalls.Load() != 1 {
 		t.Fatalf("changed source: %d model calls", watchCalls.Load())
 	}

@@ -286,3 +286,24 @@ def test_plan_without_requested_subagents_is_repaired_once():
     resp = core.run()
     assert [s["tool_id"] for s in resp["result"]["steps"]].count("agent.delegate") == 2
     assert "asks for 2 subagent(s)" in core.seen[1]["params"]["messages"][-1]["content"]
+
+
+def test_dynamic_fetch_url_must_come_from_observations():
+    """A model-invented URL is caught in the worker: one retry, then a recoverable step failure (never sent to the Core)."""
+    step = {"step_no": 2, "description": "open the best result", "tool_id": "web.fetch"}
+    obs = [{"step_no": 1, "source": "search", "content": "1. Gold price — https://news.example/gold-today"}]
+    # Invented URL, then a real one: the real one is fetched.
+    core = FakeCore(req("task.step", {"objective": "o", "step": step, "observations": obs}),
+                    [{"result": {"structured": {"url": "https://invented.example/x"}}},
+                     {"result": {"structured": {"url": "https://news.example/gold-today"}}},
+                     {"result": {"status": "ok"}}])
+    out = core.run()
+    calls = [m for m in core.seen if m["method"] == "tool.invoke"]
+    assert out["result"]["decision"] == "step_done" and calls[0]["params"]["arguments"]["url"] == "https://news.example/gold-today"
+    # Invented twice: a step failure the planner can recover from; no tool call reaches the Core.
+    core = FakeCore(req("task.step", {"objective": "o", "step": step, "observations": obs}),
+                    [{"result": {"structured": {"url": "https://invented.example/x"}}},
+                     {"result": {"structured": {"url": "https://invented.example/y"}}}])
+    out = core.run()
+    assert out["error"]["data"]["reason_code"] == "step_failed"
+    assert not [m for m in core.seen if m["method"] == "tool.invoke"]

@@ -72,7 +72,9 @@ func Canonical(reason string) string {
 	case strings.HasPrefix(r, "max_wall"), strings.Contains(r, "deadline"):
 		return MaxWallTime
 	case strings.HasPrefix(r, "capability_denied"), strings.HasPrefix(r, "forbidden"), strings.HasPrefix(r, "tier_unsupported"),
-		strings.HasPrefix(r, "protected_topic"), strings.HasPrefix(r, "approval_policy_changed"), strings.HasPrefix(r, "delegation_denied"):
+		strings.HasPrefix(r, "protected_topic"), strings.HasPrefix(r, "approval_policy_changed"), strings.HasPrefix(r, "delegation_denied"),
+		strings.HasPrefix(r, "argument_without_provenance"), strings.HasPrefix(r, "arguments_differ_from_plan"),
+		strings.HasPrefix(r, "tool_not_granted"), strings.HasPrefix(r, "domain_not_allowed"), strings.HasPrefix(r, "tool_not_in_current_step"):
 		return PolicyDenied
 	case strings.HasPrefix(r, "all_routes_failed"), strings.HasPrefix(r, "no_route_for_tier"), strings.HasPrefix(r, "provider"):
 		return ProviderUnavailable

@@ -487,3 +487,79 @@ func TestLimitationClosedByEvidenceWhenRecovered(t *testing.T) {
 		t.Fatalf("%+v", ls)
 	}
 }
+
+// 2026-11-10 incident: once a limitation of a key had been closed, every later
+// reopening got a suffixed key and was never matched again, so each detection
+// cycle opened a new entry (and a new remedy attempt). An open entry of the key
+// family is the same limitation, and a rolled-back one waits 24 h.
+func TestLimitationNotReopenedEveryCycle(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	const class = "calc+workspace.write"
+	seedTasks(t, h, class, 3, task.Succeeded, "", true)
+	seedTasks(t, h, class, 8, task.Failed, taxonomy.VerificationFailed, false)
+	count := func() int {
+		var n int
+		h.st.R.QueryRow("select count(*) from limitations where task_class=?", class).Scan(&n)
+		return n
+	}
+	h.eng.Detect(ctx)
+	first := count()
+	if first == 0 {
+		t.Fatal("nothing detected")
+	}
+	// Close every entry as rolled back long ago: the next detection may reopen (with suffixed keys).
+	h.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec("update limitations set status='rolled_back', updated_at=? where task_class=?", ids.NowMs()-48*3600*1000, class)
+		return err
+	})
+	h.eng.Detect(ctx)
+	second := count()
+	if second != 2*first {
+		t.Fatalf("reopen after the cooldown: %d entries, want %d", second, 2*first)
+	}
+	// The reopened (suffixed) entries are found again: further cycles add nothing.
+	for i := 0; i < 3; i++ {
+		h.eng.Detect(ctx)
+	}
+	if n := count(); n != second {
+		t.Fatalf("a new entry every cycle: %d, want %d", n, second)
+	}
+	// A fresh rollback blocks reopening for 24 h.
+	h.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec("update limitations set status='rolled_back', updated_at=? where task_class=? and status != 'rolled_back' or (task_class=? and updated_at > ?)",
+			ids.NowMs(), class, class, ids.NowMs()-3600*1000)
+		return err
+	})
+	h.eng.Detect(ctx)
+	if n := count(); n != second {
+		t.Fatalf("reopened within the cooldown: %d, want %d", n, second)
+	}
+}
+
+// Free model calls cost $0, so improvement work also has a daily call cap.
+func TestImprovementDailyCallCap(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	ctx := context.Background()
+	h.eng.ledgerCfg.ImprovementUSDDaily = 5
+	h.eng.cfg.Improvement.DailyModelCalls = 2
+	if !h.eng.improvementAllowed(ctx) {
+		t.Fatal("improvement refused before any call")
+	}
+	it, err := h.eng.improvementTask(ctx, "cap", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.st.Write(ctx, func(tx *sql.Tx) error {
+		for i := 0; i < 2; i++ {
+			if _, err := tx.Exec(`insert into usage_records(id, task_id, tier, cost_estimated_usd, cost_reserved_usd, cost_actual_usd, outcome, created_at)
+				values(?,?,?,0,0,0,'ok',?)`, ids.New(), it.ID, "fast", ids.NowMs()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if h.eng.improvementAllowed(ctx) {
+		t.Fatal("free calls were not counted against the daily cap")
+	}
+}
