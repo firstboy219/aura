@@ -1,0 +1,57 @@
+# AURA sandbox (P10-M6): a second, disposable AURA for validating a build before it is released.
+# Own project, image tag, network, volumes, port (127.0.0.1:7410), config and secrets directory (/opt/aura-sbx).
+# It shares nothing with the production stack: no production data, vault, token, web origin or tunnel.
+name: aura-sbx
+
+services:
+  aura-sbx-core:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+      args: { VERSION: "${AURA_VERSION:-sandbox}" }
+    image: aura-core:sandbox
+    container_name: aura-sbx-core
+    command: ["serve"]
+    ports: ["127.0.0.1:7410:7400"]
+    environment: { AURA_CONFIG: /etc/aura/config.yaml }
+    volumes:
+      - aura-sbx-data:/var/lib/aura
+      - /opt/aura-sbx/config.yaml:/etc/aura/config.yaml:ro
+      - /opt/aura-sbx/secrets:/run/aura-secrets:ro
+      - aura-sbx-worker-sock:/run/aura-worker
+    depends_on:
+      aura-sbx-worker: { condition: service_healthy }
+    networks: [aura-sbx-net]
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 256
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  aura-sbx-worker:
+    image: aura-core:sandbox
+    container_name: aura-sbx-worker
+    command: ["worker-host", "--socket", "/run/aura-worker/worker.sock", "--allow-uid", "10001", "--max-workers", "3"]
+    user: "10002:10002"
+    network_mode: none
+    volumes: [aura-sbx-worker-sock:/run/aura-worker]
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 64
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,stat,sys; sys.exit(0 if stat.S_ISSOCK(os.stat('/run/aura-worker/worker.sock').st_mode) else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+
+networks:
+  aura-sbx-net: { name: aura-sbx-net }
+volumes:
+  aura-sbx-data: { name: aura-sbx-data }
+  aura-sbx-worker-sock: { name: aura-sbx-worker-sock }

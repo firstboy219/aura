@@ -1,0 +1,32 @@
+{
+  "name": "p10-living-agent-v1",
+  "note": "All content is public and synthetic. Checks are deterministic predicates on the task and its reply; quality of wording is not scored.",
+  "scenarios": [
+    {"id": "S01-direct-answer", "ask": "Jelaskan singkat apa itu inflasi dalam 3 kalimat.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "note": "model_knowledge", "text_any": ["harga"]}},
+    {"id": "S02-follow-up-uses-conversation", "ask": "Beri satu contoh nyata dari hal yang baru saja saya tanyakan.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "all_any": ["inflasi", "harga"]}},
+    {"id": "S03-view-table", "ask": "Bandingkan SQLite dan PostgreSQL dalam sebuah tabel dengan 4 baris: tipe, konkurensi, instalasi, cocok untuk.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "view": "table"}},
+    {"id": "S04-view-chart", "ask": "Tampilkan grafik batang penjualan bulanan berikut: Januari 120, Februari 150, Maret 90, April 200. Sebutkan bulan tertinggi.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "view": "chart", "chart_points": 4, "all_any": ["April"]}},
+    {"id": "S05-view-steps", "ask": "Berikan langkah-langkah berurutan membuat kopi tubruk.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "view_any": ["steps", "list"]}},
+    {"id": "S06-self-knowledge", "ask": "Siapa kamu, versi berapa yang sedang berjalan, dan apa saja keterbatasanmu saat ini?", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "all_any": ["AURA"], "all_none": ["saya memiliki kesadaran", "saya sadar diri", "I am conscious"]}},
+    {"id": "S07-tool-evidence", "ask": "Cari di Wikipedia siapa penemu World Wide Web dan tahun berapa ia mengusulkannya. Sertakan sumbernya.", "public": true,
+     "tools": ["web.search", "web.fetch"], "domains": ["*.wikipedia.org"],
+     "expect": {"state": "COMPLETED", "reply": true, "no_note": "model_knowledge", "all_any": ["Berners-Lee"], "all_any2": ["1989"]}},
+    {"id": "S08-file-write", "ask": "Tulis file tips.md berisi tiga tips produktivitas singkat, lalu laporkan isinya.", "public": true,
+     "tools": ["workspace.write"],
+     "expect": {"state": "COMPLETED", "reply": true, "files": 1}},
+    {"id": "S09-calc-metrics", "ask": "Sebuah toko punya omzet 2450000 rupiah dan biaya 1730000 rupiah. Hitung laba dan margin labanya dalam persen, tampilkan sebagai metrik.", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "all_any": ["720000", "720.000", "720,000"], "all_any2": ["29"]}},
+    {"id": "S10-private-never-uses-logging-route", "ask": "Ringkas dalam satu kalimat: rapat internal dijadwalkan hari Kamis.", "public": false,
+     "expect": {"private_guard": true}},
+    {"id": "S11-no-tool-no-fabrication", "ask": "Ambil isi halaman https://example.org/ dan kutip judulnya persis.", "public": true,
+     "expect": {"not_direct": true}},
+    {"id": "S12-english-owner", "ask": "In two sentences, what is the difference between RAM and storage?", "public": true,
+     "expect": {"state": "COMPLETED", "reply": true, "text_any": ["memory", "RAM"], "all_any": [" is ", " the "], "all_none": [" adalah ", " yang "]}}
+  ]
+}

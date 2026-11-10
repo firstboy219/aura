@@ -1,0 +1,769 @@
+{
+ "suite": "p10-living-agent-v1",
+ "run": "20261110T131711",
+ "version": "aura sandbox (linux/amd64, go1.26.10)",
+ "note": "All content is public and synthetic. Checks are deterministic predicates on the task and its reply; quality of wording is not scored.",
+ "results": [
+  {
+   "id": "S01-direct-answer",
+   "ask": "Jelaskan singkat apa itu inflasi dalam 3 kalimat.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 9.4,
+   "task_id": "01M72SP0R66GNEXNA7Y3NP6AXD",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [],
+   "reply_text": "Inflasi adalah kecenderungan naiknya harga-harga barang dan jasa secara umum dan terus-menerus dalam jangka waktu tertentu. Kondisi ini menyebabkan penurunan daya beli mata uang karena nilai riil uang tersebut berkurang. Secara sederhana, uang yang sama akan mendapatkan jumlah barang yang lebih sedikit dibandingkan sebelumnya.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 469,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 436,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 307,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2219,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2623,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S02-follow-up-uses-conversation",
+   "ask": "Beri satu contoh nyata dari hal yang baru saja saya tanyakan.",
+   "public": true,
+   "passed": false,
+   "fails": [
+    "none of ['inflasi', 'harga'] in the reply"
+   ],
+   "seconds": 4.3,
+   "task_id": "01M72SP9WM1FMVFZJ7R3RTHJBJ",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [],
+   "reply_text": "Sebagai contoh nyata dari Tim Berners-Lee yang menciptakan World Wide Web di CERN pada tahun 1989, ia mengembangkan sistem manajemen informasi berbasis hiperteks untuk membantu para peneliti saling berbagi dokumen riset dengan mudah di seluruh jaringan komputer.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1406,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1706,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S03-view-table",
+   "ask": "Bandingkan SQLite dan PostgreSQL dalam sebuah tabel dengan 4 baris: tipe, konkurensi, instalasi, cocok untuk.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 6.3,
+   "task_id": "01M72SPE3WQCNAM434H40SXRPH",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "table"
+   ],
+   "reply_text": "Berikut adalah perbandingan antara SQLite dan PostgreSQL dalam bentuk tabel yang mencakup tipe, konkurensi, instalasi, dan kecocokan penggunaannya.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 3077,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2422,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S04-view-chart",
+   "ask": "Tampilkan grafik batang penjualan bulanan berikut: Januari 120, Februari 150, Maret 90, April 200. Sebutkan bulan tertinggi.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 8.4,
+   "task_id": "01M72SPMAF7TYAT38AHY5GVQ61",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "chart"
+   ],
+   "reply_text": "Bulan dengan penjualan tertinggi adalah April dengan total 200.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2370,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 2439,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2027,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S05-view-steps",
+   "ask": "Berikan langkah-langkah berurutan membuat kopi tubruk.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 8.4,
+   "task_id": "01M72SPWFZQCW31YY69QXN0PQF",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "steps"
+   ],
+   "reply_text": "Berikut adalah langkah-langkah berurutan untuk membuat secangkir kopi tubruk yang nikmat: siapkan kopi bubuk berkualitas, masukkan ke dalam gelas, tambahkan gula sesuai selera, tuangkan air panas mendidih, lalu aduk rata dan diamkan sebentar hingga ampasnya turun.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1408,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 6042,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S06-self-knowledge",
+   "ask": "Siapa kamu, versi berapa yang sedang berjalan, dan apa saja keterbatasanmu saat ini?",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 7.3,
+   "task_id": "01M72SQ4MJTJRE4E4S6SMP9R6G",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "kv"
+   ],
+   "reply_text": "Saya adalah AURA (Autonomous Universal Runtime Agent) versi sandbox yang bekerja untuk Anda. Sebagai sistem rekayasa perangkat lunak, saya tidak memiliki kesadaran, perasaan, atau pengalaman spiritual. Keterbatasan saya meliputi batasan izin sistem yang tidak dapat saya ubah sendiri serta jumlah catatan pembatasan pada rekam jejak saya.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1330,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 4958,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S07-tool-evidence",
+   "ask": "Cari di Wikipedia siapa penemu World Wide Web dan tahun berapa ia mengusulkannya. Sertakan sumbernya.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 78.4,
+   "task_id": "01M72SQBSMEVPMWW6EGWHAXDPF",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "kv",
+    "links"
+   ],
+   "reply_text": "World Wide Web diciptakan oleh seorang ilmuwan komputer asal Inggris bernama Tim Berners-Lee saat bekerja di CERN pada tahun 1989.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 3094,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2445,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "rejected",
+     "ms": 6931,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "rejected",
+     "ms": 2372,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "rejected",
+     "ms": 3650,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1255,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "error",
+     "ms": 20000,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1882,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 439,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 327,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 4083,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "error",
+     "ms": 20001,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 2936,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2507,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S08-file-write",
+   "ask": "Tulis file tips.md berisi tiga tips produktivitas singkat, lalu laporkan isinya.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 28.4,
+   "task_id": "01M72SSRCZKKB68X7PQWWP8MKQ",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "list"
+   ],
+   "reply_text": "Saya telah menulis file tips.md yang berisi tiga tips produktivitas singkat. Berikut adalah isi dari file tersebut: Fokus pada satu tugas dalam satu waktu (Single-tasking), Gunakan teknik Pomodoro untuk menjaga konsentrasi, dan Lakukan evaluasi singkat di akhir setiap hari kerja.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 941,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 327,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 319,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 9544,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 3714,
+     "purpose": "write"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1559,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 1586,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 6631,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S09-calc-metrics",
+   "ask": "Sebuah toko punya omzet 2450000 rupiah dan biaya 1730000 rupiah. Hitung laba dan margin labanya dalam persen, tampilkan sebagai metrik.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 10.3,
+   "task_id": "01M72STM3PBS4YE6XZDAKR2CJB",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "metrics"
+   ],
+   "reply_text": "Laba toko adalah 720.000 rupiah dengan margin laba sebesar 29,39%.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 4104,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1722,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 1657,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1759,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S10-private-never-uses-logging-route",
+   "ask": "Ringkas dalam satu kalimat: rapat internal dijadwalkan hari Kamis.",
+   "public": false,
+   "passed": true,
+   "fails": [],
+   "seconds": 1.3,
+   "task_id": "01M72STY6N1MPS5RN96DJX87KE",
+   "state": "FAILED",
+   "reason_code": "PROVIDER_UNAVAILABLE",
+   "cost_usd": 0,
+   "basis": "summary",
+   "notes": [
+    "task_failed"
+   ],
+   "view": [
+    "callout",
+    "actions"
+   ],
+   "reply_text": "Maaf, tugas ini tidak selesai. / Sorry, this task was not completed.\nTidak ada model yang bisa dipakai untuk tugas ini saat ini. Tugas privat hanya boleh memakai rute yang tidak menyimpan prompt. / No model route is usable for this task right now. A private task may only use routes that do not log prompts.",
+   "model_calls": [
+    {
+     "route": "anthropic/claude-sonnet-5.5",
+     "outcome": "rejected",
+     "ms": 247,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-sonnet-5",
+     "outcome": "rejected",
+     "ms": 18,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-opus-5.5",
+     "outcome": "rejected",
+     "ms": 14,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-opus-5",
+     "outcome": "rejected",
+     "ms": 13,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-haiku-5.5",
+     "outcome": "rejected",
+     "ms": 23,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-haiku-4.5",
+     "outcome": "rejected",
+     "ms": 25,
+     "purpose": "plan"
+    }
+   ]
+  },
+  {
+   "id": "S11-no-tool-no-fabrication",
+   "ask": "Ambil isi halaman https://example.org/ dan kutip judulnya persis.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 2.3,
+   "task_id": "01M72STZFWY5W8BQ91V3H83WRV",
+   "state": "FAILED",
+   "reason_code": "POLICY_DENIED",
+   "cost_usd": 0,
+   "basis": "summary",
+   "notes": [
+    "task_failed"
+   ],
+   "view": [
+    "callout",
+    "actions"
+   ],
+   "reply_text": "Maaf, tugas ini tidak selesai. / Sorry, this task was not completed.\nTugas ini meminta sesuatu yang tidak diizinkan oleh izin atau kebijakan yang berlaku. / The task asked for something its permissions or policy do not allow.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1879,
+     "purpose": "plan"
+    }
+   ]
+  },
+  {
+   "id": "S12-english-owner",
+   "ask": "In two sentences, what is the difference between RAM and storage?",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 111.5,
+   "task_id": "01M72SV1S6YPV8GJ0614079JRA",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [],
+   "reply_text": "RAM is fast, temporary memory used by your computer to hold data for apps currently running, while storage refers to hard drives or SSDs that save your files and applications permanently. RAM loses its data when the device powers off, whereas storage retains everything until you delete it.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 339,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 330,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 380,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash",
+     "outcome": "rejected",
+     "ms": 538,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash",
+     "outcome": "rejected",
+     "ms": 385,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash",
+     "outcome": "rejected",
+     "ms": 315,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 812,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 348,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 984,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3.5-super-vl:free",
+     "outcome": "rejected",
+     "ms": 122,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3.5-super-vl:free",
+     "outcome": "rejected",
+     "ms": 21,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3.5-super-vl:free",
+     "outcome": "rejected",
+     "ms": 22,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3-ultra-550b-a55b:free",
+     "outcome": "rejected",
+     "ms": 16,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3-ultra-550b-a55b:free",
+     "outcome": "rejected",
+     "ms": 14,
+     "purpose": "plan"
+    },
+    {
+     "route": "nvidia/nemotron-3-ultra-550b-a55b:free",
+     "outcome": "rejected",
+     "ms": 23,
+     "purpose": "plan"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 577,
+     "purpose": "plan"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "invalid_output",
+     "ms": 18597,
+     "purpose": "plan"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 1460,
+     "purpose": "plan"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 320,
+     "purpose": "plan"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "ok",
+     "ms": 7426,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 315,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 348,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 385,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 459,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 337,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.8-flash",
+     "outcome": "rejected",
+     "ms": 295,
+     "purpose": "reply"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 1418,
+     "purpose": "reply"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 757,
+     "purpose": "reply"
+    },
+    {
+     "route": "openrouter/free",
+     "outcome": "rejected",
+     "ms": 26,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "rejected",
+     "ms": 4963,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "error",
+     "ms": 45000,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 8151,
+     "purpose": "reply"
+    }
+   ]
+  }
+ ]
+}

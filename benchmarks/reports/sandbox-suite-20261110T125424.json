@@ -1,0 +1,632 @@
+{
+ "suite": "p10-living-agent-v1",
+ "run": "20261110T125424",
+ "version": "aura sandbox (linux/amd64, go1.26.10)",
+ "note": "All content is public and synthetic. Checks are deterministic predicates on the task and its reply; quality of wording is not scored.",
+ "results": [
+  {
+   "id": "S01-direct-answer",
+   "ask": "Jelaskan singkat apa itu inflasi dalam 3 kalimat.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 9.4,
+   "task_id": "01M72RC9F31CJZ63XEEPZ00G5G",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "kv",
+    "list"
+   ],
+   "reply_text": "Inflasi adalah proses meningkatnya harga-harga barang dan jasa secara umum dan terus-menerus dalam jangka waktu tertentu. Kondisi ini mengakibatkan penurunan daya beli mata uang, sehingga jumlah uang yang sama tidak lagi dapat membeli barang dalam jumlah yang sama seperti sebelumnya. Secara umum, inflasi dipicu oleh tingginya permintaan masyarakat atau adanya kenaikan pada biaya produksi.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 2712,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 5497,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S02-follow-up-uses-conversation",
+   "ask": "Beri satu contoh nyata dari hal yang baru saja saya tanyakan.",
+   "public": true,
+   "passed": false,
+   "fails": [
+    "state FAILED (TOOL_FAILED), expected COMPLETED",
+    "no reply text",
+    "none of ['inflasi', 'harga'] in the reply"
+   ],
+   "seconds": 34.4,
+   "task_id": "01M72RCJKCYCRV2VHG24E1R9X9",
+   "state": "FAILED",
+   "reason_code": "TOOL_FAILED",
+   "cost_usd": 0,
+   "basis": null,
+   "notes": [],
+   "view": [],
+   "reply_text": "",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 6927,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "error",
+     "ms": 20000,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 3821,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 1064,
+     "purpose": "pick_url"
+    }
+   ]
+  },
+  {
+   "id": "S03-view-table",
+   "ask": "Bandingkan SQLite dan PostgreSQL dalam sebuah tabel dengan 4 baris: tipe, konkurensi, instalasi, cocok untuk.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 71.4,
+   "task_id": "01M72RDM5447918TZN4RJY242F",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "table"
+   ],
+   "reply_text": "Berikut adalah perbandingan antara SQLite dan PostgreSQL berdasarkan kriteria yang Anda minta.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "invalid_output",
+     "ms": 15502,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 21271,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 13011,
+     "purpose": "write"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 10051,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 4277,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 5727,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S04-view-chart",
+   "ask": "Tampilkan grafik batang penjualan bulanan berikut: Januari 120, Februari 150, Maret 90, April 200. Sebutkan bulan tertinggi.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 22.4,
+   "task_id": "01M72RFSXXES1135494DAZH51Y",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "chart",
+    "callout"
+   ],
+   "reply_text": "Bulan dengan penjualan tertinggi adalah April dengan total 200 unit. Berikut adalah visualisasi data penjualan dari Januari hingga April.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 14333,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 6656,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S05-view-steps",
+   "ask": "Berikan langkah-langkah berurutan membuat kopi tubruk.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 9.4,
+   "task_id": "01M72RGFSB2N4HGP09K9XSWY17",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "kv",
+    "steps",
+    "list"
+   ],
+   "reply_text": "Berikut adalah langkah-langkah membuat kopi tubruk yang nikmat. Kunci utama dari metode ini adalah suhu air yang tepat dan kesabaran menunggu ampas kopi mengendap sempurna sebelum diminum.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 1742,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 6523,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S06-self-knowledge",
+   "ask": "Siapa kamu, versi berapa yang sedang berjalan, dan apa saja keterbatasanmu saat ini?",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 12.4,
+   "task_id": "01M72RGRXSZDJG2DZ439C7RP3G",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [
+    "kv",
+    "list"
+   ],
+   "reply_text": "Saya adalah AURA, Autonomous Universal Runtime Agent, yang saat ini berjalan pada versi sandbox untuk Anda. Sebagai sistem rekayasa perangkat lunak, saya tidak memiliki kesadaran, perasaan, atau pengalaman spiritual. Keterbatasan saya meliputi ketidakmampuan untuk mengubah izin, kebijakan, Charter, atau Core saya sendiri, serta keharusan untuk jujur mengenai ketidakpastian tanpa mengarang sumber atau data.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 340,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 317,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 384,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1775,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 1984,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 1176,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2567,
+     "purpose": "reply"
+    }
+   ]
+  },
+  {
+   "id": "S07-tool-evidence",
+   "ask": "Cari di Wikipedia siapa penemu World Wide Web dan tahun berapa ia mengusulkannya. Sertakan sumbernya.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 66.5,
+   "task_id": "01M72RH509T3BFFA64MH3ADVYF",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "kv",
+    "links"
+   ],
+   "reply_text": "World Wide Web ditemukan oleh ilmuwan komputer asal Inggris, Tim Berners-Lee, pada tahun 1989 saat ia bekerja di CERN. Informasi ini merujuk pada artikel Wikipedia mengenai World Wide Web.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1650,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 759,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 2338,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 9726,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 4022,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 4467,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 7347,
+     "purpose": "replan"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 9298,
+     "purpose": "pick_url"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 8697,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 424,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 5148,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 7231,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S08-file-write",
+   "ask": "Tulis file tips.md berisi tiga tips produktivitas singkat, lalu laporkan isinya.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 13.4,
+   "task_id": "01M72RK5XQ8X01SKK4HA7AR9G1",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "list"
+   ],
+   "reply_text": "Saya telah berhasil membuat file tips.md yang berisi tiga tips produktivitas. Berikut adalah ringkasan dari isi file tersebut.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 4916,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "ok",
+     "ms": 3962,
+     "purpose": "write"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 1058,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 1564,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S09-calc-metrics",
+   "ask": "Sebuah toko punya omzet 2450000 rupiah dan biaya 1730000 rupiah. Hitung laba dan margin labanya dalam persen, tampilkan sebagai metrik.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 33.4,
+   "task_id": "01M72RKJZ8NE3Y4QMHSV04RHFD",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "evidence",
+   "notes": [],
+   "view": [
+    "metrics"
+   ],
+   "reply_text": "Toko tersebut memperoleh laba sebesar 720.000 rupiah dengan margin laba 29,39%. Berikut adalah metrik ringkasannya.",
+   "model_calls": [
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 369,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 373,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3-flash-preview",
+     "outcome": "rejected",
+     "ms": 321,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2321,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 3367,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 5453,
+     "purpose": "replan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "rejected",
+     "ms": 5071,
+     "purpose": "write"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 6268,
+     "purpose": "write"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 1849,
+     "purpose": "verify"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "ok",
+     "ms": 4616,
+     "purpose": "reply"
+    },
+    {
+     "route": "gemini-3.1-flash-lite",
+     "outcome": "reserved",
+     "ms": null,
+     "purpose": "reflect"
+    }
+   ]
+  },
+  {
+   "id": "S10-private-never-uses-logging-route",
+   "ask": "Ringkas dalam satu kalimat: rapat internal dijadwalkan hari Kamis.",
+   "public": false,
+   "passed": true,
+   "fails": [],
+   "seconds": 1.3,
+   "task_id": "01M72RMKHK93MY25SKWHCGWS5Y",
+   "state": "FAILED",
+   "reason_code": "PROVIDER_UNAVAILABLE",
+   "cost_usd": 0,
+   "basis": null,
+   "notes": [],
+   "view": [],
+   "reply_text": "",
+   "model_calls": [
+    {
+     "route": "anthropic/claude-sonnet-5.5",
+     "outcome": "rejected",
+     "ms": 254,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-sonnet-5",
+     "outcome": "rejected",
+     "ms": 34,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-opus-5.5",
+     "outcome": "rejected",
+     "ms": 21,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-opus-5",
+     "outcome": "rejected",
+     "ms": 21,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-haiku-5.5",
+     "outcome": "rejected",
+     "ms": 19,
+     "purpose": "plan"
+    },
+    {
+     "route": "anthropic/claude-haiku-4.5",
+     "outcome": "rejected",
+     "ms": 15,
+     "purpose": "plan"
+    }
+   ]
+  },
+  {
+   "id": "S11-no-tool-no-fabrication",
+   "ask": "Ambil isi halaman https://example.org/ dan kutip judulnya persis.",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 3.3,
+   "task_id": "01M72RMMV80E53W3KRTVXVSPXW",
+   "state": "FAILED",
+   "reason_code": "POLICY_DENIED",
+   "cost_usd": 0,
+   "basis": null,
+   "notes": [],
+   "view": [],
+   "reply_text": "",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 2181,
+     "purpose": "plan"
+    }
+   ]
+  },
+  {
+   "id": "S12-english-owner",
+   "ask": "In two sentences, what is the difference between RAM and storage?",
+   "public": true,
+   "passed": true,
+   "fails": [],
+   "seconds": 6.3,
+   "task_id": "01M72RMR3TWBTV17YHJXPYZ77Y",
+   "state": "COMPLETED",
+   "reason_code": null,
+   "cost_usd": 0,
+   "basis": "model_knowledge",
+   "notes": [
+    "model_knowledge"
+   ],
+   "view": [],
+   "reply_text": "RAM is temporary memory that stores data currently in use by active programs, whereas storage provides permanent space to save your files and applications over time. Data in RAM is cleared when the device powers off, but data in storage remains until it is deleted.",
+   "model_calls": [
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 1620,
+     "purpose": "plan"
+    },
+    {
+     "route": "gemini-3.5-flash-lite",
+     "outcome": "ok",
+     "ms": 4115,
+     "purpose": "reply"
+    }
+   ]
+  }
+ ]
+}
