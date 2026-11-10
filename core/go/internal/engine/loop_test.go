@@ -166,3 +166,48 @@ func TestQuoteFound(t *testing.T) {
 		t.Fatal("a one-word quote must match only an evidence item that is exactly that word")
 	}
 }
+
+func TestExistenceCriterion(t *testing.T) {
+	for c, want := range map[string]string{"reports/summary.md exists": "reports/summary.md", "The file published/example.md has been created.": "published/example.md",
+		"`notes.txt` exists": "notes.txt", "output reports/a.csv is created": "reports/a.csv"} {
+		if got, ok := existenceCriterion(c); !ok || got != want {
+			t.Fatalf("%q: %q %v", c, got, ok)
+		}
+	}
+	for _, c := range []string{"reports/summary.md exists and has two sentences", "reports/summary.md contains each source link", "a summary exists"} {
+		if _, ok := existenceCriterion(c); ok {
+			t.Fatalf("%q treated as a pure existence criterion", c)
+		}
+	}
+}
+
+// "<file> exists" is decided by the Core: no verification model call when it
+// is the only criterion, and a missing file fails it.
+func TestExistenceCriteriaDecidedByCore(t *testing.T) {
+	var verifies atomic.Int32
+	var criteria atomic.Pointer[[]string]
+	criteria.Store(&[]string{"reports/summary.md exists"})
+	h := newHarness(t, harnessOpts{respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+		if isSys(req, "verification module") {
+			verifies.Add(1)
+		}
+		if isSys(req, "planning module") {
+			b, _ := json.Marshal(map[string]any{"steps": []any{
+				gatewaytest.Step(1, "fetch", "web.fetch", map[string]any{"url": "http://fixture.test/one"}),
+				gatewaytest.Step(2, "write", "workspace.write", map[string]any{"path": "reports/summary.md"})},
+				"completion_criteria": *criteria.Load(), "question": nil})
+			return gatewaytest.Reply{Content: string(b)}
+		}
+		return goodModel(r, req)
+	}})
+	tk := h.submit("Fetch http://fixture.test/one and write reports/summary.md", nil)
+	done := h.wait(tk.ID, task.Succeeded, task.Failed)
+	if done.State != task.Succeeded || verifies.Load() != 0 || countEvents(h.events(tk.ID), "VERIFIED") != 1 {
+		t.Fatalf("state %s verify calls %d events %s", done.State, verifies.Load(), eventTypes(h.events(tk.ID)))
+	}
+	criteria.Store(&[]string{"reports/other.md exists"})
+	tk2 := h.submit("Fetch http://fixture.test/one and write reports/summary.md", nil)
+	if done := h.wait(tk2.ID, task.Succeeded, task.Failed); done.State != task.Failed && countEvents(h.events(tk2.ID), "VERIFICATION_FAILED") == 0 {
+		t.Fatalf("a missing file passed its existence criterion: %s", done.State)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -769,23 +770,42 @@ type criterionResult struct {
 // evidence. Model confidence is not evidence: a criterion counts as met only
 // if its quote is found in the evidence by the Core (ADR-0016).
 func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, evidence []evidenceItem) ([]string, error) {
-	s, err := e.newSession(ctx, t)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"objective": t.Objective, "completion_criteria": criteria,
-		"evidence": evidence, "tier": tierFor(t)})
-	if s.fatal != nil {
-		return nil, s.fatal
-	}
-	if err != nil {
-		return nil, err
+	// "<file> exists" is decided by the Core from the files it holds; only the
+	// other criteria need a model (and none at all if every one is about existence).
+	decided := map[string]criterionResult{}
+	var modelCriteria []string
+	for _, c := range criteria {
+		if path, ok := existenceCriterion(c); ok {
+			res := criterionResult{Criterion: c}
+			for _, ev := range evidence {
+				if ev.Kind == "file" && ev.Source == path {
+					res.Met, res.EvidenceQuote = true, "core: "+path+" was written by this task"
+				}
+			}
+			decided[c] = res
+			continue
+		}
+		modelCriteria = append(modelCriteria, c)
 	}
 	var r struct {
 		Criteria []criterionResult `json:"criteria"`
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, fmt.Errorf("invalid_verification: %v", err)
+	if len(modelCriteria) > 0 {
+		s, err := e.newSession(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"objective": t.Objective, "completion_criteria": modelCriteria,
+			"evidence": evidence, "tier": tierFor(t)})
+		if s.fatal != nil {
+			return nil, s.fatal
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, fmt.Errorf("invalid_verification: %v", err)
+		}
 	}
 	byCriterion := map[string]criterionResult{}
 	for _, c := range r.Criteria {
@@ -793,7 +813,17 @@ func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, ev
 	}
 	var failures []string
 	var checked []map[string]any
-	for i, c := range criteria {
+	mi := 0 // position among the criteria sent to the model
+	for _, c := range criteria {
+		if res, ok := decided[c]; ok {
+			if !res.Met {
+				failures = append(failures, fmt.Sprintf("%q: not met (the Core holds no such file)", c))
+			}
+			checked = append(checked, map[string]any{"criterion": c, "met": res.Met, "evidence_found": res.Met, "quote": res.EvidenceQuote, "decided_by": "core"})
+			continue
+		}
+		i := mi
+		mi++
 		res, ok := byCriterion[c]
 		if !ok && i < len(r.Criteria) {
 			res, ok = r.Criteria[i], true
@@ -819,6 +849,18 @@ func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, ev
 		return err
 	})
 	return failures, nil
+}
+
+var existenceRe = regexp.MustCompile(`(?i)^\s*(?:the\s+)?(?:file\s+|output\s+)?` + "`?" + `((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]{1,5})` + "`?" + `\s+(?:file\s+)?(?:exists|is\s+created|has\s+been\s+(?:written|created))\.?\s*$`)
+
+// existenceCriterion recognizes a criterion that only says a file exists
+// ("reports/a.md exists", "The file reports/a.md has been created.").
+func existenceCriterion(c string) (string, bool) {
+	m := existenceRe.FindStringSubmatch(c)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 func normalizeText(s string) []string {
