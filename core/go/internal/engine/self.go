@@ -26,7 +26,7 @@ func (e *Engine) SelfDescription(ctx context.Context) (map[string]any, error) {
 		}
 	}
 	var tools []string
-	for id := range policy.Manifest {
+	for _, id := range policy.ToolIDs() {
 		tools = append(tools, id)
 	}
 	sort.Strings(tools)

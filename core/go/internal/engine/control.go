@@ -88,7 +88,7 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	seen := map[string]bool{}
 	var granted []string
 	for _, tl := range in.Tools {
-		if _, ok := policy.Manifest[tl]; !ok {
+		if _, ok := policy.Lookup(tl); !ok {
 			return nil, bad("unknown tool %q", tl)
 		}
 		if !seen[tl] {

@@ -136,7 +136,7 @@ func (e *Engine) saveSkill(ctx context.Context, t *task.Task, name string, trigg
 		if s.ToolID == nil {
 			return nil, fmt.Errorf("%w: skill step without tool", ErrInvalid)
 		}
-		if _, ok := policy.Manifest[*s.ToolID]; !ok {
+		if _, ok := policy.Lookup(*s.ToolID); !ok {
 			return nil, fmt.Errorf("%w: skill uses unknown tool %q", ErrInvalid, *s.ToolID)
 		}
 		all += " " + s.Description

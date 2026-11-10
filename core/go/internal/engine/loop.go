@@ -83,7 +83,7 @@ func (e *Engine) runTask(ctx context.Context, t *task.Task) error {
 
 // toolDocs are owner-written descriptions of the task's MCP tools.
 func (e *Engine) toolDocs(t *task.Task) map[string]string {
-	out := map[string]string{}
+	out := e.l2Docs(context.Background(), t.Scope.Tools)
 	for _, id := range t.Scope.Tools {
 		if d, ok := e.docs[id]; ok {
 			out[id] = d
@@ -241,7 +241,7 @@ func complexPlan(p *planDoc) bool {
 		if *s.ToolID == "agent.delegate" {
 			return true
 		}
-		if spec, ok := policy.Manifest[*s.ToolID]; ok && spec.Tier(planArgs(&s)) == policy.A2 {
+		if spec, ok := policy.Lookup(*s.ToolID); ok && spec.Tier(planArgs(&s)) == policy.A2 {
 			return true
 		}
 	}
@@ -319,7 +319,7 @@ func (e *Engine) validatePlan(t *task.Task, p *planDoc, startNo int, alreadyWrit
 		if ps.ToolID == nil {
 			return nil, fmt.Errorf("invalid_plan: step %d has no tool", ps.StepNo)
 		}
-		spec, ok := policy.Manifest[*ps.ToolID]
+		spec, ok := policy.Lookup(*ps.ToolID)
 		if !ok || !allowed.HasTool(spec.ID) {
 			return nil, fmt.Errorf("invalid_plan: step %d tool %q not granted", ps.StepNo, *ps.ToolID)
 		}
@@ -417,7 +417,7 @@ func requiredArgs(ps *plannedStep) error {
 			return errors.New("brief is required")
 		}
 	default:
-		if strings.HasPrefix(*ps.ToolID, "mcp.") {
+		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") {
 			var m map[string]any
 			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
 				return errors.New("input must be a JSON object with the tool's arguments")

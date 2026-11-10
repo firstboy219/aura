@@ -48,6 +48,8 @@ def serve(ch: Channel) -> None:
                 result = agent.diagnose(ch, msg.get("params") or {})
             elif method == "task.remedy_skill":
                 result = agent.remedy_skill(ch, msg.get("params") or {})
+            elif method == "task.build_tool":
+                result = agent.build_tool(ch, msg.get("params") or {})
             else:
                 ch.write({"id": rid, "error": {"code": -32601, "message": f"unknown method {method}"}})
                 continue

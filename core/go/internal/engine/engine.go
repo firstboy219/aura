@@ -25,6 +25,7 @@ import (
 	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/rpc"
+	"aura.local/core/internal/sandbox"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
 	"aura.local/core/internal/tools"
@@ -46,6 +47,7 @@ type Engine struct {
 	mcp         map[string]*mcp.Client
 	docs        map[string]string // owner-written descriptions of MCP tools
 	charter     string            // owner Charter text ("" = not provided)
+	sbx         *sandbox.Runtime  // nil: L2 tools unavailable
 	ledgerCfg   LedgerConfig
 	version     string
 	lastImprove time.Time
@@ -72,7 +74,8 @@ type Deps struct {
 	MCP       map[string]*mcp.Client // by server name
 	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
 	Version   string
-	Charter   string // owner Charter text, verified against its pinned hash by the caller
+	Charter   string           // owner Charter text, verified against its pinned hash by the caller
+	Sandbox   *sandbox.Runtime // WASM sandbox for L2 tools (nil: unavailable)
 	Log       *slog.Logger
 }
 
@@ -81,7 +84,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.

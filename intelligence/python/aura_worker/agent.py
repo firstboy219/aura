@@ -147,8 +147,11 @@ def plan_schema(granted: list[str]) -> dict[str, Any]:
     return schema
 
 
+_L2_TOOL = re.compile(r"^l2\.[a-z][a-z0-9_]{1,38}$")
+
+
 def is_known_tool(t: str) -> bool:
-    return t in TOOLS or (t.startswith("mcp.") and t.count(".") >= 2)
+    return t in TOOLS or (t.startswith("mcp.") and t.count(".") >= 2) or bool(_L2_TOOL.match(t))
 
 
 # ---------------------------------------------------------------- prompts
@@ -356,6 +359,10 @@ def tool_docs(granted: list[str], domains: list[str], extra: dict | None = None)
         elif t.startswith("mcp."):
             desc = (extra or {}).get(t, "an external tool")
             lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments.')
+        elif t.startswith("l2."):
+            desc = (extra or {}).get(t, "an approved AURA tool")
+            lines.append(f'- {t}: {desc} Set "input" to a JSON object (as a string) with its arguments; to give it a workspace '
+                         'file, set "path" to that file and the Core adds its text as input.file_text.')
     return "\n".join(lines)
 
 
@@ -468,7 +475,7 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
             raise StepFailure(f"step {i}: calc expression {str(s.get('expression'))[:80]!r} is not plain arithmetic; use only "
                               "numbers, + - * / ^ ( ) and round/abs/min/max/sqrt, or set expression to null to compute it "
                               "from the observations at step time", "invalid_plan")
-        if tool.startswith("mcp.") and not _json_object(s.get("input")):
+        if tool.startswith(("mcp.", "l2.")) and not _json_object(s.get("input")):
             raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan")
         step = {"step_no": i, "description": str(s.get("description", ""))[:500], "tool_id": tool}
         for f in ("url", "path", "query", "expression", "key", "until", "brief", "input"):
@@ -684,6 +691,11 @@ def step(ch: Channel, params: dict) -> dict:
         return _result(_invoke(ch, tool, {"path": s.get("path"), "content": content}))
     if tool and tool.startswith("mcp."):
         return _result(_invoke(ch, tool, {"arguments": json.loads(s.get("input") or "{}")}))
+    if tool and tool.startswith("l2."):
+        args: dict[str, Any] = {"arguments": json.loads(s.get("input") or "{}")}
+        if s.get("path"):
+            args["path"] = s.get("path")
+        return _result(_invoke(ch, tool, args))
     raise StepFailure(f"unsupported tool {tool!r}", "invalid_step")
 
 
@@ -797,3 +809,52 @@ def remedy_skill(ch: Channel, params: dict) -> dict:
     for i, s in enumerate(skill.get("steps") or [], start=1):
         s["step_no"] = i
     return {"skill": skill}
+
+
+# ---------------------------------------------------------------- L2 tools (R3)
+BUILD_TOOL_SYSTEM = """You write a small, pure Python 3.12 tool for AURA (an L2 tool). It runs in a WebAssembly sandbox with no
+network, no files and no environment: it can only compute on the input it is given.
+Write a function run(input) that takes one JSON object and returns a JSON-serializable result. Use only these standard
+library modules: {allowed}. No open, exec, eval, compile, __import__, getattr/setattr, globals, or attributes that start
+with "__". If the tool needs a file's text, it receives it as input["file_text"] (the Core reads the file).
+Be deterministic: same input, same output. Return numbers as numbers, not strings. Keep it under 150 lines.
+Provide 3-6 tests: each an input object and the EXACT expected output, computed by hand from the input.
+name: snake_case, describes the capability (for example csv_column_stats).
+description: one sentence saying what the tool computes and what input it needs.
+input_schema_json: a JSON schema (as a string) for the input object, with "type": "object".
+Reply with JSON only."""
+
+BUILD_TOOL_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False,
+    "required": ["name", "description", "input_schema_json", "source", "tests"],
+    "properties": {
+        "name": {"type": "string"}, "description": {"type": "string"}, "input_schema_json": {"type": "string"},
+        "source": {"type": "string"},
+        "tests": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["input_json", "expected_json"],
+                                             "properties": {"input_json": {"type": "string"}, "expected_json": {"type": "string"}}}},
+    },
+}
+
+
+def _parse_json(text: Any) -> Any:
+    try:
+        return json.loads(text) if isinstance(text, str) else text
+    except ValueError:
+        return None
+
+
+def build_tool(ch: Channel, params: dict) -> dict:
+    """Draft an L2 tool for a missing-tool limitation. The Core checks, tests and benchmarks it in the sandbox; the owner
+    approves it before anything can use it."""
+    allowed = ", ".join(params.get("allowed_imports") or [])
+    user = (f"Missing capability: {params.get('need')}\nOwner note: {params.get('owner_note') or '-'}\n"
+            f"Task class: {params.get('task_class')}\nDiagnosis: {json.dumps(params.get('diagnosis') or {}, ensure_ascii=False)}\n\n"
+            f"Failed tasks that needed it:\n{json.dumps(params.get('failed') or [], ensure_ascii=False)[:6000]}")
+    if params.get("previous_draft"):
+        user += (f"\n\nYour previous draft:\n{str(params['previous_draft'])[:12000]}\n\nIt failed these checks; fix every one:\n- " +
+                 "\n- ".join(str(p) for p in params.get("problems") or []))
+    out = complete(ch, "standard", BUILD_TOOL_SYSTEM.format(allowed=allowed), user, BUILD_TOOL_SCHEMA, 6000, "build_tool")
+    tests = [{"input": _parse_json(t.get("input_json")), "expected": _parse_json(t.get("expected_json"))}
+             for t in out.get("tests") or [] if isinstance(t, dict)]
+    return {"name": str(out.get("name", ""))[:40], "description": str(out.get("description", ""))[:500],
+            "input_schema": _parse_json(out.get("input_schema_json")) or {}, "source": str(out.get("source", "")), "tests": tests}

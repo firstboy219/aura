@@ -137,6 +137,11 @@ type Config struct {
 		Manifest  string `yaml:"manifest" json:"manifest"`
 		Required  bool   `yaml:"required" json:"required"` // refuse to start when verification fails
 	} `yaml:"release" json:"release"`
+	// L2 configures AURA-built tools in the WASM sandbox (ADR-0038).
+	L2 struct {
+		PythonWASM string `yaml:"python_wasm" json:"python_wasm"` // pinned CPython WASI module; "" disables L2
+		CacheDir   string `yaml:"cache_dir" json:"cache_dir"`     // compiled-code cache
+	} `yaml:"l2" json:"l2"`
 	// Secrets configures the encrypted secret store (ADR-0036). Any *_file secret
 	// setting may then be "vault:<name>" instead of a file path.
 	Secrets struct {

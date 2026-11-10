@@ -108,7 +108,7 @@ func (e *Engine) outcomeUnknown(ctx context.Context, tx *sql.Tx, taskID string, 
 	if err := json.Unmarshal([]byte(raw), &in); err != nil {
 		return err
 	}
-	spec, ok := policy.Manifest[in.ToolID]
+	spec, ok := policy.Lookup(in.ToolID)
 	if !ok {
 		return task.UpdateStep(ctx, tx, s, task.StepFailed, "", "", "outcome_unknown_tool_removed", "STEP_FAILED", nil)
 	}

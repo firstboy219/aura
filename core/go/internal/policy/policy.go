@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/store"
@@ -73,7 +74,54 @@ func RegisterMCPTool(id, sideEffect string, tier Tier) {
 	if !strings.HasPrefix(id, "mcp.") {
 		panic("policy: MCP tool ids start with mcp.")
 	}
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	Manifest[id] = ToolSpec{ID: id, Version: "mcp-1", SideEffect: sideEffect, Tier: func(map[string]any) Tier { return tier }}
+}
+
+// manifestMu guards Manifest: L2 tools are registered and unregistered at
+// runtime (owner approval, rollback) while tasks read it.
+var manifestMu sync.RWMutex
+
+// Lookup returns a tool's trusted manifest entry.
+func Lookup(id string) (ToolSpec, bool) {
+	manifestMu.RLock()
+	defer manifestMu.RUnlock()
+	s, ok := Manifest[id]
+	return s, ok
+}
+
+// ToolIDs lists every registered tool id.
+func ToolIDs() []string {
+	manifestMu.RLock()
+	defer manifestMu.RUnlock()
+	out := make([]string, 0, len(Manifest))
+	for id := range Manifest {
+		out = append(out, id)
+	}
+	return out
+}
+
+// RegisterL2Tool makes an owner-approved L2 tool available (Blueprint 8A.1,
+// ADR-0038). L2 tools are pure computations in the WASM sandbox: no side
+// effect, tier A0. version is the approved version.
+func RegisterL2Tool(id string, version int) {
+	if !strings.HasPrefix(id, "l2.") {
+		panic("policy: L2 tool ids start with l2.")
+	}
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+	Manifest[id] = ToolSpec{ID: id, Version: fmt.Sprintf("l2-%d", version), SideEffect: "none", Tier: func(map[string]any) Tier { return A0 }}
+}
+
+// UnregisterL2Tool removes an L2 tool (disabled or rolled back).
+func UnregisterL2Tool(id string) {
+	if !strings.HasPrefix(id, "l2.") {
+		return
+	}
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+	delete(Manifest, id)
 }
 
 // Errors returned to callers; all denials are audited by the caller.

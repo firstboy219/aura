@@ -376,6 +376,9 @@ func (e *Engine) deterministicDiagnosis(l *Limitation) (string, float64, string)
 		c, f := taxonomy.CandidateCause(code)
 		return c, f, "deterministic"
 	}
+	if l.Category == "capability_gap" {
+		return taxonomy.CauseMissingTool, 0.6, "deterministic" // a capability the agent lacks: a tool (R3) is the first remedy
+	}
 	if by, ok := l.Evidence["failures_by_code"].(map[string]any); ok && len(by) > 0 {
 		topCode, top, total := "", 0.0, 0.0
 		for k, v := range by {
@@ -443,7 +446,10 @@ func (e *Engine) routeRemedy(ctx context.Context, tx *sql.Tx, l *Limitation, cla
 	case taxonomy.R2:
 		return set("proposed", "remedy_proposed", "A corrective skill (R2, L1) will be drafted from this class's successful and failed tasks and re-tested on fixtures.", map[string]any{"task_class": l.TaskClass})
 	case taxonomy.R3:
-		return set("escalated", "escalated", "A missing tool needs an L2 tool remedy, which arrives with P4; until then this is an owner request (R6).", nil)
+		if e.sbx == nil {
+			return set("escalated", "escalated", "A missing tool needs an L2 tool remedy, but the WASM sandbox is not configured (l2.python_wasm); owner request (R6).", nil)
+		}
+		return set("proposed", "remedy_proposed", "An L2 tool (R3) will be written, statically checked, tested and benchmarked in the WASM sandbox, then registered only after the owner approves its exact source.", map[string]any{"task_class": l.TaskClass})
 	case taxonomy.R5:
 		return set("escalated", "escalated", "A suspected defect in AURA's Core is a proposal only (R5): the owner decides; the fix is implemented by Claude Code under review.", nil)
 	}

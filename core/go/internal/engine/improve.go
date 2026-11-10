@@ -94,16 +94,18 @@ func (e *Engine) exemplars(ctx context.Context, class, state string, limit int) 
 // ActOnRemedies starts R2 remedies that are proposed: it drafts the corrective
 // skill and launches the re-test tasks. Only inside the improvement budget.
 func (e *Engine) ActOnRemedies(ctx context.Context) {
-	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id from limitation_remedies r join limitations l on l.id = r.limitation_id
-		where r.class='R2' and r.status='proposed' and l.status in ('remedy_proposed','diagnosing')`)
+	// R3 remedies that already have a drafted tool wait for the owner, not for another draft.
+	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id, r.class from limitation_remedies r join limitations l on l.id = r.limitation_id
+		where r.class in ('R2','R3') and r.status='proposed' and l.status in ('remedy_proposed','diagnosing')
+		and not exists (select 1 from l2_tools t where t.remedy_id = r.id)`)
 	if err != nil {
 		return
 	}
-	type item struct{ remedy, lim string }
+	type item struct{ remedy, lim, class string }
 	var todo []item
 	for rows.Next() {
 		var it item
-		rows.Scan(&it.remedy, &it.lim)
+		rows.Scan(&it.remedy, &it.lim, &it.class)
 		todo = append(todo, it)
 	}
 	rows.Close()
@@ -111,7 +113,11 @@ func (e *Engine) ActOnRemedies(ctx context.Context) {
 		if !e.improvementAllowed(ctx) {
 			return // budget, kill switch, or the owner has work waiting
 		}
-		if err := e.startSkillRemedy(ctx, it.remedy, it.lim); err != nil {
+		start := e.startSkillRemedy
+		if it.class == "R3" {
+			start = e.startToolRemedy
+		}
+		if err := start(ctx, it.remedy, it.lim); err != nil {
 			e.log.Warn("skill remedy", "limitation", it.lim, "err", err)
 			e.st.Write(ctx, func(tx *sql.Tx) error {
 				_, err := tx.ExecContext(ctx, "update limitation_remedies set status='escalated', description=description || ?, updated_at=? where id=?",
@@ -231,18 +237,35 @@ func (e *Engine) skillByName(ctx context.Context, name string) (*Skill, error) {
 }
 
 // submitRetest re-runs an exemplar as a low-priority task with the original scope.
-func (e *Engine) submitRetest(ctx context.Context, x exemplar) (*task.Task, bool, error) {
-	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: x.Scope.Tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass,
-		Budget: x.Budget})
+func (e *Engine) submitRetest(ctx context.Context, x exemplar, extraTools ...string) (*task.Task, bool, error) {
+	tools := append(append([]string{}, x.Scope.Tools...), extraTools...)
+	// The owner's attachments are copied from the original task's workspace.
+	files := map[string]string{}
+	for _, p := range x.Scope.Attachments {
+		f, err := e.ws.Read(x.ID, p)
+		if err != nil {
+			return nil, false, fmt.Errorf("exemplar %s: attachment %s: %v", x.ID, p, err)
+		}
+		files[p] = f.Content
+	}
+	t, err := e.validate(CreateInput{Objective: x.Objective, Tools: tools, AllowDomains: x.Scope.AllowDomains, DataClass: x.Scope.DataClass,
+		Budget: x.Budget, Attachments: files})
 	if err != nil {
 		return nil, false, err
 	}
 	t.AgentRole, t.Priority = "retest", -50
-	t.Scope.Attachments = nil // attachments are not re-created: re-test only tasks that do not depend on them
-	if len(x.Scope.Attachments) > 0 {
-		return nil, false, fmt.Errorf("exemplar %s used attachments; not re-testable automatically", x.ID)
-	}
-	if err := e.st.Write(ctx, func(tx *sql.Tx) error { return task.Insert(ctx, tx, t) }); err != nil {
+	err = e.st.Write(ctx, func(tx *sql.Tx) error {
+		if err := task.Insert(ctx, tx, t); err != nil {
+			return err
+		}
+		for p, c := range files {
+			if _, err := e.ws.Write(t.ID, p, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, false, err
 	}
 	e.Wake()
@@ -254,7 +277,7 @@ func (e *Engine) submitRetest(ctx context.Context, x exemplar) (*task.Task, bool
 // otherwise roll the skill back and record why.
 func (e *Engine) EvaluateRemedies(ctx context.Context) {
 	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id, r.artifact_json, r.before_json from limitation_remedies r
-		where r.status='testing' and r.class='R2'`)
+		where r.status='testing' and r.class in ('R2','R3')`)
 	if err != nil {
 		return
 	}
@@ -268,6 +291,7 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 	rows.Close()
 	for _, it := range todo {
 		var art struct {
+			ToolID          string `json:"tool_id"` // R3
 			SkillID         string `json:"skill_id"`
 			Version         int    `json:"version"`
 			PreviousVersion int    `json:"previous_version"`
@@ -327,6 +351,10 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 			tx.ExecContext(ctx, "update limitations set status='rolled_back', result_json=?, version=version+1, updated_at=? where id=?", js(after2), now, it.lim)
 			return policy.Audit(ctx, tx, "REMEDY_ROLLED_BACK", "core", "", "", map[string]any{"limitation": it.lim, "reason": why})
 		})
+		if !(improved && !regressed) && art.ToolID != "" {
+			e.DisableL2(ctx, art.ToolID, "core", "rolled back: "+fmt.Sprint(after2["rollback_reason"]))
+			continue
+		}
 		if !(improved && !regressed) {
 			if art.PreviousVersion > 0 {
 				e.RollbackSkill(ctx, art.SkillID, art.PreviousVersion)

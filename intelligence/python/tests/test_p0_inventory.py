@@ -34,6 +34,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "limitations", "limitation_remedies",  # Limitation Ledger (Blueprint 8A.5)
         # P4 (migration 0005, ADR-0036)
         "secrets",
+        "l2_tools",  # migration 0006, ADR-0038
     }
 
 

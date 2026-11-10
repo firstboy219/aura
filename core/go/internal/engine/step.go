@@ -373,7 +373,7 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 	if err := strictDecode(req.Params, &c); err != nil {
 		return nil, rpc.Errf(rpc.CodeInvalidParams, "invalid_params", "tool.invoke: invalid params")
 	}
-	spec, ok := policy.Manifest[c.ToolID]
+	spec, ok := policy.Lookup(c.ToolID)
 	if !ok || !g.Scopes.HasTool(c.ToolID) {
 		return nil, e.deny(ctx, s, req.Method, "tool_not_granted", map[string]any{"tool_id": c.ToolID})
 	}
@@ -585,6 +585,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	if strings.HasPrefix(c.ToolID, "mcp.") {
 		return validateMCPArgs(s, c)
 	}
+	if strings.HasPrefix(c.ToolID, "l2.") {
+		return validateL2Args(s, c)
+	}
 	return nil, "", "unknown_tool"
 }
 
@@ -623,6 +626,9 @@ func (e *Engine) hasProvenance(t *task.Task, u string) bool {
 func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec policy.ToolSpec, args map[string]any) (any, error) {
 	if strings.HasPrefix(spec.ID, "mcp.") {
 		return e.executeMCP(ctx, t, st, spec, args)
+	}
+	if strings.HasPrefix(spec.ID, "l2.") {
+		return e.executeL2(ctx, t, st, spec, args)
 	}
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":
@@ -748,7 +754,7 @@ func (e *Engine) replayIntent(ctx context.Context, t *task.Task, st *task.Step, 
 // the tool is still granted to the task, the tier is still A2, and the action
 // hashes to the approved hash (checked by Consume).
 func (e *Engine) executeApproved(ctx context.Context, t *task.Task, st *task.Step, ap *policy.Approval) error {
-	spec, ok := policy.Manifest[ap.ToolID]
+	spec, ok := policy.Lookup(ap.ToolID)
 	scope := policy.Scopes{Tools: t.Scope.Tools}
 	if !ok || !scope.HasTool(ap.ToolID) || spec.Version != ap.ToolVersion || spec.Tier(ap.Parameters) != policy.A2 {
 		e.failStep(ctx, st, "approval_policy_changed")
