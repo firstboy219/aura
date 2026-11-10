@@ -91,6 +91,10 @@ type Gateway struct {
 	maxRetries int
 	backoff    func(attempt int) time.Duration
 	brk        *breakers
+	health     *routeHealth
+	// Rescue lets a call use another tier's routes when its own tier has no
+	// working route (ADR-0054). Set from configuration.
+	Rescue bool
 	// Notify receives R0 self-healing events: R0_CIRCUIT_OPEN, R0_CIRCUIT_CLOSED,
 	// R0_EMPTY_ANSWER_RETRY, R0_TOOL_CALL_MARKUP (may be nil).
 	Notify func(event string, data map[string]any)
@@ -113,7 +117,7 @@ func New(p Provider, routes map[string][]config.ModelRoute, gov *budget.Governor
 // NewMulti creates a gateway over several providers; each route names its
 // provider (default "openrouter"), so tier fallback can cross providers.
 func NewMulti(provs map[string]Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
-	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2, brk: newBreakers(),
+	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2, brk: newBreakers(), health: newRouteHealth(),
 		backoff: func(a int) time.Duration { return time.Duration(500*(1<<a)) * time.Millisecond }}
 }
 
@@ -135,12 +139,31 @@ type Budget struct {
 // Complete runs a request: per route, reserve → attempt (with bounded retry) →
 // reconcile; structured output is validated and repaired at most once.
 func (g *Gateway) Complete(ctx context.Context, b Budget, req Request) (*Result, error) {
-	var routes []config.ModelRoute
-	for _, r := range g.routes[req.Tier] {
-		if r.MayLog() && req.DataClass != "public" {
-			continue // never send private task content to an endpoint that may log prompts
+	usable := func(tier string) []config.ModelRoute {
+		var out []config.ModelRoute
+		for _, r := range g.routes[tier] {
+			if r.MayLog() && req.DataClass != "public" {
+				continue // never send private task content to an endpoint that may log prompts
+			}
+			out = append(out, r)
 		}
-		routes = append(routes, r)
+		return g.ordered(out)
+	}
+	routes := usable(req.Tier)
+	own := len(routes)
+	if g.Rescue {
+		seen := map[string]bool{}
+		for _, r := range routes {
+			seen[routeKey(r)] = true
+		}
+		for _, tier := range rescueTiers[req.Tier] {
+			for _, r := range usable(tier) {
+				if !seen[routeKey(r)] {
+					seen[routeKey(r)] = true
+					routes = append(routes, r)
+				}
+			}
+		}
 	}
 	if len(routes) == 0 {
 		if len(g.routes[req.Tier]) > 0 {
@@ -156,15 +179,35 @@ func (g *Gateway) Complete(ctx context.Context, b Budget, req Request) (*Result,
 		}
 	}
 	var lastErr error
-	for _, route := range routes {
+	tried := 0
+	for i, route := range routes {
 		res, err := g.onRoute(ctx, b, route, req, schema)
 		if err == nil {
+			if i >= own {
+				g.notify("R0_TIER_RESCUE", map[string]any{"tier": req.Tier, "route": route.RouteID, "provider": route.Provider, "purpose": req.Purpose})
+			}
 			return res, nil
+		}
+		if err != errCircuitOpen {
+			tried++
 		}
 		lastErr = err
 		if !fallbackable(err) {
 			return nil, err
 		}
+	}
+	if tried == 0 {
+		// Every candidate is resting. Probe the one due back soonest instead of
+		// failing without a single attempt (routes are already in that order).
+		g.brk.force(routeKey(routes[0]))
+		res, err := g.onRoute(ctx, b, routes[0], req, schema)
+		if err == nil {
+			return res, nil
+		}
+		if !fallbackable(err) {
+			return nil, err
+		}
+		lastErr = err
 	}
 	return nil, fmt.Errorf("%w: %v", ErrAllRoutes, lastErr)
 }
@@ -207,6 +250,7 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 			return res, nil
 		}
 		g.gov.MarkOutcome(ctx, at.usageID, "invalid_output")
+		g.health.record(routeKey(route), false, 0)
 		if repair == 1 {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidOutput, truncate(verr.Error(), 300))
 		}
@@ -299,6 +343,7 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 		}
 		if err == nil {
 			g.okRoute(route)
+			g.health.record(routeKey(route), true, lat)
 			at.usageID = res.UsageID
 			return at, nil
 		}
@@ -404,7 +449,17 @@ var markupRe = regexp.MustCompile(`(?i)<\s*(tool_call|function_call|function_cal
 func rawToolMarkup(s string) bool { return markupRe.MatchString(s) }
 
 func (g *Gateway) failRoute(route config.ModelRoute, pe *ProviderError) {
-	if opened, cool := g.brk.failure(routeKey(route)); opened {
+	k := routeKey(route)
+	g.health.record(k, false, 0)
+	if d := restFor(pe); d > 0 {
+		// Quota, credit or authorisation: repeating cannot succeed, rest now.
+		if g.brk.rest(k, d) {
+			g.notify("R0_CIRCUIT_OPEN", map[string]any{"route": route.RouteID, "provider": route.Provider, "cooldown_s": int(g.brk.restingFor(k).Seconds()),
+				"last_error": pe.Msg, "status": pe.Status})
+		}
+		return
+	}
+	if opened, cool := g.brk.failure(k); opened {
 		g.notify("R0_CIRCUIT_OPEN", map[string]any{"route": route.RouteID, "provider": route.Provider, "cooldown_s": int(cool.Seconds()),
 			"last_error": pe.Msg, "status": pe.Status})
 	}
@@ -417,4 +472,4 @@ func (g *Gateway) okRoute(route config.ModelRoute) {
 }
 
 // SetClockForTest replaces the circuit breaker clock (tests only).
-func (g *Gateway) SetClockForTest(now func() time.Time) { g.brk.now = now }
+func (g *Gateway) SetClockForTest(now func() time.Time) { g.brk.now, g.health.now = now, now }

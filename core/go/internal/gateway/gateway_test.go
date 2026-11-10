@@ -505,3 +505,152 @@ func TestEmptyAnswerRetryWithoutConfiguredEffort(t *testing.T) {
 		t.Fatalf("%v %v", err, seen)
 	}
 }
+
+// ADR-0054: a route whose provider reports an exhausted quota rests at once,
+// so later calls do not pay for the same failure again.
+func TestQuotaRestsRouteImmediately(t *testing.T) {
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if r.RouteID == "route/a" {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 429, Msg: "quota exceeded"}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	g, _, id := setup(t, f)
+	for i := 0; i < 4; i++ {
+		res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+		if err != nil || res.RouteID != "route/b" {
+			t.Fatalf("call %d: %v %v", i, res, err)
+		}
+	}
+	n := 0
+	for _, r := range f.Routes {
+		if r == "route/a" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("exhausted route was called %d times, want 1", n)
+	}
+	var a gateway.RouteHealth
+	for _, h := range g.Health() {
+		if h.RouteID == "route/a" {
+			a = h
+		}
+	}
+	if !a.Resting || a.RestingFor < 50 {
+		t.Fatalf("route/a should be resting: %+v", a)
+	}
+	if hs := g.Health(); hs[0].RouteID != "route/b" {
+		t.Fatalf("resting route should be tried last: %+v", hs)
+	}
+}
+
+// ADR-0054: a route that fails most of its recent calls is tried after the
+// healthy ones; old failures are forgotten.
+func TestUnhealthyRouteIsDemoted(t *testing.T) {
+	bad := true
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if r.RouteID == "route/a" && bad {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 500, Msg: "boom"}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	g, _, id := setup(t, f)
+	now := time.Now()
+	g.SetClockForTest(func() time.Time { return now })
+	call := func() string {
+		res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.RouteID
+	}
+	for i := 0; i < 4; i++ {
+		call()
+	}
+	before := f.CallCount()
+	if call() != "route/b" || f.CallCount() != before+1 {
+		t.Fatalf("demoted route was still tried first (%d calls)", f.CallCount()-before)
+	}
+	bad = false
+	now = now.Add(31 * time.Minute) // failures forgotten: configured order again
+	if got := call(); got != "route/a" {
+		t.Fatalf("route/a should lead again, got %s", got)
+	}
+}
+
+func tieredRoutes() map[string][]config.ModelRoute {
+	return map[string][]config.ModelRoute{
+		"standard": {{DisplayName: "A", APIModelID: "a", RouteID: "route/a", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000}},
+		"fast":     {{DisplayName: "F", APIModelID: "f", RouteID: "route/f", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000}},
+		"deep": {{DisplayName: "L", APIModelID: "l", RouteID: "route/log", Free: true, PromptLogging: "may_log", MaxOutputTokens: 1000},
+			{DisplayName: "D", APIModelID: "d", RouteID: "route/d", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000}},
+	}
+}
+
+// ADR-0054: when the tier has no working route, another tier's route answers.
+// Rescue never crosses the privacy rule, and it is off unless enabled.
+func TestTierRescue(t *testing.T) {
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if r.RouteID == "route/a" || r.RouteID == "route/d" {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 503, Msg: "down"}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	_, s, id := setup(t, f)
+	var events []string
+	mk := func(rescue bool) *gateway.Gateway {
+		g := gateway.New(f, tieredRoutes(), budget.New(s, 10))
+		g.SetBackoff(func(int) time.Duration { return time.Millisecond })
+		g.Rescue = rescue
+		g.Notify = func(ev string, _ map[string]any) { events = append(events, ev) }
+		return g
+	}
+	if _, err := mk(false).Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req()); !errors.Is(err, gateway.ErrAllRoutes) {
+		t.Fatalf("without rescue the tier must fail: %v", err)
+	}
+	f.Routes = nil
+	res, err := mk(true).Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	if err != nil || res.RouteID != "route/f" {
+		t.Fatalf("rescue: %+v %v", res, err)
+	}
+	for _, r := range f.Routes {
+		if r == "route/log" {
+			t.Fatal("a private task reached a prompt-logging route through rescue")
+		}
+	}
+	if !strings.Contains(strings.Join(events, ","), "R0_TIER_RESCUE") {
+		t.Fatalf("rescue not reported: %v", events)
+	}
+	q := req()
+	q.DataClass = "public"
+	f.Routes = nil
+	if res, err := mk(true).Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, q); err != nil || res.RouteID != "route/log" {
+		t.Fatalf("public rescue should use the first deep route: %+v %v", res, err)
+	}
+}
+
+// ADR-0054: when every route is resting, the one due back soonest is probed
+// rather than failing without an attempt.
+func TestAllRestingStillProbes(t *testing.T) {
+	down := true
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if down {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 429, Msg: "quota"}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	g, _, id := setup(t, f)
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req()); !errors.Is(err, gateway.ErrAllRoutes) {
+		t.Fatalf("want all routes failed, got %v", err)
+	}
+	down = false
+	before := f.CallCount()
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	if err != nil || f.CallCount() != before+1 {
+		t.Fatalf("resting routes were not probed: %v (%d calls)", err, f.CallCount()-before)
+	}
+	if res.RouteID != "route/a" {
+		t.Fatalf("probe should use the route due back soonest, got %s", res.RouteID)
+	}
+}

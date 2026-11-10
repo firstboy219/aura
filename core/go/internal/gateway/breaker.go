@@ -22,6 +22,7 @@ type breakerState struct {
 	openUntil time.Time
 	cool      time.Duration
 	probing   bool
+	forced    bool // one probe admitted before the cooldown ends
 }
 
 type breakers struct {
@@ -39,6 +40,10 @@ func (b *breakers) allow(key string) bool {
 	defer b.mu.Unlock()
 	s := b.m[key]
 	if s == nil || s.openUntil.IsZero() {
+		return true
+	}
+	if s.forced {
+		s.forced, s.probing = false, true
 		return true
 	}
 	if b.now().Before(s.openUntil) {
@@ -73,6 +78,50 @@ func (b *breakers) failure(key string) (opened bool, cool time.Duration) {
 		return true, s.cool
 	}
 	return false, 0
+}
+
+// rest opens the circuit at once for d (quota exhausted, no credit): repeating
+// the call cannot succeed. It returns true when the circuit was closed before.
+func (b *breakers) rest(key string, d time.Duration) (opened bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.m[key]
+	if s == nil {
+		s = &breakerState{}
+		b.m[key] = s
+	}
+	wasOpen := !s.openUntil.IsZero()
+	wasProbe := s.probing
+	s.probing = false
+	s.failures++
+	if s.cool == 0 || !wasProbe {
+		s.cool = d
+	} else {
+		s.cool = min(max(s.cool*2, d), breakerMaxCool*2)
+	}
+	s.openUntil = b.now().Add(s.cool)
+	return !wasOpen
+}
+
+// restingFor is how much longer the route's circuit stays open (0: usable).
+func (b *breakers) restingFor(key string) time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.m[key]
+	if s == nil || s.openUntil.IsZero() {
+		return 0
+	}
+	return max(s.openUntil.Sub(b.now()), 0)
+}
+
+// force admits one probe on an open circuit before its cooldown is over (used
+// only when no other route is left).
+func (b *breakers) force(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if s := b.m[key]; s != nil && !s.probing {
+		s.forced = true
+	}
 }
 
 // success records a good call; it returns true when it closed an open circuit.
