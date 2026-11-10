@@ -67,6 +67,9 @@ tools:
   web.search: { provider: wikipedia, wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800
+# Browser automation v1 (ADR-0039): the isolated browser host and the Core's egress proxy (the browser's only way out).
+browser: { socket: /run/aura-browser/browser.sock, proxy_listen: ":7480" }
+# and set server.deny_cidrs: ["172.31.250.0/24"] so the browser network can never reach the API.
 # Authenticated inbound webhooks (Blueprint §8.11, ADR-0034). The API listens on loopback only: an external sender needs
 # a TLS reverse proxy that you set up. Example (disabled):
 # webhooks:

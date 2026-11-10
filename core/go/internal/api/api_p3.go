@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -373,4 +374,26 @@ func (s *Server) l2Action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, t)
+}
+
+// browserCheck is an owner diagnostic of the browser stack (ADR-0039); no model.
+func (s *Server) browserCheck(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL          string   `json:"url"`
+		AllowDomains []string `json:"allow_domains"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	out, err := s.Engine.BrowserCheck(r.Context(), in.URL, in.AllowDomains)
+	if err != nil {
+		if errors.Is(err, engine.ErrInvalid) {
+			s.mapErr(w, r, err)
+			return
+		}
+		s.fail(w, r, 502, "browser_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, out)
 }

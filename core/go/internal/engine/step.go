@@ -588,6 +588,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	if strings.HasPrefix(c.ToolID, "l2.") {
 		return validateL2Args(s, c)
 	}
+	if strings.HasPrefix(c.ToolID, "browser.") {
+		return e.validateBrowserArgs(s, c)
+	}
 	return nil, "", "unknown_tool"
 }
 
@@ -629,6 +632,9 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	}
 	if strings.HasPrefix(spec.ID, "l2.") {
 		return e.executeL2(ctx, t, st, spec, args)
+	}
+	if strings.HasPrefix(spec.ID, "browser.") {
+		return e.executeBrowser(ctx, t, st, spec, args)
 	}
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":

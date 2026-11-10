@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,8 +24,10 @@ import (
 	"time"
 
 	"aura.local/core/internal/api"
+	"aura.local/core/internal/browser"
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/config"
+	"aura.local/core/internal/egress"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/mcp"
@@ -64,6 +67,7 @@ type App struct {
 	keyOK    bool
 	Vault    *vault.Vault // nil when secrets.master_key_file is not set
 	Sandbox  *sandbox.Runtime
+	Egress   *egress.Proxy // browser egress proxy (nil: browser automation off)
 	srv      *http.Server
 }
 
@@ -213,6 +217,11 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
 		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
+	if cfg.Browser.Socket != "" {
+		a.Egress = egress.New(tools.NewGuard(), log)
+		a.Egress.OnDeny = a.Engine.RecordEgressDenial
+		a.Engine.SetBrowser(browser.New(cfg.Browser.Socket), a.Egress)
+	}
 	if n := a.Engine.RegisterActiveL2(ctx); n > 0 {
 		log.Info("L2 tools registered", "count", n)
 	}
@@ -414,12 +423,54 @@ func (a *App) Serve(ctx context.Context) error {
 }
 
 // ServeListener is Serve on an existing listener.
+// denyListener closes connections from denied networks before any byte is read.
+type denyListener struct {
+	net.Listener
+	deny []netip.Prefix
+	log  *slog.Logger
+}
+
+func (l denyListener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		ap, perr := netip.ParseAddrPort(c.RemoteAddr().String())
+		denied := false
+		for _, p := range l.deny {
+			if perr == nil && p.Contains(ap.Addr().Unmap()) {
+				denied = true
+			}
+		}
+		if !denied {
+			return c, nil
+		}
+		l.log.Warn("API connection from a denied network closed", "remote", c.RemoteAddr().String())
+		c.Close()
+	}
+}
+
 func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
+	if len(a.Cfg.Server.DenyCIDRs) > 0 {
+		var deny []netip.Prefix
+		for _, c := range a.Cfg.Server.DenyCIDRs {
+			deny = append(deny, netip.MustParsePrefix(c))
+		}
+		ln = denyListener{Listener: ln, deny: deny, log: a.Log}
+	}
 	ectx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	engineDone := make(chan error, 1)
 	go func() { engineDone <- a.Engine.Run(ectx) }()
 	go a.maintain(ectx)
+	if a.Egress != nil {
+		go func() {
+			if err := a.Egress.Serve(ectx, a.Cfg.Browser.ProxyListen); err != nil {
+				a.Log.Error("browser egress proxy", "err", err)
+			}
+		}()
+	}
 	a.srv = &http.Server{Handler: a.API.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 32 << 10}
 	srvErr := make(chan error, 1)

@@ -1,6 +1,6 @@
 id: RS-8
 phase: "P4"
-status: placeholder
+status: implemented (fixture); real-model run pending (free quota exhausted 2026-11-10)  # engine/browser_test.go TestGovernedBrowsing
 scenario: "Approved browser session on a test business portal: inspect, prepare change, A2 approval, apply exact change, verify"
 proves: "Browser automation, session isolation, approval integrity, audit, recovery"
 # Fields below are required before this test is executable (Blueprint D.1 P0).

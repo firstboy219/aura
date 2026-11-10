@@ -73,6 +73,7 @@ func usage(w io.Writer) {
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
+  browser check <url> [--allow-domain D]   open a page through the isolated browser and egress proxy (no model)
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
@@ -361,7 +362,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
-		"self", "limitations", "limitation", "trigger", "notifications", "tools":
+		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -838,6 +839,31 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return nil
 	case "tools":
 		return toolsCmd(c, rest, stdin, stdout)
+	case "browser":
+		fs := flag.NewFlagSet("browser check", flag.ContinueOnError)
+		var domains multiFlag
+		fs.Var(&domains, "allow-domain", "domain the page may load from (repeatable; default: the URL's host)")
+		if len(rest) == 0 || rest[0] != "check" {
+			return usageErr("browser check <url> [--allow-domain D]...")
+		}
+		pos, err := parse(fs, rest[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return usageErr("browser check <url> [--allow-domain D]...")
+		}
+		if len(domains) == 0 {
+			if u, err := url.Parse(pos[0]); err == nil {
+				domains = append(domains, u.Hostname())
+			}
+		}
+		var out map[string]any
+		if err := c.do("POST", "/browser/check", map[string]any{"url": pos[0], "allow_domains": []string(domains)}, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+		return nil
 	case "approve":
 		fs := flag.NewFlagSet("approve", flag.ContinueOnError)
 		yes := fs.Bool("yes", false, "do not ask for confirmation")

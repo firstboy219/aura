@@ -54,7 +54,18 @@ var Manifest = map[string]ToolSpec{
 	"wait.event":     {ID: "wait.event", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.until":     {ID: "wait.until", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"agent.delegate": {ID: "agent.delegate", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
-	"workspace.read": {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	// Browser automation v1 (Blueprint 8.8.1, ADR-0039): reading and local page edits are A0 inside the task's domains;
+	// a click can submit a form or change data, so it needs an A2 approval bound to the page, element and typed values.
+	"browser.open":       {ID: "browser.open", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.inspect":    {ID: "browser.inspect", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.screenshot": {ID: "browser.screenshot", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.scroll":     {ID: "browser.scroll", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.wait":       {ID: "browser.wait", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.back":       {ID: "browser.back", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.type":       {ID: "browser.type", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.select":     {ID: "browser.select", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.click":      {ID: "browser.click", Version: "1", SideEffect: "write_external", Tier: func(map[string]any) Tier { return A2 }},
+	"workspace.read":     {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.write": {ID: "workspace.write", Version: "1", SideEffect: "write_idempotent", Tier: func(a map[string]any) Tier {
 		p, _ := a["path"].(string)
 		switch {

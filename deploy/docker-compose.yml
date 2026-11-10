@@ -22,9 +22,12 @@ services:
       - /opt/aura/config.yaml:/etc/aura/config.yaml:ro
       - /opt/aura/secrets:/run/aura-secrets:ro   # read by Core only; never in the worker environment
       - aura-worker-sock:/run/aura-worker        # the only path to the isolated worker (ADR-0035)
+      - aura-browser-sock:/run/aura-browser      # the browser host's command socket (ADR-0039)
     depends_on:
       aura-worker: { condition: service_healthy }
-    networks: [aura-net]
+      aura-browser: { condition: service_started }
+    # aura-browser-net: the browser reaches the Core's egress proxy (:7480, not published) and nothing else.
+    networks: [aura-net, aura-browser-net]
     cpus: 1.0
     mem_limit: 1g
     pids_limit: 256
@@ -67,7 +70,44 @@ services:
       retries: 3
       start_period: 5s
 
+  # Browser automation v1 (Blueprint 8.8.1, ADR-0039): Playwright + Chromium, its own uid, on an INTERNAL network with
+  # no route to the internet. Its only way out is the Core's egress proxy (per-session credentials, task domain
+  # allowlist, SSRF guard). It is driven by the Core through the socket volume; no data or secret mounts.
+  aura-browser:
+    build:
+      context: ..
+      dockerfile: deploy/browser.Dockerfile
+    image: aura-browser:local
+    container_name: aura-browser
+    command: ["--socket", "/run/aura-browser/browser.sock", "--allow-uid", "10001", "--proxy", "http://aura-core:7480"]
+    user: "10003:10003"
+    restart: unless-stopped
+    environment: { HOME: /tmp }
+    networks: [aura-browser-net]
+    volumes:
+      - aura-browser-sock:/run/aura-browser
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 512
+    shm_size: 256m
+    read_only: true
+    tmpfs: ["/tmp:size=512m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,stat,sys; sys.exit(0 if stat.S_ISSOCK(os.stat('/run/aura-browser/browser.sock').st_mode) else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 networks:
+  aura-browser-net:
+    name: aura-browser-net
+    internal: true   # no gateway: the browser cannot reach anything but containers on this network
+    ipam:
+      config: [{ subnet: 172.31.250.0/24 }]   # pinned so the Core API can refuse it (server.deny_cidrs)
   aura-net:
     name: aura-net
 
@@ -76,3 +116,5 @@ volumes:
     name: aura-data
   aura-worker-sock:
     name: aura-worker-sock
+  aura-browser-sock:
+    name: aura-browser-sock

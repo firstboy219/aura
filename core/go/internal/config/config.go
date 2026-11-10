@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
@@ -69,6 +70,9 @@ type Config struct {
 		Bind      string `yaml:"bind" json:"bind"`
 		TokenFile string `yaml:"token_file" json:"token_file"`
 		RatePerS  int    `yaml:"rate_per_second" json:"rate_per_second"`
+		// DenyCIDRs: connections from these networks are closed before any
+		// request is read (the browser network must never reach the API).
+		DenyCIDRs []string `yaml:"deny_cidrs" json:"deny_cidrs"`
 	} `yaml:"server" json:"server"`
 	Database struct {
 		Path      string `yaml:"path" json:"path"`
@@ -137,6 +141,12 @@ type Config struct {
 		Manifest  string `yaml:"manifest" json:"manifest"`
 		Required  bool   `yaml:"required" json:"required"` // refuse to start when verification fails
 	} `yaml:"release" json:"release"`
+	// Browser configures browser automation v1 (ADR-0039): the isolated browser
+	// host's socket and the Core's egress proxy (the browser's only way out).
+	Browser struct {
+		Socket      string `yaml:"socket" json:"socket"`             // "" disables browser tools
+		ProxyListen string `yaml:"proxy_listen" json:"proxy_listen"` // e.g. ":7480" on the internal browser network
+	} `yaml:"browser" json:"browser"`
 	// L2 configures AURA-built tools in the WASM sandbox (ADR-0038).
 	L2 struct {
 		PythonWASM string `yaml:"python_wasm" json:"python_wasm"` // pinned CPython WASI module; "" disables L2
@@ -221,6 +231,7 @@ func Default() *Config {
 	c.Tools.WebSearch.MaxResults = 8
 	c.Approvals.TTLSeconds = 1800
 	c.Release.Manifest = "/usr/local/share/aura/release.json"
+	c.Browser.ProxyListen = ":7480"
 	c.L2.PythonWASM, c.L2.CacheDir = "/usr/local/share/aura/python-3.12.0.wasm", "/var/lib/aura/wasm-cache"
 	c.PromptBudgetChars = map[string]int{"fast": 24000, "standard": 60000, "deep": 120000}
 	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
@@ -418,6 +429,11 @@ func (c *Config) Validate() error {
 		if !validTier(tier) || n < 4000 {
 			add("prompt_budget_chars: keys fast|standard|deep, each at least 4000")
 			break
+		}
+	}
+	for _, c := range c.Server.DenyCIDRs {
+		if _, err := netip.ParsePrefix(c); err != nil {
+			add("server.deny_cidrs: %s is not a CIDR", c)
 		}
 	}
 	hookNames := map[string]bool{}

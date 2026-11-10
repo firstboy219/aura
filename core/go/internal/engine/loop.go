@@ -417,6 +417,20 @@ func requiredArgs(ps *plannedStep) error {
 			return errors.New("brief is required")
 		}
 	default:
+		if *ps.ToolID == "browser.type" || *ps.ToolID == "browser.select" {
+			field := map[string]string{"browser.type": "text", "browser.select": "value"}[*ps.ToolID]
+			var m map[string]any
+			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
+				return fmt.Errorf("input must be a JSON object with %q", field)
+			}
+			if _, ok := m[field].(string); !ok {
+				return fmt.Errorf("input must set %q", field)
+			}
+			return nil
+		}
+		if strings.HasPrefix(*ps.ToolID, "browser.") {
+			return nil
+		}
 		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") {
 			var m map[string]any
 			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
@@ -511,6 +525,10 @@ func (e *Engine) execute(ctx context.Context, t *task.Task) error {
 			stepErr = e.runStep(ctx, cur, next, ps)
 		}
 		if err := stepErr; err != nil {
+			if strings.Contains(err.Error(), "site_blocked") {
+				// Blueprint 8.8.1 rule 6a: stop and record SITE_BLOCKED; no other route around the block.
+				return fmt.Errorf("site_blocked: %v", err)
+			}
 			if errors.Is(err, errStop) || !replannable(err) || cur.Replans >= maxReplans {
 				return err
 			}

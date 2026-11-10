@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"io"
 	"log/slog"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,5 +141,27 @@ func TestVaultReferenceWithoutMasterKeyFails(t *testing.T) {
 	cfg.Webhooks = []config.Webhook{{Name: "ci", SecretFile: "vault:hook-ci", EventKey: "k"}}
 	if _, err := Build(context.Background(), cfg, Options{Provider: &gatewaytest.Fake{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}); err == nil {
 		t.Fatal("started with a vault reference and no master key")
+	}
+}
+
+// The API refuses connections from denied networks before reading a request.
+func TestDenyCIDRs(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl := denyListener{Listener: ln, deny: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	go func() {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err == nil {
+			c.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+			time.Sleep(100 * time.Millisecond)
+			c.Close()
+		}
+		dl.Close()
+	}()
+	if c, err := dl.Accept(); err == nil {
+		c.Close()
+		t.Fatal("a connection from a denied network was accepted")
 	}
 }

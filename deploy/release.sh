@@ -11,6 +11,7 @@ KEY_DIR=${AURA_RELEASE_KEY_DIR:-/opt/aura/release}
 SITE=/usr/local/lib/python3.12/site-packages
 export AURA_VERSION="$VERSION"
 docker compose build
+# The browser image (Playwright, Chromium) is pinned upstream software and is not in the signed manifest yet (ADR-0039).
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/root/usr/local/bin" "$work/root$(dirname $SITE)" "$work/out"
 cid=$(docker create aura-core:local)

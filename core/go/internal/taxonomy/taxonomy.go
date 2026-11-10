@@ -23,6 +23,7 @@ const (
 	WorkerCrash         = "WORKER_CRASH"
 	InputTimeout        = "INPUT_TIMEOUT"
 	KillSwitch          = "KILL_SWITCH"
+	SiteBlocked         = "SITE_BLOCKED" // Blueprint 8.8.1 rule 6a
 	CancelledByOwner    = "CANCELLED_BY_OWNER"
 	InterruptedWatch    = "INTERRUPTED"
 	InternalError       = "INTERNAL_ERROR"
@@ -91,6 +92,8 @@ func Canonical(reason string) string {
 		return WorkerCrash
 	case strings.HasPrefix(r, "step_failed"), strings.HasPrefix(r, "tool_failed"), strings.HasPrefix(r, "subagent_"):
 		return ToolFailed
+	case strings.HasPrefix(r, "site_blocked"), strings.Contains(r, "site_blocked"):
+		return SiteBlocked
 	case strings.HasPrefix(r, "kill_switch"):
 		return KillSwitch
 	case strings.HasPrefix(r, "cancelled"), strings.HasPrefix(r, "ancestor_cancelled"):
@@ -109,6 +112,8 @@ func CandidateCause(code string) (cause string, confidence float64) {
 	switch code {
 	case ProviderUnavailable:
 		return CauseExternalDependency, 0.85
+	case SiteBlocked:
+		return CauseExternalDependency, 0.9 // the site refuses automated browsers: an owner decision (R6), never a bypass
 	case PolicyDenied, OwnerRejected, ApprovalExpired:
 		return CausePermissionBoundary, 0.9
 	case ModelOutputInvalid:

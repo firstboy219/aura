@@ -457,6 +457,7 @@ func (e *Engine) Stop(ctx context.Context, by string) (int, error) {
 	}
 	e.mu.Unlock()
 	e.sup.Kill()
+	e.CloseAllBrowserSessions()
 	n := 0
 	err := e.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, "select id from tasks where state in ('CREATED','PLANNING','RUNNING')")

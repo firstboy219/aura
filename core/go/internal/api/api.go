@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/skills", auth(s.listSkills))
 	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
 	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
+	mux.Handle("POST /api/v1/browser/check", auth(s.browserCheck))
 	mux.Handle("GET /api/v1/tools", auth(s.listL2))
 	mux.Handle("GET /api/v1/tools/{id}", auth(s.getL2))
 	mux.Handle("POST /api/v1/tools/{id}/{action}", auth(s.l2Action))

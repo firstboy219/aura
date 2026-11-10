@@ -48,6 +48,7 @@ type Engine struct {
 	docs        map[string]string // owner-written descriptions of MCP tools
 	charter     string            // owner Charter text ("" = not provided)
 	sbx         *sandbox.Runtime  // nil: L2 tools unavailable
+	brs         *browserState     // nil: browser automation unavailable
 	ledgerCfg   LedgerConfig
 	version     string
 	lastImprove time.Time
@@ -100,6 +101,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	if err := e.Recover(ctx); err != nil {
 		return err
 	}
+	e.CloseAllBrowserSessions() // sessions of a previous Core run are not resumable
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
@@ -246,6 +248,11 @@ func (e *Engine) drive(parent context.Context, t *task.Task) {
 		err = e.runTask(ctx, t)
 	}
 	e.finish(parent, t.ID, err)
+	// A finished task's browser session is closed (cookies and storage gone);
+	// a task waiting for an approval keeps its page for the approved click.
+	if cur, gerr := task.Get(parent, e.st.R, t.ID); gerr == nil && cur.State.Terminal() {
+		e.closeBrowserSession(t.ID)
+	}
 }
 
 // finish maps an execution error to the task's next state.

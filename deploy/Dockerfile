@@ -14,7 +14,8 @@ RUN pip install --no-cache-dir --root-user-action=ignore /tmp/worker && rm -rf /
  && useradd --system --uid 10001 --home-dir /var/lib/aura --shell /usr/sbin/nologin aura \
  && useradd --system --uid 10002 --home-dir /nonexistent --shell /usr/sbin/nologin aura-worker \
  && mkdir -p /var/lib/aura /run/aura-worker && chown aura:aura /var/lib/aura \
- && chown aura-worker:aura-worker /run/aura-worker && chmod 0755 /run/aura-worker
+ && chown aura-worker:aura-worker /run/aura-worker && chmod 0755 /run/aura-worker \
+ && mkdir -p /run/aura-browser && chown 10003:10003 /run/aura-browser && chmod 0755 /run/aura-browser
 COPY --from=core /out/aura /usr/local/bin/aura
 # L2 sandbox (ADR-0038): pinned CPython 3.12 WASI module, verified by sha256 at build time and again by the Core at start.
 ADD --checksum=sha256:e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a763 \
