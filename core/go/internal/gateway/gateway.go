@@ -219,6 +219,10 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 
 // attempt reserves budget, calls the provider with bounded retry on transient
 // errors, and reconciles every attempt.
+// ReasoningOff is the runtime reasoning setting of the OL-01 retry: reasoning
+// explicitly disabled (OpenRouter reasoning.effort "none"). Not a config value.
+const ReasoningOff = "none"
+
 func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute, req Request) (*Attempt, error) {
 	maxOut := req.MaxOutputTokens
 	if maxOut <= 0 || (route.MaxOutputTokens > 0 && maxOut > route.MaxOutputTokens) {
@@ -282,9 +286,11 @@ func (g *Gateway) attempt(ctx context.Context, b Budget, route config.ModelRoute
 			return nil, rerr
 		}
 		if contentErr != nil {
-			if contentErr.Msg == "empty_output" && route.ReasoningEffort != "" && !emptyRetried(ctx) {
+			// A model may reason by default without any configured effort, so the
+			// retry switches reasoning off explicitly (effort "none").
+			if contentErr.Msg == "empty_output" && !emptyRetried(ctx) {
 				g.notify("R0_EMPTY_ANSWER_RETRY", map[string]any{"route": route.RouteID, "reason": "retrying once with reasoning disabled"})
-				route.ReasoningEffort = ""
+				route.ReasoningEffort = ReasoningOff
 				ctx = context.WithValue(ctx, emptyRetryKey{}, true)
 				continue
 			}

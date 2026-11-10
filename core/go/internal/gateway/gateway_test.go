@@ -161,6 +161,15 @@ func TestOpenRouterAdapter(t *testing.T) {
 	if rf["type"] != "json_schema" || got["model"] != "route/a" {
 		t.Fatalf("%v", got)
 	}
+	// OL-01 retry: reasoning is switched off explicitly, not merely omitted.
+	off := routes["standard"][0]
+	off.ReasoningEffort = gateway.ReasoningOff
+	if _, err := or.Complete(context.Background(), off, req()); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := got["reasoning"].(map[string]any); r["effort"] != "none" {
+		t.Fatalf("reasoning not disabled explicitly: %v", got["reasoning"])
+	}
 	var buf bytes.Buffer
 	slog.New(obs.Handler{Handler: slog.NewJSONHandler(&buf, nil)}).Info("req", "auth", "Bearer "+key)
 	if strings.Contains(buf.String(), key) {
@@ -431,7 +440,7 @@ func TestEmptyAnswerAndToolMarkup(t *testing.T) {
 	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
 		seen = append(seen, r.RouteID+"|"+r.ReasoningEffort)
 		switch {
-		case r.RouteID == "route/a" && r.ReasoningEffort != "":
+		case r.RouteID == "route/a" && r.ReasoningEffort != gateway.ReasoningOff:
 			return gatewaytest.Reply{Content: "   "}
 		case r.RouteID == "route/a":
 			return gatewaytest.Reply{Content: `{"answer":"after retry"}`}
@@ -446,7 +455,7 @@ func TestEmptyAnswerAndToolMarkup(t *testing.T) {
 	var events []string
 	g.Notify = func(ev string, _ map[string]any) { events = append(events, ev) }
 	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
-	if err != nil || res.RouteID != "route/a" || strings.Join(seen, ",") != "route/a|medium,route/a|" {
+	if err != nil || res.RouteID != "route/a" || strings.Join(seen, ",") != "route/a|medium,route/a|none" {
 		t.Fatalf("%v %+v %v", err, res, seen)
 	}
 	if strings.Join(events, ",") != "R0_EMPTY_ANSWER_RETRY" {
@@ -474,5 +483,25 @@ func TestEmptyAnswerAndToolMarkup(t *testing.T) {
 	s.R.QueryRow("select count(*) from usage_records where outcome='tool_call_markup'").Scan(&markup)
 	if err != nil || res.RouteID != "route/b" || markup != 1 {
 		t.Fatalf("%v %+v markup=%d", err, res, markup)
+	}
+}
+
+// OL-01 also covers routes that reason by default without a configured effort
+// (free reasoning models returning empty content).
+func TestEmptyAnswerRetryWithoutConfiguredEffort(t *testing.T) {
+	var seen []string
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		seen = append(seen, r.ReasoningEffort)
+		if r.ReasoningEffort != gateway.ReasoningOff {
+			return gatewaytest.Reply{Content: ""}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	_, s, id := setup(t, f)
+	plain := map[string][]config.ModelRoute{"standard": {{DisplayName: "A", APIModelID: "a", RouteID: "route/a", PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 100}}}
+	g := gateway.New(f, plain, budget.New(s, 10))
+	res, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	if err != nil || res.RouteID != "route/a" || strings.Join(seen, ",") != ",none" {
+		t.Fatalf("%v %v", err, seen)
 	}
 }

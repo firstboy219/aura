@@ -61,7 +61,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 
 | ID | Status | Note |
 |---|---|---|
-| OL-01 empty answers / reasoning | ✔ | Explicit reasoning setting per route; empty content retried once with reasoning off; recorded. |
+| OL-01 empty answers / reasoning | ✔ | Explicit reasoning setting per route; empty content retried once with reasoning **explicitly** off (`reasoning.effort: "none"`, also for routes that reason by default without a configured effort — found by the eval: free Nemotron routes returned empty content in 8 of 22 calls of one task); recorded. |
 | OL-02 raw tool-call markup | ✔ | Treated as failed attempt, audited. |
 | OL-03 free endpoints | ◐ | **Deviation (owner choice, A-20):** free routes are first in each tier because OpenRouter credit is 0; they serve only tasks marked public. Circuit breaker marks failing routes; **no pre-enable probe call** yet (the catalog check is a probe without spend). |
 | OL-04 orphaned runs / leases | ✔ | Leases, startup reconciliation, watch runs interrupted by a crash are failed. |

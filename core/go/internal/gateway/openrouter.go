@@ -86,7 +86,10 @@ func (o *OpenRouter) Complete(ctx context.Context, route config.ModelRoute, req 
 			body.Provider = map[string]any{"require_parameters": true}
 		}
 	}
-	if route.ReasoningEffort != "" && o.extras {
+	switch {
+	case route.ReasoningEffort == ReasoningOff && o.extras:
+		body.Reasoning = map[string]any{"effort": "none"} // explicitly off (OL-01 retry)
+	case route.ReasoningEffort != "" && o.extras:
 		body.Reasoning = map[string]any{"effort": route.ReasoningEffort, "exclude": true}
 	}
 	b, _ := json.Marshal(body)
