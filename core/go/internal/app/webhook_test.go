@@ -1,9 +1,13 @@
 package app
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +16,9 @@ import (
 	"time"
 
 	"aura.local/core/internal/config"
+	"aura.local/core/internal/gateway/gatewaytest"
+	"aura.local/core/internal/store"
+	"aura.local/core/internal/vault"
 )
 
 const hookSecret = "0123456789abcdef0123456789abcdef-test"
@@ -88,5 +95,49 @@ func TestWebhookConfigValidation(t *testing.T) {
 		if _, err := config.Parse([]byte("config_version: 1\n"+y+"\n"), func(string) string { return "" }); err == nil {
 			t.Fatalf("accepted %q", y)
 		}
+	}
+}
+
+// ADR-0036: a configured secret may be "vault:<name>"; it is decrypted at start.
+func TestVaultSecretReference(t *testing.T) {
+	var keyFile string
+	e := newEnvWith(t, 100, func(cfg *config.Config, dir string) {
+		keyFile = filepath.Join(dir, "master.key")
+		if _, err := vault.GenerateKeyFile(keyFile); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Secrets.MasterKeyFile = keyFile
+		v, err := OpenVault(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, err := store.Open(context.Background(), cfg.Database.Path, cfg.Database.BackupDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Write(context.Background(), func(tx *sql.Tx) error { return v.Put(context.Background(), tx, "hook-ci", hookSecret) })
+		st.Close()
+		cfg.Webhooks = []config.Webhook{{Name: "ci", SecretFile: "vault:hook-ci", EventKey: "build-7"}}
+	})
+	if string(e.a.API.Webhooks["ci"].Secret) != hookSecret {
+		t.Fatal("vault reference not resolved")
+	}
+	body := `{"ok":true}`
+	if resp, _ := e.req("POST", "/api/v1/webhooks/ci", body, signed(body, time.Now(), hookSecret)); resp.StatusCode != 202 {
+		t.Fatalf("webhook with a vault secret: %d", resp.StatusCode)
+	}
+}
+
+func TestVaultReferenceWithoutMasterKeyFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := config.Parse([]byte("config_version: 1\n"), func(string) string { return "" })
+	cfg.Server.TokenFile = filepath.Join(dir, "api_token")
+	cfg.Database.Path = filepath.Join(dir, "aura.db")
+	cfg.Database.BackupDir = filepath.Join(dir, "backups")
+	cfg.Workspace.Root = filepath.Join(dir, "ws")
+	cfg.Worker.ScratchRoot = filepath.Join(dir, "scratch")
+	cfg.Webhooks = []config.Webhook{{Name: "ci", SecretFile: "vault:hook-ci", EventKey: "k"}}
+	if _, err := Build(context.Background(), cfg, Options{Provider: &gatewaytest.Fake{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}); err == nil {
+		t.Fatal("started with a vault reference and no master key")
 	}
 }

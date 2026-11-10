@@ -38,7 +38,8 @@ resources shared with other workloads on the host.
   `deploy/checks/worker-isolation.sh`. The boundary is Docker on a shared kernel; no extra seccomp/Landlock profile yet.
 - Docker is a deployment boundary from co-resident products, not a hostile-code sandbox.
 - The provider key is a copy of another product's key (A-04, open conflict with §15): AURA's budget bounds AURA's calls, not the other product's.
-- No encryption at rest for secrets in P1 (file permissions only); encrypted storage and rotation are P4.
+- ~~No encryption at rest~~ — **P4 (ADR-0036):** secrets are AES-256-GCM in the database with a separate 0400 master key; rotation
+  and backup/restore are tested. The master key is on the same host (protects data/backup copies, not a compromised host).
 
 ## 5. Permanent prohibitions (§3.1)
 No unrestricted LLM-generated code or shell; no offensive operations; no CAPTCHA/MFA/paywall/anti-bot bypass; no

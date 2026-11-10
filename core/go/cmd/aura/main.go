@@ -29,6 +29,7 @@ import (
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/rpc"
 	"aura.local/core/internal/store"
+	"aura.local/core/internal/vault"
 	"aura.local/core/internal/worker"
 	"aura.local/core/internal/workerhost"
 	tea "github.com/charmbracelet/bubbletea"
@@ -69,12 +70,119 @@ func usage(w io.Writer) {
   approvals                     list pending approvals
   stop --all [--yes]            kill switch
   resources                     resource and worker state
+  secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
   worker-host [--socket P]      (isolated worker container) serve workers over a Unix socket
   worker-connect [--socket P]   (Core) bridge the worker supervisor to the worker host
 
 Environment: AURA_CONFIG (default /etc/aura/config.yaml), AURA_URL (default http://127.0.0.1:7400),
 AURA_TOKEN_FILE (default: server.token_file from the config).
 `)
+}
+
+func vaultSecret(cfg *config.Config, name string) (string, error) {
+	v, err := app.OpenVault(cfg)
+	if err != nil {
+		return "", err
+	}
+	if v == nil {
+		return "", errors.New("secrets.master_key_file is not set")
+	}
+	db, err := sql.Open("sqlite", "file:"+cfg.Database.Path+"?mode=ro")
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	return v.Get(context.Background(), db, name)
+}
+
+// secretsCmd manages the encrypted secret store (ADR-0036). It runs where the
+// Core runs (same config and database) and never prints a secret value.
+func secretsCmd(args []string, stdin io.Reader, stdout io.Writer) error {
+	const use = "secrets keygen <file> | import <name> (--from-file <path> | --stdin) | list | rotate"
+	if len(args) == 0 {
+		return usageErr(use)
+	}
+	if args[0] == "keygen" {
+		if len(args) != 2 {
+			return usageErr("secrets keygen <file>")
+		}
+		id, err := vault.GenerateKeyFile(args[1])
+		if err == nil {
+			fmt.Fprintf(stdout, "new master key written to %s (mode 0400, key %s); keep a copy outside the server\n", args[1], id)
+		}
+		return err
+	}
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return err
+	}
+	v, err := app.OpenVault(cfg)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return errors.New("set secrets.master_key_file in the config first (create one with: aura secrets keygen <file>)")
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, cfg.Database.Path, cfg.Database.BackupDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	switch args[0] {
+	case "import":
+		fs := flag.NewFlagSet("secrets import", flag.ContinueOnError)
+		from := fs.String("from-file", "", "read the value from this 0400 file")
+		useStdin := fs.Bool("stdin", false, "read the value from stdin")
+		pos, err := parse(fs, args[1:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 || (*from == "") == !*useStdin {
+			return usageErr("secrets import <name> (--from-file <path> | --stdin)")
+		}
+		var value string
+		if *from != "" {
+			value, err = config.ReadSecret(*from)
+		} else {
+			var b []byte
+			b, err = io.ReadAll(io.LimitReader(stdin, 16<<10+1))
+			value = strings.TrimSpace(string(b))
+		}
+		if err != nil {
+			return err
+		}
+		if err := st.Write(ctx, func(tx *sql.Tx) error { return v.Put(ctx, tx, pos[0], value) }); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "stored %s encrypted (key %s); reference it as %s%s\n", pos[0], v.CurrentKeyID(), vault.RefPrefix, pos[0])
+	case "list":
+		infos, err := vault.List(ctx, st.R)
+		if err != nil {
+			return err
+		}
+		for _, i := range infos {
+			mark := ""
+			if i.KeyID != v.CurrentKeyID() {
+				mark = "  (old key: run aura secrets rotate)"
+			}
+			fmt.Fprintf(stdout, "%-24s key %s  updated %s%s\n", i.Name, i.KeyID, time.UnixMilli(i.UpdatedAt).UTC().Format(time.RFC3339), mark)
+		}
+	case "rotate":
+		var n int
+		err := st.Write(ctx, func(tx *sql.Tx) error {
+			var err error
+			n, err = v.Rotate(ctx, tx)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "re-encrypted %d secret(s) under key %s; secrets.previous_key_file can now be removed\n", n, v.CurrentKeyID())
+	default:
+		return usageErr(use)
+	}
+	return nil
 }
 
 // workerHost runs in the isolated worker container (ADR-0035).
@@ -120,6 +228,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return doctor(stdout)
 	case "console":
 		err = runConsole()
+	case "secrets":
+		err = secretsCmd(args[1:], stdin, stdout)
 	case "worker-host":
 		err = workerHost(args[1:])
 	case "worker-connect":
@@ -204,9 +314,20 @@ func doctor(out io.Writer) int {
 	}
 	if cfg.Providers.OpenRouter.KeyFile == "" {
 		warn("provider_key", "providers.openrouter.key_file not set; model calls will fail")
+	} else if name, ok := strings.CutPrefix(cfg.Providers.OpenRouter.KeyFile, vault.RefPrefix); ok {
+		_, err := vaultSecret(cfg, name)
+		check("provider_key", err, "encrypted in the vault, decrypts with the master key (value not shown)")
 	} else {
 		_, err := config.ReadSecret(cfg.Providers.OpenRouter.KeyFile)
 		check("provider_key", err, "mode and owner ok (value not shown)")
+	}
+	if cfg.Secrets.MasterKeyFile != "" {
+		v, err := app.OpenVault(cfg)
+		detail := ""
+		if err == nil {
+			detail = "loaded, key " + v.CurrentKeyID()
+		}
+		check("master_key", err, detail)
 	}
 	if _, err := os.Stat(cfg.Database.Path); err == nil {
 		v, applied, err := dbInfo(cfg.Database.Path)

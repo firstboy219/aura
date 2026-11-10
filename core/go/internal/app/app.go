@@ -32,6 +32,7 @@ import (
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/tools"
+	"aura.local/core/internal/vault"
 	"aura.local/core/internal/worker"
 )
 
@@ -60,6 +61,7 @@ type App struct {
 	MCP      map[string]*mcp.Client
 	Log      *slog.Logger
 	keyOK    bool
+	Vault    *vault.Vault // nil when secrets.master_key_file is not set
 	srv      *http.Server
 }
 
@@ -90,6 +92,10 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Store = st
 	log.Info("store open", "path", cfg.Database.Path, "sqlite", st.SQLiteVersion())
+	if a.Vault, err = OpenVault(cfg); err != nil {
+		st.Close()
+		return nil, err
+	}
 
 	token, err := EnsureToken(cfg.Server.TokenFile)
 	if err != nil {
@@ -104,7 +110,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			log.Warn("no provider key file configured; model calls will fail with provider_not_configured")
 			prov = unconfigured{}
 		} else {
-			key, err := config.ReadSecret(cfg.Providers.OpenRouter.KeyFile)
+			key, err := a.secret(ctx, cfg.Providers.OpenRouter.KeyFile)
 			if err != nil {
 				st.Close()
 				return nil, err
@@ -124,7 +130,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	a.Governor.SetLocation(cfg.Location())
 	provs := map[string]gateway.Provider{"openrouter": prov}
 	for _, p := range cfg.Providers.OpenAICompatible {
-		key, err := config.ReadSecret(p.KeyFile)
+		key, err := a.secret(ctx, p.KeyFile)
 		if err != nil {
 			st.Close()
 			return nil, err
@@ -159,7 +165,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		case "wikipedia":
 			srch = tools.NewWikipedia(tools.NewGuard(), cfg.Tools.WebSearch.WikipediaLang)
 		case "brave":
-			key, err := config.ReadSecret(cfg.Tools.WebSearch.BraveKeyFile)
+			key, err := a.secret(ctx, cfg.Tools.WebSearch.BraveKeyFile)
 			if err != nil {
 				st.Close()
 				return nil, err
@@ -178,7 +184,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		})
 		charter = ""
 	}
-	clients, docs, err := buildMCP(cfg, log)
+	clients, docs, err := buildMCP(ctx, cfg, log, a.secret)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -193,13 +199,51 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{}}
 	for _, h := range cfg.Webhooks {
-		secret, err := config.ReadSecret(h.SecretFile)
+		secret, err := a.secret(ctx, h.SecretFile)
 		if err != nil || len(secret) < 32 {
 			return nil, fmt.Errorf("webhook %s: secret_file must hold at least 32 bytes", h.Name)
 		}
 		a.API.Webhooks[h.Name] = api.Webhook{Secret: []byte(secret), EventKey: h.EventKey}
 	}
 	return a, nil
+}
+
+// OpenVault loads the master key (and the previous one during a rotation).
+func OpenVault(cfg *config.Config) (*vault.Vault, error) {
+	if cfg.Secrets.MasterKeyFile == "" {
+		return nil, nil
+	}
+	load := func(path string) ([]byte, error) {
+		text, err := config.ReadSecret(path)
+		if err != nil {
+			return nil, err
+		}
+		return vault.ParseKey(text)
+	}
+	cur, err := load(cfg.Secrets.MasterKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("secrets.master_key_file: %w", err)
+	}
+	var prev []byte
+	if cfg.Secrets.PreviousKeyFile != "" {
+		if prev, err = load(cfg.Secrets.PreviousKeyFile); err != nil {
+			return nil, fmt.Errorf("secrets.previous_key_file: %w", err)
+		}
+	}
+	return vault.New(cur, prev)
+}
+
+// secret resolves a configured secret reference: "vault:<name>" from the
+// encrypted store, anything else as a 0400 file (ADR-0036).
+func (a *App) secret(ctx context.Context, ref string) (string, error) {
+	name, ok := strings.CutPrefix(ref, vault.RefPrefix)
+	if !ok {
+		return config.ReadSecret(ref)
+	}
+	if a.Vault == nil {
+		return "", fmt.Errorf("secret %q needs secrets.master_key_file", ref)
+	}
+	return a.Vault.Get(ctx, a.Store.R, name)
 }
 
 func (a *App) ready(ctx context.Context) map[string]string {
@@ -408,7 +452,7 @@ func LoadCharter(path, sha string) (string, error) {
 
 // buildMCP starts nothing yet: it registers the owner-declared MCP tools in the
 // trusted manifest and prepares one client per server (started on first use).
-func buildMCP(cfg *config.Config, log *slog.Logger) (map[string]*mcp.Client, map[string]string, error) {
+func buildMCP(ctx context.Context, cfg *config.Config, log *slog.Logger, secret func(context.Context, string) (string, error)) (map[string]*mcp.Client, map[string]string, error) {
 	clients := map[string]*mcp.Client{}
 	docs := map[string]string{}
 	for _, s := range cfg.MCP.Servers {
@@ -417,7 +461,7 @@ func buildMCP(cfg *config.Config, log *slog.Logger) (map[string]*mcp.Client, map
 			env = append(env, k+"="+v)
 		}
 		if s.KeyFile != "" {
-			key, err := config.ReadSecret(s.KeyFile)
+			key, err := secret(ctx, s.KeyFile)
 			if err != nil {
 				return nil, nil, err
 			}

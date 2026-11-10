@@ -130,7 +130,13 @@ type Config struct {
 		OnTimeout          string `yaml:"on_timeout" json:"on_timeout"` // fail | continue (with stated assumptions)
 	} `yaml:"inputs" json:"inputs"`
 	Webhooks []Webhook `yaml:"webhooks" json:"webhooks"`
-	MCP      struct {
+	// Secrets configures the encrypted secret store (ADR-0036). Any *_file secret
+	// setting may then be "vault:<name>" instead of a file path.
+	Secrets struct {
+		MasterKeyFile   string `yaml:"master_key_file" json:"master_key_file"`
+		PreviousKeyFile string `yaml:"previous_key_file" json:"previous_key_file"` // only during a key rotation
+	} `yaml:"secrets" json:"secrets"`
+	MCP struct {
 		Servers []MCPServer `yaml:"servers" json:"servers"`
 	} `yaml:"mcp" json:"mcp"`
 	// Improvement configures the closed self-improvement loop (Blueprint §8A.5).

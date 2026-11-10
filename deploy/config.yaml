@@ -71,6 +71,9 @@ approvals:
 # a TLS reverse proxy that you set up. Example (disabled):
 # webhooks:
 #   - { name: ci, secret_file: /opt/aura/secrets/webhook_ci, event_key: build-42 }
+# Encrypted secrets at rest (ADR-0036): create a key with `aura secrets keygen /run/aura-secrets/master.key`, then
+# `aura secrets import openrouter --from-file /run/aura-secrets/openrouter_key` and use key_file: "vault:openrouter".
+# secrets: { master_key_file: /run/aura-secrets/master.key }
 # Per-tier prompt budget in characters (Blueprint OL-05): observations are trimmed to fit.
 prompt_budget_chars: { fast: 24000, standard: 60000, deep: 120000 }
 # Unanswered clarification questions (Blueprint §8.2, ADR-0032): one reminder, then fail (or continue with stated assumptions).
