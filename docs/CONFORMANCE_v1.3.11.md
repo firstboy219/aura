@@ -46,7 +46,7 @@ Legend: ✔ met · ◐ partial (what is missing is stated) · ✘ not met · —
 | §8.8 tools | ✔ | `web.fetch`, `web.search` (Wikipedia/Brave), `data.read`, `calc` (exact), `workspace.*`, MCP adapter. Browser automation is P4 (—). |
 | §8.9 memory | ◐ | FTS5 memory with provenance, evidence gate, correction/deletion. **Embeddings/hybrid retrieval not built** (optional per Blueprint). |
 | §8.10 learning L1 | ✔ | Lessons, evidence-gated facts, skills (versioned, diff, rollback). |
-| §8.11 triggers | ◐ | Recurring schedules (interval, daily in workspace zone) ✔. **Authenticated inbound webhooks** are only the bearer-token `POST /events`; no signed webhook sources. |
+| §8.11 triggers | ◐ | Recurring schedules (interval, daily in workspace zone) ✔. Authenticated inbound webhooks ✔ (ADR-0034): `POST /webhooks/{name}` with HMAC-SHA256 over timestamp + body, ±5 min window, per-delivery dedup, 16 KiB cap, audited; each webhook raises one configured external event (wakes waiting tasks; cannot start or change a task). The API is loopback-only, so external senders need an owner-provided TLS reverse proxy. |
 | §8.11.1 proactive intelligence | ✔ | Read-only watches of public sources, hash change detection (0 model calls when unchanged), findings with source/time/confidence/relevance/next step, injection test. Connected-app watches wait for P5. |
 | §8.12 observability / retention | ◐ | Events, audit, redaction, daily purge of expired content ✔. CPU/RAM time-series sampling not built (scorecard reads point-in-time RSS); energy reported as unavailable. |
 | §8.2.1 Persistent Supervisor | ✔ | Durable waits, exactly-once wake across restarts (RS-10), no model calls while idle. |

@@ -129,7 +129,8 @@ type Config struct {
 		TimeoutSeconds     int    `yaml:"timeout_seconds" json:"timeout_seconds"`
 		OnTimeout          string `yaml:"on_timeout" json:"on_timeout"` // fail | continue (with stated assumptions)
 	} `yaml:"inputs" json:"inputs"`
-	MCP struct {
+	Webhooks []Webhook `yaml:"webhooks" json:"webhooks"`
+	MCP      struct {
 		Servers []MCPServer `yaml:"servers" json:"servers"`
 	} `yaml:"mcp" json:"mcp"`
 	// Improvement configures the closed self-improvement loop (Blueprint §8A.5).
@@ -152,6 +153,14 @@ type Config struct {
 
 // MCPServer is an owner-declared MCP server (ADR-0020). Only the tools listed
 // here are exposed, with the tier and side-effect class the owner set.
+// Webhook is an authenticated inbound webhook (Blueprint §8.11, ADR-0034): a
+// request signed with the secret raises the external event EventKey.
+type Webhook struct {
+	Name       string `yaml:"name" json:"name"`
+	SecretFile string `yaml:"secret_file" json:"secret_file"` // >= 32 bytes, HMAC-SHA256 key
+	EventKey   string `yaml:"event_key" json:"event_key"`
+}
+
 type MCPServer struct {
 	Name           string             `yaml:"name" json:"name"`
 	Command        []string           `yaml:"command" json:"command"`
@@ -391,6 +400,14 @@ func (c *Config) Validate() error {
 			break
 		}
 	}
+	hookNames := map[string]bool{}
+	for _, h := range c.Webhooks {
+		if !webhookNameRe.MatchString(h.Name) || hookNames[h.Name] || h.SecretFile == "" || !eventKeyRe.MatchString(h.EventKey) {
+			add("webhooks: each needs a unique name [a-z0-9-]{1,40}, a secret_file and an event_key [A-Za-z0-9._:-]{1,100}")
+			break
+		}
+		hookNames[h.Name] = true
+	}
 	if c.Approvals.TTLSeconds <= 0 {
 		add("approvals.ttl_seconds must be positive")
 	}
@@ -403,6 +420,11 @@ func (c *Config) Validate() error {
 	}
 	return nil
 }
+
+var (
+	webhookNameRe = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+	eventKeyRe    = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,100}$`)
+)
 
 func validTier(t string) bool {
 	for _, x := range Tiers {

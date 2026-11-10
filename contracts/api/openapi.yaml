@@ -152,6 +152,19 @@ paths:
       responses:
         '202': { description: Recorded, content: { application/json: { schema: { type: object, properties: { id: { type: string }, duplicate: { type: boolean } } } } } }
         '200': { description: Duplicate (already recorded) }
+  /webhooks/{name}:
+    post:
+      operationId: postWebhook
+      security: []
+      description: "Authenticated inbound webhook (ADR-0034). No bearer token; the request must carry X-Aura-Timestamp (unix seconds, within 5 minutes) and X-Aura-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + '.' + body)>. Optional X-Aura-Delivery deduplicates. The JSON body (at most 16 KiB) becomes the payload of the webhook's configured external event."
+      parameters: [ { name: name, in: path, required: true, schema: { type: string, pattern: '^[a-z0-9-]{1,40}$' } } ]
+      requestBody: { required: true, content: { application/json: { schema: {} } } }
+      responses:
+        '202': { description: Event recorded, content: { application/json: { schema: { type: object, properties: { id: { type: string }, duplicate: { type: boolean } } } } } }
+        '200': { description: Duplicate delivery (already recorded) }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
   /tasks/{id}/cancel:
     post: { operationId: cancelTask, parameters: [ { $ref: '#/components/parameters/TaskId' } ], responses: { '200': { $ref: '#/components/responses/TaskOK' }, '409': { $ref: '#/components/responses/Error' } } }
   /tasks/{id}/pause:

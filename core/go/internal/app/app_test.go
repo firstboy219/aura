@@ -34,6 +34,11 @@ type env struct {
 
 func newEnv(t *testing.T, rate int) *env {
 	t.Helper()
+	return newEnvWith(t, rate, nil)
+}
+
+func newEnvWith(t *testing.T, rate int, tweak func(cfg *config.Config, dir string)) *env {
+	t.Helper()
 	dir := t.TempDir()
 	cfg, _ := config.Parse([]byte("config_version: 1\n"), func(string) string { return "" })
 	cfg.Server.TokenFile = filepath.Join(dir, "api_token")
@@ -44,6 +49,9 @@ func newEnv(t *testing.T, rate int) *env {
 	cfg.Worker.ScratchRoot = filepath.Join(dir, "scratch")
 	cfg.Models = map[string][]config.ModelRoute{"standard": {{DisplayName: "S", APIModelID: "s", RouteID: "fake/s",
 		PriceInPerMTok: 1, PriceOutPerMTok: 2, MaxOutputTokens: 1000}}}
+	if tweak != nil {
+		tweak(cfg, dir)
+	}
 	fake := &gatewaytest.Fake{Respond: func(config.ModelRoute, gateway.Request) gatewaytest.Reply {
 		return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 400, Msg: "not used"}}
 	}}

@@ -65,6 +65,10 @@ tools:
   web.search: { provider: wikipedia, wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800
+# Authenticated inbound webhooks (Blueprint §8.11, ADR-0034). The API listens on loopback only: an external sender needs
+# a TLS reverse proxy that you set up. Example (disabled):
+# webhooks:
+#   - { name: ci, secret_file: /opt/aura/secrets/webhook_ci, event_key: build-42 }
 # Per-tier prompt budget in characters (Blueprint OL-05): observations are trimmed to fit.
 prompt_budget_chars: { fast: 24000, standard: 60000, deep: 120000 }
 # Unanswered clarification questions (Blueprint §8.2, ADR-0032): one reminder, then fail (or continue with stated assumptions).

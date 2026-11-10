@@ -191,7 +191,14 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
-		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks}
+		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{}}
+	for _, h := range cfg.Webhooks {
+		secret, err := config.ReadSecret(h.SecretFile)
+		if err != nil || len(secret) < 32 {
+			return nil, fmt.Errorf("webhook %s: secret_file must hold at least 32 bytes", h.Name)
+		}
+		a.API.Webhooks[h.Name] = api.Webhook{Secret: []byte(secret), EventKey: h.EventKey}
+	}
 	return a, nil
 }
 

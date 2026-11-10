@@ -45,6 +45,8 @@ type Server struct {
 	RatePerSec int
 	// AcceptTasks returns an error code (e.g. "disk_pressure") when new tasks must be refused.
 	AcceptTasks func() string
+	// Webhooks are the configured inbound webhooks by name (ADR-0034).
+	Webhooks map[string]Webhook
 
 	once sync.Once
 	lim  *limiter
@@ -76,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/tasks/{id}/input", auth(s.answer))
 	mux.Handle("POST /api/v1/tasks/{id}/priority", auth(s.priority))
 	mux.Handle("POST /api/v1/events", auth(s.event))
+	mux.HandleFunc("POST /api/v1/webhooks/{name}", s.webhook) // HMAC-signed, no bearer token
 	mux.Handle("GET /api/v1/tasks/{id}/tree", auth(s.tree))
 	mux.Handle("GET /api/v1/tasks/{id}/timeline", auth(s.timeline))
 	mux.Handle("GET /api/v1/tasks/{id}/files", auth(s.files))
