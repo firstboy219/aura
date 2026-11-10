@@ -135,6 +135,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/profile/{id}/{action}", auth(s.profileAction))
 	mux.Handle("POST /api/v1/tasks/{id}/context", auth(s.addContext))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", auth(s.taskAction))
+	mux.Handle("GET /api/v1/admin/members", auth(s.listMembers))
+	mux.Handle("POST /api/v1/admin/members", auth(s.createMember))
+	mux.Handle("POST /api/v1/admin/members/{id}/disable", auth(s.disableMember))
+	mux.Handle("GET /api/v1/admin/budget", auth(s.getBudget))
+	mux.Handle("PUT /api/v1/admin/budget", auth(s.putBudget))
+	mux.Handle("GET /api/v1/admin/credentials", auth(s.listCredentials))
+	mux.Handle("PUT /api/v1/admin/credentials/{name}", auth(s.putCredential))
+	mux.Handle("DELETE /api/v1/admin/credentials/{name}", auth(s.deleteCredential))
 	mux.Handle("GET /api/v1/approvals", auth(s.listApprovals))
 	mux.Handle("POST /api/v1/approvals/{id}/{decision}", auth(s.decide))
 	mux.Handle("GET /api/v1/system/resources", auth(s.resources))
@@ -178,6 +186,12 @@ func (s *Server) authed(next http.HandlerFunc) http.Handler {
 		h := r.Header.Get("Authorization")
 		tok, ok := strings.CutPrefix(h, "Bearer ")
 		bearer := ok && s.Token != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) == 1
+		principal := Principal{ID: "owner", Name: "owner", Role: RoleOwner}
+		if !bearer && ok {
+			if m, found := s.memberByToken(r, tok); found {
+				bearer, principal = true, m
+			}
+		}
 		if !bearer {
 			// The Web App's session cookie counts only on the web origin, with a CSRF
 			// token and a matching Origin on every state-changing request (ADR-0041).
@@ -188,6 +202,12 @@ func (s *Server) authed(next http.HandlerFunc) http.Handler {
 			}
 			r = r.WithContext(context.WithValue(r.Context(), webKey, true))
 		}
+		if !allowed(principal.Role, r.Pattern) {
+			s.audit(r, "AUTHZ_DENIED", map[string]any{"route": r.Pattern, "member": principal.Name, "role": principal.Role})
+			s.fail(w, r, 403, "forbidden", "your role ("+principal.Role+") may not do this")
+			return
+		}
+		r = withPrincipal(r, principal)
 		if !s.lim.allow() {
 			s.fail(w, r, 429, "rate_limited", "too many requests")
 			return
@@ -591,6 +611,9 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		by := "owner"
+		if p := PrincipalOf(r); p.Role != RoleOwner {
+			by = "member:" + p.Name + " (" + p.Role + ")"
+		}
 		if viaWeb(r) {
 			if !s.stepUp(r, in.Code) {
 				s.audit(r, "WEB_STEP_UP_FAILED", map[string]any{"approval_id": id, "remote": s.clientIP(r)})
@@ -602,6 +625,9 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		ap, err = s.Engine.Approve(r.Context(), id, in.ActionHash, by)
 	case "reject":
 		by := "owner"
+		if p := PrincipalOf(r); p.Role != RoleOwner {
+			by = "member:" + p.Name + " (" + p.Role + ")"
+		}
 		if viaWeb(r) {
 			by = "owner(web)"
 		}

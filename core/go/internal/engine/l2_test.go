@@ -120,9 +120,14 @@ func TestRS6L2ToolRemedyEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.eng.RunImprovementCycle(ctx)
-
-	tools, _ := h.eng.ListL2(ctx)
+	var tools []*L2Tool
+	for i := 0; i < 150 && len(tools) == 0; i++ { // a periodic cycle may be the one that acts
+		h.eng.RunImprovementCycle(ctx)
+		tools, _ = h.eng.ListL2(ctx)
+		if len(tools) == 0 {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 	if len(tools) != 1 || tools[0].Status != "awaiting_approval" || builds != 2 {
 		t.Fatalf("tools %d builds %d (first draft imported os and had to be repaired)", len(tools), builds)
 	}

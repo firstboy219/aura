@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -228,6 +229,13 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
 		Vault: a.Vault, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+	// The owner's runtime daily budget overrides the config value (ADR-0043).
+	var budgetSetting string
+	if st.R.QueryRowContext(ctx, "select value from settings where key=?", api.SettingDailyBudget).Scan(&budgetSetting) == nil {
+		if v, err := strconv.ParseFloat(budgetSetting, 64); err == nil {
+			a.Governor.SetLimit(v)
+		}
+	}
 	for _, c := range cfg.Web.TrustedProxyCIDRs {
 		a.API.Web.TrustedProxy = append(a.API.Web.TrustedProxy, netip.MustParsePrefix(c))
 	}

@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -26,22 +27,27 @@ var (
 
 // Governor enforces task and global budgets and the kill-switch halt flag.
 type Governor struct {
-	st         *store.Store
-	dailyLimit float64
-	halted     atomic.Bool
-	now        func() time.Time
-	loc        *time.Location // workspace time zone: the daily budget window
+	st        *store.Store
+	limitBits atomic.Uint64 // daily limit in USD (float64 bits), changeable at runtime
+	halted    atomic.Bool
+	now       func() time.Time
+	loc       *time.Location // workspace time zone: the daily budget window
 }
 
 func New(st *store.Store, dailyLimitUSD float64) *Governor {
-	return &Governor{st: st, dailyLimit: dailyLimitUSD, now: time.Now, loc: time.UTC}
+	g := &Governor{st: st, now: time.Now, loc: time.UTC}
+	g.SetLimit(dailyLimitUSD)
+	return g
 }
 
 // Halt blocks every new reservation until Resume (kill switch).
 func (g *Governor) Halt()          { g.halted.Store(true) }
 func (g *Governor) Resume()        { g.halted.Store(false) }
 func (g *Governor) Halted() bool   { return g.halted.Load() }
-func (g *Governor) Limit() float64 { return g.dailyLimit }
+func (g *Governor) Limit() float64 { return math.Float64frombits(g.limitBits.Load()) }
+
+// SetLimit changes the daily limit at runtime (owner admin setting, ADR-0043).
+func (g *Governor) SetLimit(usd float64) { g.limitBits.Store(math.Float64bits(usd)) }
 
 // Reservation identifies one reserved provider call.
 type Reservation struct {
@@ -123,7 +129,7 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 		if taskSpent+c.EstimateUSD > c.TaskLimitUSD {
 			return ErrTaskBudget
 		}
-		if daySpent+c.EstimateUSD > g.dailyLimit {
+		if daySpent+c.EstimateUSD > g.Limit() {
 			return ErrDailyBudget
 		}
 		if _, err := tx.ExecContext(ctx, `insert into usage_records(id, task_id, step_id, tier, provider_id, api_model_id, route_id,

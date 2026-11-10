@@ -35,6 +35,12 @@ func (e *Engine) improveTick(ctx context.Context) {
 
 // RunImprovementCycle is one pass: Detect → Diagnose → Act → Evaluate.
 func (e *Engine) RunImprovementCycle(ctx context.Context) {
+	// One cycle at a time: a periodic tick and an explicit run must never act on
+	// the same remedy twice (found by the RS-6 test: a tool drafted twice).
+	if !e.improveMu.TryLock() {
+		return
+	}
+	defer e.improveMu.Unlock()
 	e.CloseRecovered(ctx) // close with evidence first, so recovered problems are not re-diagnosed
 	if _, err := e.Detect(ctx); err != nil {
 		e.log.Warn("limitation detection", "err", err)

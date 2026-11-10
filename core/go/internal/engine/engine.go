@@ -55,6 +55,7 @@ type Engine struct {
 	ledgerCfg   LedgerConfig
 	version     string
 	lastImprove time.Time
+	improveMu   sync.Mutex // one improvement cycle at a time
 	log         *slog.Logger
 	runID       string
 

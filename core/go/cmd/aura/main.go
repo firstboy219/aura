@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -77,6 +78,8 @@ func usage(w io.Writer) {
   browser check <url> [--allow-domain D]   open a page through the isolated browser and egress proxy (no model)
   browser profiles | session import <profile> --file F | session delete <profile> | code <task-id> <code>
                                 login profiles (ADR-0040); one-time codes go straight into the page
+  admin members | member add <name> <role> | member disable <id> | budget [usd] | credentials | credential set <name> --stdin
+                                Workspace Admin (owner): members and roles, daily budget, write-only credentials
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   web setup-link [--ttl 30m] | sessions-revoke   Workspace Web App owner access (ADR-0041)
@@ -409,7 +412,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "worker-connect":
 		err = workerConnect(args[1:], stdin, stdout)
 	case "task", "trace", "approve", "reject", "approvals", "stop", "resources", "answer", "event", "correct", "memory", "skill", "profile",
-		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser":
+		"self", "limitations", "limitation", "trigger", "notifications", "tools", "browser", "admin":
 		err = client(args, stdin, stdout)
 	case "help", "-h", "--help":
 		usage(stdout)
@@ -890,6 +893,8 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return nil
 	case "tools":
 		return toolsCmd(c, rest, stdin, stdout)
+	case "admin":
+		return adminCmd(c, rest, stdin, stdout)
 	case "browser":
 		const buse = "browser check <url> [--allow-domain D]... | profiles | session import <profile> --file F | session delete <profile> | code <task-id> <code>"
 		if len(rest) > 0 && rest[0] != "check" {
@@ -1147,6 +1152,65 @@ func runConsole() error {
 }
 
 // ownerData implements the memory, skill and profile commands.
+// adminCmd is the Workspace Admin foundation (ADR-0043): members, budget, write-only credentials.
+func adminCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
+	const use = "admin members | member add <name> <viewer|operator|approver> | member disable <id> | budget [usd] | credentials | credential set <name> --stdin | credential delete <name>"
+	var out map[string]any
+	switch {
+	case len(rest) == 1 && rest[0] == "members":
+		if err := c.do("GET", "/admin/members", nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+	case len(rest) == 4 && rest[0] == "member" && rest[1] == "add":
+		if err := c.do("POST", "/admin/members", map[string]any{"name": rest[2], "role": rest[3]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "member %v (%v) created; token (shown once): %v\n", out["name"], out["role"], out["token"])
+	case len(rest) == 3 && rest[0] == "member" && rest[1] == "disable":
+		if err := c.do("POST", "/admin/members/"+rest[2]+"/disable", nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "member disabled")
+	case len(rest) == 1 && rest[0] == "budget":
+		if err := c.do("GET", "/admin/budget", nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+	case len(rest) == 2 && rest[0] == "budget":
+		v, err := strconv.ParseFloat(rest[1], 64)
+		if err != nil {
+			return usageErr("admin budget <usd>")
+		}
+		if err := c.do("PUT", "/admin/budget", map[string]any{"daily_budget_usd": v}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "daily budget set to $%v\n", out["daily_budget_usd"])
+	case len(rest) == 1 && rest[0] == "credentials":
+		if err := c.do("GET", "/admin/credentials", nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+	case len(rest) == 4 && rest[0] == "credential" && rest[1] == "set" && rest[3] == "--stdin":
+		b, err := io.ReadAll(io.LimitReader(stdin, 16<<10))
+		if err != nil {
+			return err
+		}
+		if err := c.do("PUT", "/admin/credentials/"+rest[2], map[string]any{"value": strings.TrimSpace(string(b))}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "stored encrypted; reference it as %v (it cannot be read back)\n", out["ref"])
+	case len(rest) == 3 && rest[0] == "credential" && rest[1] == "delete":
+		if err := c.do("DELETE", "/admin/credentials/"+rest[2], nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "deleted")
+	default:
+		return usageErr(use)
+	}
+	return nil
+}
+
 // browserCmd manages login profiles' sessions and one-time codes (ADR-0040).
 func browserCmd(c *apiClient, rest []string, stdout io.Writer, use string) error {
 	var out map[string]any
