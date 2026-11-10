@@ -142,6 +142,10 @@ paths:
     get: { operationId: getSelfModel, responses: { '200': { description: Measured capabilities } } }
   /scorecard:
     get: { operationId: getScorecard, responses: { '200': { description: Efficiency scorecard } } }
+  /admin/usage:
+    get: { operationId: adminUsage, description: "Owner: usage by department|member|day|tier|task_class|model (ADR-0049).", responses: { '200': { description: Usage groups } } }
+  /admin/audit:
+    get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
   /brain/variants:
     get: { operationId: listBrainVariants, description: "L3 brain variants from AURA Lab (ADR-0048); ?status= filters.", responses: { '200': { description: Variants } } }
   /brain/variants/{id}:

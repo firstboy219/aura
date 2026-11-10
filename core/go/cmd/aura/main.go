@@ -1158,9 +1158,45 @@ func runConsole() error {
 // ownerData implements the memory, skill and profile commands.
 // adminCmd is the Workspace Admin foundation (ADR-0043): members, budget, write-only credentials.
 func adminCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
-	const use = "admin members | member add <name> <viewer|operator|approver> | member disable <id> | budget [usd] | credentials | credential set <name> --stdin | credential delete <name>"
+	const use = "admin members | member add <name> <viewer|operator|approver> [department] | member disable <id> | member department <id> <department> | " +
+		"budget [usd] | credentials | credential set <name> --stdin | credential delete <name> | usage [group_by] [since] | audit [key=value]..."
 	var out map[string]any
 	switch {
+	case len(rest) == 5 && rest[0] == "member" && rest[1] == "add":
+		if err := c.do("POST", "/admin/members", map[string]any{"name": rest[2], "role": rest[3], "department": rest[4]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "member %v (%v, %v) created; token (shown once): %v\n", out["name"], out["role"], out["department"], out["token"])
+	case len(rest) == 4 && rest[0] == "member" && rest[1] == "department":
+		if err := c.do("POST", "/admin/members/"+rest[2]+"/department", map[string]any{"department": rest[3]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "department set to %q\n", out["department"])
+	case len(rest) >= 1 && len(rest) <= 3 && rest[0] == "usage":
+		v := url.Values{}
+		if len(rest) > 1 {
+			v.Set("group_by", rest[1])
+		}
+		if len(rest) > 2 {
+			v.Set("since", rest[2])
+		}
+		if err := c.do("GET", "/admin/usage?"+v.Encode(), nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+	case len(rest) >= 1 && rest[0] == "audit":
+		v := url.Values{}
+		for _, kv := range rest[1:] {
+			k, val, ok := strings.Cut(kv, "=")
+			if !ok {
+				return usageErr("admin audit [type=T] [actor=A] [task_id=ID] [since=D] [until=D] [q=text] [limit=N]")
+			}
+			v.Set(k, val)
+		}
+		if err := c.do("GET", "/admin/audit?"+v.Encode(), nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
 	case len(rest) == 1 && rest[0] == "members":
 		if err := c.do("GET", "/admin/members", nil, nil, &out); err != nil {
 			return err

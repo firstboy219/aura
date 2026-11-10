@@ -30,6 +30,7 @@ holding the instance ID (ADR-0012, amended: a dedicated row instead of overloadi
 | task_waits | supervisor waits: event / time / child tasks; exactly-once wake (ADR-0018) |
 | channel_deliveries | owner notifications delivered per channel, once each (0009, ADR-0044, OL-11) |
 | brain_variants | L3 brain variants: guidance for one reasoning module, Lab report, owner decision, canary rollout (0010, ADR-0048) |
+| (0011) | members.department and tasks.created_by: usage attribution by department/member (ADR-0049) |
 | lab_runs | AURA Lab runs: lab task, variant, arm (baseline/variant), kind, cleanup time (0010, ADR-0048) |
 | members, settings | workspace members with roles viewer/operator/approver and their own API tokens (by hash); owner runtime settings such as the daily budget (0008, ADR-0043) |
 | web_owner, web_sessions, web_setup | Web App owner: argon2id password hash, TOTP replay step, lockout; sessions by hash with CSRF token; one-time setup links by hash (0007, ADR-0041) |

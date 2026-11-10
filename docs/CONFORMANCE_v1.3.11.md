@@ -130,5 +130,5 @@ they started (`MAX_WALL_TIME`). Fixed in the Core (wall budget now starts when a
 | L3/R4 brain remedies via AURA Lab (variants, eval, owner approval, staged rollout, auto-rollback) | ✔ implementation-verified (fake provider); off in production until the owner enables L3 | ADR-0048, `engine/lab_test.go` |
 | AURA Lab isolation and cleanup | ✔ implementation-verified | ADR-0048 (no approvals, capped budgets, workspaces removed) |
 | Improvement tasks keep the owner's data class (privacy fix) | ✔ implementation-verified | ADR-0048, `TestImprovementTaskInheritsPrivacy` |
-| Enterprise admin: audit search/export, usage reports | pending | — |
+| Enterprise admin: audit search/export, usage by department/member | ✔ implementation-verified | ADR-0049, `app/admin_p6_test.go` |
 | SSO/OIDC | blocked: needs an identity provider from the owner | — |

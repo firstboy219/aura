@@ -18,13 +18,14 @@ import (
 var (
 	memberNameRe = regexp.MustCompile(`^[A-Za-z0-9 ._@-]{1,60}$`)
 	credNameRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,40}$`)
+	deptRe       = regexp.MustCompile(`^[A-Za-z0-9 ._&-]{1,40}$`)
 )
 
 // SettingDailyBudget is the settings key of the owner's daily budget override.
 const SettingDailyBudget = "daily_budget_usd"
 
 func (s *Server) listMembers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Store.R.QueryContext(r.Context(), "select id, name, role, created_at, disabled_at, last_used_at from members order by created_at")
+	rows, err := s.Store.R.QueryContext(r.Context(), "select id, name, role, coalesce(department,''), created_at, disabled_at, last_used_at from members order by created_at")
 	if err != nil {
 		s.mapErr(w, r, err)
 		return
@@ -32,11 +33,11 @@ func (s *Server) listMembers(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, role string
+		var id, name, role, dept string
 		var created int64
 		var disabled, used sql.NullInt64
-		rows.Scan(&id, &name, &role, &created, &disabled, &used)
-		m := map[string]any{"id": id, "name": name, "role": role, "created_at": ts(created), "disabled": disabled.Valid}
+		rows.Scan(&id, &name, &role, &dept, &created, &disabled, &used)
+		m := map[string]any{"id": id, "name": name, "role": role, "department": dept, "created_at": ts(created), "disabled": disabled.Valid}
 		if used.Valid {
 			m["last_used_at"] = ts(used.Int64)
 		}
@@ -48,31 +49,33 @@ func (s *Server) listMembers(w http.ResponseWriter, r *http.Request) {
 // createMember returns the member's token once; only its hash is stored.
 func (s *Server) createMember(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
-		Role string `json:"role"`
+		Name       string `json:"name"`
+		Role       string `json:"role"`
+		Department string `json:"department"`
 	}
 	if err := decodeStrict(r, &in); err != nil {
 		s.mapErr(w, r, err)
 		return
 	}
-	if !memberNameRe.MatchString(in.Name) || (in.Role != RoleViewer && in.Role != RoleOperator && in.Role != RoleApprover) {
-		s.fail(w, r, 400, "invalid_input", "name (1..60 chars) and role viewer|operator|approver are required")
+	if !memberNameRe.MatchString(in.Name) || (in.Role != RoleViewer && in.Role != RoleOperator && in.Role != RoleApprover) ||
+		(in.Department != "" && !deptRe.MatchString(in.Department)) {
+		s.fail(w, r, 400, "invalid_input", "name (1..60 chars), role viewer|operator|approver and an optional department (1..40 chars) are required")
 		return
 	}
 	tok := "aura_m_" + webauth.RandomToken()
 	id := ids.New()
 	err := s.Store.Write(r.Context(), func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(r.Context(), "insert into members(id, name, role, token_hash, created_at) values(?,?,?,?,?)",
-			id, in.Name, in.Role, tokenHash(tok), ids.NowMs()); err != nil {
+		if _, err := tx.ExecContext(r.Context(), "insert into members(id, name, role, token_hash, department, created_at) values(?,?,?,?,?,?)",
+			id, in.Name, in.Role, tokenHash(tok), nullable(in.Department), ids.NowMs()); err != nil {
 			return err
 		}
-		return policy.Audit(r.Context(), tx, "MEMBER_CREATED", "owner", "", requestID(r), map[string]any{"member": in.Name, "role": in.Role})
+		return policy.Audit(r.Context(), tx, "MEMBER_CREATED", "owner", "", requestID(r), map[string]any{"member": in.Name, "role": in.Role, "department": in.Department})
 	})
 	if err != nil {
 		s.fail(w, r, 409, "conflict", "a member with that name exists")
 		return
 	}
-	writeJSON(w, 201, map[string]any{"id": id, "name": in.Name, "role": in.Role, "token": tok,
+	writeJSON(w, 201, map[string]any{"id": id, "name": in.Name, "role": in.Role, "department": in.Department, "token": tok,
 		"note": "shown once; give it to the member and keep it secret"})
 }
 

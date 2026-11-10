@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"aura.local/core/internal/policy"
 )
@@ -89,3 +90,6 @@ func firstNonEmpty(a, b string) string {
 	}
 	return b
 }
+
+// Location is the workspace time zone (date logic never uses implicit UTC).
+func (e *Engine) Location() *time.Location { return e.cfg.Location() }
