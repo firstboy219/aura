@@ -29,6 +29,7 @@ type CreateInput struct {
 	DataClass      string // "private" (default) or "public"
 	Tier           string // optional owner override: fast | standard | deep
 	Recovery       string // auto (default) | manual | never (Blueprint §8.2)
+	BrowserProfile string // owner login profile for browser tasks (ADR-0040)
 	// Attachments are owner-provided input files (workspace path → text content).
 	Attachments map[string]string
 }
@@ -138,7 +139,13 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	if rec == "auto" {
 		rec = ""
 	}
-	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec}, ConfigHash: e.cfg.Hash()}
+	if in.BrowserProfile != "" {
+		if _, ok := e.loginProfile(in.BrowserProfile); !ok {
+			return nil, bad("browser_profile is not a configured login profile")
+		}
+	}
+	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec,
+		BrowserProfile: in.BrowserProfile}, ConfigHash: e.cfg.Hash()}
 	switch in.Tier {
 	case "":
 	case "fast", "standard", "deep":

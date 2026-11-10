@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,7 @@ type brSession struct {
 	url      string
 	elements []browser.Element
 	typed    []map[string]any // type/select on the current page since the last navigation
+	loggedIn string           // login profile used successfully in this session (ADR-0040)
 }
 
 type browserState struct {
@@ -41,6 +43,7 @@ type browserState struct {
 	proxyURL string
 	mu       sync.Mutex
 	sessions map[string]*brSession // by task id
+	mfa      map[string]pendingMFA // tasks waiting for a one-time code, by task id
 }
 
 // ErrBrowserUnavailable means browser automation is not configured.
@@ -69,7 +72,12 @@ func (e *Engine) browserSession(ctx context.Context, t *task.Task) (*brSession, 
 	s := &brSession{id: "s-" + t.ID}
 	tok := randomToken()
 	e.brs.proxy.Add(&egress.Session{ID: s.id, Token: tok, TaskID: t.ID, AllowDomain: append([]string{}, t.Scope.AllowDomains...)})
-	if err := e.brs.client.Call(ctx, "session.open", map[string]any{"session_id": s.id, "proxy_token": tok}, nil); err != nil {
+	open := map[string]any{"session_id": s.id, "proxy_token": tok,
+		"downloads": e.cfg.Browser.Downloads && slices.Contains(t.Scope.Tools, "browser.download")}
+	if st := e.savedState(ctx, t.Scope.BrowserProfile); st != nil {
+		open["storage_state"] = st // the owner's saved login for this task's profile
+	}
+	if err := e.brs.client.Call(ctx, "session.open", open, nil); err != nil {
 		e.brs.proxy.Remove(s.id)
 		return nil, err
 	}
@@ -126,6 +134,25 @@ func findElement(s *brSession, ref string) (browser.Element, bool) {
 // validateBrowserArgs binds browser arguments to the plan, the task's domains
 // and the Core's last view of the page.
 func (e *Engine) validateBrowserArgs(s *session, c toolCall) (map[string]any, string, string) {
+	if e.brs == nil {
+		return nil, "", "browser_unavailable"
+	}
+	switch c.ToolID {
+	case "browser.download", "browser.upload", "browser.login", "browser.mfa":
+		bs := e.existingBrowserSession(s.t.ID)
+		return e.validateBrowserAuthArgs(s, c, bs, func(ref *string) (browser.Element, string) {
+			if ref == nil || bs == nil {
+				return browser.Element{}, "stale_ref"
+			}
+			bs.mu.Lock()
+			defer bs.mu.Unlock()
+			el, ok := findElement(bs, *ref)
+			if !ok {
+				return browser.Element{}, "stale_ref"
+			}
+			return el, ""
+		})
+	}
 	var a struct {
 		URL       *string `json:"url"`
 		Ref       *string `json:"ref"`
@@ -342,6 +369,12 @@ func (e *Engine) executeBrowser(ctx context.Context, t *task.Task, st *task.Step
 		}
 		newPage()
 		content = fmt.Sprintf("Clicked %v on %v\nNow at %s\nTitle: %s\n", el["name"], args["url"], state.URL, state.Title)
+	case "browser.download", "browser.upload", "browser.login":
+		var err error
+		content, state, err = e.executeBrowserAuth(ctx, t, st, spec, args, bs, call, summary)
+		if err != nil {
+			return fail(err)
+		}
 	case "browser.type", "browser.select":
 		method, field := "page.type", "text"
 		if spec.ID == "browser.select" {

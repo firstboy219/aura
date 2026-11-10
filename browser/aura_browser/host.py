@@ -60,10 +60,13 @@ class Host:
         sid = str(p["session_id"])
         if sid in self.sessions:
             raise HostError("exists", "session already open")
+        opts: dict[str, Any] = {}
+        if isinstance(p.get("storage_state"), dict):
+            opts["storage_state"] = p["storage_state"]  # an owner-approved login session, decrypted by the Core
         ctx = self.browser.new_context(
             proxy={"server": self.proxy, "username": sid, "password": str(p["proxy_token"])},
-            accept_downloads=False, service_workers="block", viewport={"width": 1280, "height": 800},
-            java_script_enabled=True, locale="en-US")
+            accept_downloads=bool(p.get("downloads")), service_workers="block", viewport={"width": 1280, "height": 800},
+            java_script_enabled=True, locale="en-US", **opts)
         ctx.set_default_timeout(15000)
         page = ctx.new_page()
         self.sessions[sid] = {"ctx": ctx, "page": page, "refs": [], "gen": 0}
@@ -211,6 +214,60 @@ class Host:
             raise HostError("too_large", "screenshot over 3 MiB")
         return {"url": s["page"].url, "png_base64": base64.b64encode(png).decode(), "bytes": len(png)}
 
+    def download(self, p: dict) -> dict:
+        """Click a download link; the file stays in this container's tmpfs until the Core takes it (quarantine)."""
+        s = self._s(p)
+        loc = self._ref(s, p)
+        max_bytes = int(p.get("max_bytes", 20 << 20))
+        try:
+            with s["page"].expect_download(timeout=30000) as info:
+                loc.click(timeout=10000)
+            dl = info.value
+            path = dl.path()
+        except PlaywrightError as e:
+            raise HostError("download_failed", str(e).splitlines()[0][:300]) from e
+        try:
+            size = os.path.getsize(path)
+            if size > max_bytes:
+                raise HostError("too_large", f"download is {size} bytes, over the {max_bytes}-byte limit")
+            with open(path, "rb") as fh:
+                data = fh.read()
+        finally:
+            try:
+                dl.delete()
+            except PlaywrightError:
+                pass
+        return {"url": dl.url, "suggested_filename": dl.suggested_filename[:200], "bytes": len(data),
+                "content_base64": base64.b64encode(data).decode()}
+
+    def upload(self, p: dict) -> dict:
+        """Put Core-provided bytes into a file input (the Core checked policy and the owner's approval)."""
+        s = self._s(p)
+        loc = self._ref(s, p)
+        name = os.path.basename(str(p.get("filename", "upload.bin")))[:120] or "upload.bin"
+        data = base64.b64decode(str(p.get("content_base64", "")))
+        d = os.path.join("/tmp", "aura-upload-" + str(time.time_ns()))
+        os.makedirs(d, mode=0o700)
+        path = os.path.join(d, name)
+        try:
+            with open(path, "wb") as fh:
+                fh.write(data)
+            loc.set_input_files(path, timeout=10000)
+        except PlaywrightError as e:
+            raise HostError("upload_failed", str(e).splitlines()[0][:300]) from e
+        finally:
+            try:
+                os.remove(path)
+                os.rmdir(d)
+            except OSError:
+                pass
+        return {"url": s["page"].url, "uploaded_bytes": len(data), "filename": name}
+
+    def export_state(self, p: dict) -> dict:
+        """The session's cookies and storage, for the Core to encrypt (owner-approved login reuse)."""
+        s = self._s(p)
+        return {"storage_state": s["ctx"].storage_state()}
+
     def health(self, _: dict) -> dict:
         return {"status": "ok", "sessions": len(self.sessions), "uptime_s": int(time.time() - self.started),
                 "browser": self.browser.version}
@@ -218,7 +275,8 @@ class Host:
     METHODS = {"session.open": session_open, "session.close": session_close, "session.close_all": close_all,
                "page.goto": goto, "page.inspect": inspect, "page.describe": describe, "page.click": click,
                "page.type": type_text, "page.select": select, "page.scroll": scroll, "page.wait": wait, "page.back": back,
-               "page.screenshot": screenshot, "host.health": health}
+               "page.screenshot": screenshot, "page.download": download, "page.upload": upload,
+               "session.export": export_state, "host.health": health}
 
     def handle(self, msg: dict) -> dict:
         fn = self.METHODS.get(str(msg.get("method")))

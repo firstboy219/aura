@@ -146,6 +146,14 @@ type Config struct {
 	Browser struct {
 		Socket      string `yaml:"socket" json:"socket"`             // "" disables browser tools
 		ProxyListen string `yaml:"proxy_listen" json:"proxy_listen"` // e.g. ":7480" on the internal browser network
+		// Downloads go to quarantine and enter the workspace only if their type and size pass.
+		Downloads      bool     `yaml:"downloads" json:"downloads"`
+		MaxDownloadMB  int      `yaml:"max_download_mb" json:"max_download_mb"`
+		DownloadTypes  []string `yaml:"download_types" json:"download_types"`   // allowed file extensions
+		UploadsEnabled bool     `yaml:"uploads_enabled" json:"uploads_enabled"` // off by default (Blueprint 8.8.1)
+		// Logins are owner-defined credential profiles (ADR-0040): the Core types
+		// them; the model only picks the fields. Every login needs an approval.
+		Logins []LoginProfile `yaml:"logins" json:"logins"`
 	} `yaml:"browser" json:"browser"`
 	// L2 configures AURA-built tools in the WASM sandbox (ADR-0038).
 	L2 struct {
@@ -181,6 +189,14 @@ type Config struct {
 
 // MCPServer is an owner-declared MCP server (ADR-0020). Only the tools listed
 // here are exposed, with the tier and side-effect class the owner set.
+// LoginProfile is a site login the owner allows AURA to use (ADR-0040).
+type LoginProfile struct {
+	Name        string   `yaml:"name" json:"name"`
+	Domains     []string `yaml:"domains" json:"domains"`           // where the credentials may be typed (allowlist syntax)
+	Username    string   `yaml:"username" json:"username"`         // plain text, or vault:<name>
+	PasswordRef string   `yaml:"password_ref" json:"password_ref"` // vault:<name> or a 0400 file; never sent to the model
+}
+
 // Webhook is an authenticated inbound webhook (Blueprint §8.11, ADR-0034): a
 // request signed with the secret raises the external event EventKey.
 type Webhook struct {
@@ -232,6 +248,8 @@ func Default() *Config {
 	c.Approvals.TTLSeconds = 1800
 	c.Release.Manifest = "/usr/local/share/aura/release.json"
 	c.Browser.ProxyListen = ":7480"
+	c.Browser.Downloads, c.Browser.MaxDownloadMB = true, 20
+	c.Browser.DownloadTypes = []string{"pdf", "csv", "txt", "json", "xlsx", "xls", "docx", "png", "jpg", "jpeg", "gif", "webp", "xml", "html", "md"}
 	c.L2.PythonWASM, c.L2.CacheDir = "/usr/local/share/aura/python-3.12.0.wasm", "/var/lib/aura/wasm-cache"
 	c.PromptBudgetChars = map[string]int{"fast": 24000, "standard": 60000, "deep": 120000}
 	c.Inputs.RemindAfterSeconds, c.Inputs.TimeoutSeconds, c.Inputs.OnTimeout = 4*3600, 48*3600, "fail"
@@ -435,6 +453,17 @@ func (c *Config) Validate() error {
 		if _, err := netip.ParsePrefix(c); err != nil {
 			add("server.deny_cidrs: %s is not a CIDR", c)
 		}
+	}
+	profiles := map[string]bool{}
+	for _, l := range c.Browser.Logins {
+		if !webhookNameRe.MatchString(l.Name) || profiles[l.Name] || len(l.Domains) == 0 || l.Username == "" || l.PasswordRef == "" {
+			add("browser.logins: each needs a unique name [a-z0-9-]{1,40}, domains, username and password_ref")
+			break
+		}
+		profiles[l.Name] = true
+	}
+	if c.Browser.MaxDownloadMB < 1 || c.Browser.MaxDownloadMB > 100 {
+		add("browser.max_download_mb must be 1..100")
 	}
 	hookNames := map[string]bool{}
 	for _, h := range c.Webhooks {

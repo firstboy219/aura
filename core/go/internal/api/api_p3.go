@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"aura.local/core/internal/engine"
+	"aura.local/core/internal/task"
 )
 
 // P3 owner-facing endpoints: memory, skills, profile (and, in later
@@ -396,4 +398,52 @@ func (s *Server) browserCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, out)
+}
+
+// Browser login profiles and one-time codes (ADR-0040). Secrets are never returned.
+func (s *Server) browserProfiles(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"profiles": s.Engine.BrowserProfiles(r.Context())})
+}
+
+func (s *Server) importBrowserSession(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		State json.RawMessage `json:"state"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	n, err := s.Engine.ImportBrowserSession(r.Context(), r.PathValue("name"), in.State)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"profile": r.PathValue("name"), "cookies_kept": n})
+}
+
+func (s *Server) deleteBrowserSession(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.DeleteBrowserSession(r.Context(), r.PathValue("name")); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": r.PathValue("name")})
+}
+
+func (s *Server) browserCode(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Code string `json:"code"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	if err := s.Engine.BrowserCode(r.Context(), r.PathValue("id"), in.Code); err != nil {
+		if errors.Is(err, engine.ErrInvalid) || errors.Is(err, task.ErrInvalidTransition) {
+			s.mapErr(w, r, err)
+			return
+		}
+		s.fail(w, r, 502, "browser_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"entered": true}) // the code itself is not echoed
 }

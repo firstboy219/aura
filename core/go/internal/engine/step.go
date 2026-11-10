@@ -427,6 +427,17 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 		s.waitID = id
 		return map[string]any{"status": "waiting", "reason_code": "subagent_running"}, nil
 	}
+	if spec.ID == "browser.mfa" {
+		if _, err := e.browserSession(ctx, s.t); err != nil {
+			return map[string]any{"status": "error", "reason_code": reasonCode(browserErr(err))}, nil
+		}
+		id, err := e.startMFA(ctx, s.t, s.step, args)
+		if err != nil {
+			return map[string]any{"status": "error", "reason_code": reasonCode(err)}, nil
+		}
+		s.waitID = id
+		return map[string]any{"status": "waiting", "reason_code": "owner_one_time_code"}, nil
+	}
 	if spec.ID == "wait.event" || spec.ID == "wait.until" {
 		id, err := e.createWait(ctx, s.t, s.step, spec.ID, args)
 		if err != nil {

@@ -84,6 +84,9 @@ type Scope struct {
 	// for the owner) or "never" (FAILED). An unknown external outcome always
 	// waits for the owner, whatever the policy.
 	Recovery string `json:"recovery,omitempty"`
+	// BrowserProfile is the owner's login profile this task may use (ADR-0040):
+	// its saved session is loaded and browser.login may type its credentials.
+	BrowserProfile string `json:"browser_profile,omitempty"`
 	// Attachments are owner-provided input files written into the task workspace at creation.
 	Attachments []string `json:"attachments,omitempty"`
 }

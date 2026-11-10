@@ -65,7 +65,12 @@ var Manifest = map[string]ToolSpec{
 	"browser.type":       {ID: "browser.type", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"browser.select":     {ID: "browser.select", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"browser.click":      {ID: "browser.click", Version: "1", SideEffect: "write_external", Tier: func(map[string]any) Tier { return A2 }},
-	"workspace.read":     {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	// Downloads are reads into quarantine; uploads send owner files and logins use owner credentials (ADR-0040): A2.
+	"browser.download": {ID: "browser.download", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"browser.upload":   {ID: "browser.upload", Version: "1", SideEffect: "write_external", Tier: func(map[string]any) Tier { return A2 }},
+	"browser.login":    {ID: "browser.login", Version: "1", SideEffect: "write_external", Tier: func(map[string]any) Tier { return A2 }},
+	"browser.mfa":      {ID: "browser.mfa", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
+	"workspace.read":   {ID: "workspace.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"workspace.write": {ID: "workspace.write", Version: "1", SideEffect: "write_idempotent", Tier: func(a map[string]any) Tier {
 		p, _ := a["path"].(string)
 		switch {

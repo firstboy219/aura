@@ -92,6 +92,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
 	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
 	mux.Handle("POST /api/v1/browser/check", auth(s.browserCheck))
+	mux.Handle("GET /api/v1/browser/profiles", auth(s.browserProfiles))
+	mux.Handle("POST /api/v1/browser/profiles/{name}/session", auth(s.importBrowserSession))
+	mux.Handle("DELETE /api/v1/browser/profiles/{name}/session", auth(s.deleteBrowserSession))
+	mux.Handle("POST /api/v1/tasks/{id}/browser-code", auth(s.browserCode))
 	mux.Handle("GET /api/v1/tools", auth(s.listL2))
 	mux.Handle("GET /api/v1/tools/{id}", auth(s.getL2))
 	mux.Handle("POST /api/v1/tools/{id}/{action}", auth(s.l2Action))
@@ -128,7 +132,11 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		r = r.WithContext(context.WithValue(r.Context(), reqIDKey, rid))
-		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		limit := int64(maxBody)
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/browser/profiles/") {
+			limit = 1 << 20 // an exported browser session (cookies and storage)
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		start := time.Now()
 		defer func() {
 			if p := recover(); p != nil {
@@ -269,6 +277,7 @@ type createReq struct {
 	DataClass    string            `json:"data_class"`
 	Tier         string            `json:"tier"`
 	Recovery     string            `json:"recovery"`
+	BrowserProf  string            `json:"browser_profile"`
 	Attachments  map[string]string `json:"attachments"`
 	Budget       *struct {
 		MaxCostUSD     float64 `json:"max_cost_usd"`
@@ -289,7 +298,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		s.mapErr(w, r, err)
 		return
 	}
-	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Recovery: in.Recovery, Attachments: in.Attachments,
+	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Recovery: in.Recovery, BrowserProfile: in.BrowserProf, Attachments: in.Attachments,
 		IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}

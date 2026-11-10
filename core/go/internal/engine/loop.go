@@ -428,6 +428,18 @@ func requiredArgs(ps *plannedStep) error {
 			}
 			return nil
 		}
+		if *ps.ToolID == "browser.upload" && !has(ps.Path) {
+			return errors.New("browser.upload needs path")
+		}
+		if *ps.ToolID == "browser.login" {
+			var m map[string]any
+			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
+				return errors.New(`input must be {"profile": "..."}`)
+			}
+			if _, ok := m["profile"].(string); !ok {
+				return errors.New(`input must set "profile"`)
+			}
+		}
 		if strings.HasPrefix(*ps.ToolID, "browser.") {
 			return nil
 		}

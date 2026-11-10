@@ -29,6 +29,7 @@ import (
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
 	"aura.local/core/internal/tools"
+	"aura.local/core/internal/vault"
 	"aura.local/core/internal/worker"
 )
 
@@ -49,6 +50,8 @@ type Engine struct {
 	charter     string            // owner Charter text ("" = not provided)
 	sbx         *sandbox.Runtime  // nil: L2 tools unavailable
 	brs         *browserState     // nil: browser automation unavailable
+	secret      func(ctx context.Context, ref string) (string, error)
+	vault       *vault.Vault
 	ledgerCfg   LedgerConfig
 	version     string
 	lastImprove time.Time
@@ -77,7 +80,11 @@ type Deps struct {
 	Version   string
 	Charter   string           // owner Charter text, verified against its pinned hash by the caller
 	Sandbox   *sandbox.Runtime // WASM sandbox for L2 tools (nil: unavailable)
-	Log       *slog.Logger
+	// Secret resolves an owner secret reference (vault:<name> or a 0400 file).
+	Secret func(ctx context.Context, ref string) (string, error)
+	// Vault stores browser login sessions encrypted (nil: sessions are not saved).
+	Vault *vault.Vault
+	Log   *slog.Logger
 }
 
 func New(d Deps) *Engine {
@@ -85,7 +92,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	return &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
+		ws: d.Workspace, srch: d.Searcher, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1)}
 }
 
 // Wake nudges the scheduler loop.

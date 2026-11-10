@@ -74,6 +74,8 @@ func usage(w io.Writer) {
   stop --all [--yes]            kill switch
   resources                     resource and worker state
   browser check <url> [--allow-domain D]   open a page through the isolated browser and egress proxy (no model)
+  browser profiles | session import <profile> --file F | session delete <profile> | code <task-id> <code>
+                                login profiles (ADR-0040); one-time codes go straight into the page
   tools list | show <id> | approve <id> | reject <id> | disable <id>   AURA-built L2 tools (WASM sandbox)
   release keygen <priv> | sign … | verify --pubkey B64   signed runtime artifacts (ADR-0037)
   secrets keygen <file> | import <name> --from-file <p> | list | rotate   encrypted secrets (ADR-0036)
@@ -675,6 +677,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
 			tier := fs.String("tier", "", "force a model tier for the whole task: fast | standard | deep")
 			recovery := fs.String("recovery", "", "after a Core restart: auto (default) | manual (pause for me) | never (fail)")
+			profile := fs.String("browser-profile", "", "login profile this task may use in the browser (see aura browser profiles)")
 			var attach multiFlag
 			fs.Var(&attach, "attach", "input file: workspace/path=local-file (repeatable)")
 			pos, err := parse(fs, rest)
@@ -693,6 +696,9 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 			}
 			if *recovery != "" {
 				body["recovery"] = *recovery
+			}
+			if *profile != "" {
+				body["browser_profile"] = *profile
 			}
 			if len(attach) > 0 {
 				files := map[string]string{}
@@ -840,11 +846,15 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 	case "tools":
 		return toolsCmd(c, rest, stdin, stdout)
 	case "browser":
+		const buse = "browser check <url> [--allow-domain D]... | profiles | session import <profile> --file F | session delete <profile> | code <task-id> <code>"
+		if len(rest) > 0 && rest[0] != "check" {
+			return browserCmd(c, rest, stdout, buse)
+		}
 		fs := flag.NewFlagSet("browser check", flag.ContinueOnError)
 		var domains multiFlag
 		fs.Var(&domains, "allow-domain", "domain the page may load from (repeatable; default: the URL's host)")
-		if len(rest) == 0 || rest[0] != "check" {
-			return usageErr("browser check <url> [--allow-domain D]...")
+		if len(rest) == 0 {
+			return usageErr(buse)
 		}
 		pos, err := parse(fs, rest[1:])
 		if err != nil {
@@ -1092,6 +1102,51 @@ func runConsole() error {
 }
 
 // ownerData implements the memory, skill and profile commands.
+// browserCmd manages login profiles' sessions and one-time codes (ADR-0040).
+func browserCmd(c *apiClient, rest []string, stdout io.Writer, use string) error {
+	var out map[string]any
+	switch {
+	case rest[0] == "profiles":
+		if err := c.do("GET", "/browser/profiles", nil, nil, &out); err != nil {
+			return err
+		}
+		printJSON(stdout, out)
+		return nil
+	case rest[0] == "code" && len(rest) == 3:
+		if err := c.do("POST", "/tasks/"+rest[1]+"/browser-code", map[string]any{"code": rest[2]}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "code entered into the page (not stored)")
+		return nil
+	case rest[0] == "session" && len(rest) >= 3 && rest[1] == "delete":
+		if err := c.do("DELETE", "/browser/profiles/"+rest[2]+"/session", nil, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "saved session of %s deleted\n", rest[2])
+		return nil
+	case rest[0] == "session" && len(rest) >= 3 && rest[1] == "import":
+		fs := flag.NewFlagSet("browser session import", flag.ContinueOnError)
+		file := fs.String("file", "", "Playwright storage state, or a JSON cookie list exported from your browser")
+		pos, err := parse(fs, rest[2:])
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 || *file == "" {
+			return usageErr("browser session import <profile> --file F")
+		}
+		raw, err := os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+		if err := c.do("POST", "/browser/profiles/"+pos[0]+"/session", map[string]any{"state": json.RawMessage(raw)}, nil, &out); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "imported %v cookies for %s (encrypted; other domains dropped). Delete the exported file now.\n", out["cookies_kept"], pos[0])
+		return nil
+	}
+	return usageErr(use)
+}
+
 // toolsCmd reviews and decides AURA-built L2 tools (ADR-0038).
 func toolsCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) error {
 	const use = "tools list | show <id> | approve <id> [--yes] | reject <id> | disable <id> [reason]"
