@@ -105,8 +105,9 @@ func (e *Engine) ActOnRemedies(ctx context.Context) {
 	// R3 remedies that already have a drafted tool wait for the owner, not for another draft.
 	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id, r.class from limitation_remedies r join limitations l on l.id = r.limitation_id
 		where r.class in ('R2','R3','R4') and r.status='proposed' and l.status in ('remedy_proposed','diagnosing')
+		and coalesce(json_extract(r.artifact_json,'$.next_draft_at'),0) <= ?
 		and not exists (select 1 from l2_tools t where t.remedy_id = r.id)
-		and not exists (select 1 from brain_variants b where b.remedy_id = r.id)`)
+		and not exists (select 1 from brain_variants b where b.remedy_id = r.id)`, ids.NowMs())
 	if err != nil {
 		return
 	}
@@ -130,17 +131,50 @@ func (e *Engine) ActOnRemedies(ctx context.Context) {
 			start = e.startBrainRemedy
 		}
 		if err := start(ctx, it.remedy, it.lim); err != nil {
-			e.log.Warn("skill remedy", "limitation", it.lim, "err", err)
-			e.st.Write(ctx, func(tx *sql.Tx) error {
-				_, err := tx.ExecContext(ctx, "update limitation_remedies set status='escalated', description=description || ?, updated_at=? where id=?",
-					" Could not draft the skill: "+truncate(err.Error(), 200)+" (owner action needed).", ids.NowMs(), it.remedy)
-				if err == nil {
-					_, err = tx.ExecContext(ctx, "update limitations set status='escalated', updated_at=? where id=?", ids.NowMs(), it.lim)
-				}
-				return err
-			})
+			e.log.Warn("remedy draft", "limitation", it.lim, "err", err)
+			e.draftFailed(ctx, it.remedy, it.lim, err)
 		}
 	}
+}
+
+// draftMaxAttempts bounds the drafts of one remedy; draftBackoff is the pause after a draft that could not run.
+const draftMaxAttempts = 4
+
+var draftBackoff = 30 * time.Minute // a variable so tests need not wait
+
+// draftFailed records a remedy draft that did not produce a remedy. A draft that could not run at all (no
+// provider, worker crash, budget, kill switch) says nothing about the limitation: the remedy stays proposed
+// and is tried again after a pause, a bounded number of times. Only a draft that ran and failed, or the
+// last attempt, is escalated to the owner.
+func (e *Engine) draftFailed(ctx context.Context, remedyID, limID string, cause error) {
+	// Matched on the message: the cause arrives as a worker RPC error wrapping the Core's own reason.
+	msg, transient := strings.ToLower(cause.Error()), false
+	for _, sign := range []string{"all_routes_failed", "no_route_for_tier", "provider failed", "provider error", "worker_crashed", "worker_timeout",
+		"budget exceeded", "budget_exceeded", "kill_switch", "deadline exceeded"} {
+		transient = transient || strings.Contains(msg, sign)
+	}
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		var artJSON string
+		if err := tx.QueryRowContext(ctx, "select artifact_json from limitation_remedies where id=?", remedyID).Scan(&artJSON); err != nil {
+			return err
+		}
+		art := map[string]any{}
+		json.Unmarshal([]byte(artJSON), &art)
+		attempts := int(floatOr(art["draft_attempts"], 0)) + 1
+		art["draft_attempts"], art["last_draft_error"] = attempts, truncate(cause.Error(), 200)
+		now := ids.NowMs()
+		if transient && attempts < draftMaxAttempts {
+			art["next_draft_at"] = now + draftBackoff.Milliseconds()
+			_, err := tx.ExecContext(ctx, "update limitation_remedies set artifact_json=?, updated_at=? where id=?", js(art), now, remedyID)
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "update limitation_remedies set status='escalated', artifact_json=?, description=description || ?, updated_at=? where id=?",
+			js(art), fmt.Sprintf(" Could not draft the remedy after %d attempt(s): %s (owner action needed).", attempts, truncate(cause.Error(), 200)), now, remedyID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "update limitations set status='escalated', updated_at=? where id=?", now, limID)
+		return err
+	})
 }
 
 func (e *Engine) startSkillRemedy(ctx context.Context, remedyID, limID string) error {
@@ -284,9 +318,64 @@ func (e *Engine) submitRetest(ctx context.Context, x exemplar, extraTools ...str
 	return t, true, nil
 }
 
-// EvaluateRemedies judges R2 remedies whose re-test tasks all finished: promote
-// if the defining metric improved beyond the noise margin with no regression;
-// otherwise roll the skill back and record why.
+// Re-test evidence must be about the remedy, not about the weather: a fixture that ended
+// for a reason the remedy cannot influence (no provider, a worker crash, the kill switch, a
+// question or approval nobody is there to answer) is inconclusive. Retryable ones run again
+// after a pause, a bounded number of times; inconclusive fixtures never count for or against.
+const retestMaxAttempts = 3
+
+var retestBackoff = 10 * time.Minute // a variable so tests need not wait
+
+// retestOutcome classifies a finished fixture: ok, failed, or inconclusive (and whether a re-run may help).
+func retestOutcome(t *task.Task, verified bool) (ok, inconclusive, retryable bool) {
+	if t.State == task.Succeeded {
+		return verified, false, false
+	}
+	code := ""
+	if t.ReasonCode != nil {
+		code = *t.ReasonCode
+	}
+	switch code {
+	case taxonomy.ProviderUnavailable, taxonomy.WorkerCrash, taxonomy.KillSwitch:
+		return false, true, true
+	case taxonomy.ApprovalExpired, taxonomy.InputTimeout, taxonomy.CancelledByOwner:
+		return false, true, false
+	}
+	return false, t.State == task.Cancelled, false
+}
+
+// releaseWaitingRetest ends a re-test that is waiting for the owner: improvement work never asks the owner
+// (only the main agent does, on the owner's own tasks), and a waiting fixture would block its remedy for ever.
+func (e *Engine) releaseWaitingRetest(ctx context.Context, t *task.Task) {
+	reason := "input_timeout: a re-test does not ask the owner"
+	if t.State == task.WaitingApproval {
+		reason = "approval_expired: a re-test does not ask the owner"
+	}
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := task.Transition(ctx, tx, t.ID, task.Failed, reason, "", "core"); err != nil {
+			return err
+		}
+		tx.ExecContext(ctx, "update approvals set status='invalidated' where task_id=? and status='pending'", t.ID)
+		tx.ExecContext(ctx, "update task_inputs set status='timed_out' where task_id=? and status='pending'", t.ID)
+		return policy.RevokeTask(ctx, tx, t.ID)
+	})
+}
+
+// exemplarByID loads one finished task as a re-test exemplar.
+func (e *Engine) exemplarByID(ctx context.Context, id string) (exemplar, error) {
+	var x exemplar
+	var sc, bu string
+	err := e.st.R.QueryRowContext(ctx, "select id, objective, state, coalesce(reason_code,''), scope_json, budget_json from tasks where id=?", id).
+		Scan(&x.ID, &x.Objective, &x.State, &x.Code, &sc, &bu)
+	json.Unmarshal([]byte(sc), &x.Scope)
+	json.Unmarshal([]byte(bu), &x.Budget)
+	return x, err
+}
+
+// EvaluateRemedies judges R2/R3 remedies whose re-test tasks all finished: promote
+// if the exposing tasks now succeed beyond the noise margin with no regression;
+// otherwise roll the remedy back and record why. A re-test that could not produce
+// evidence (see retestOutcome) is run again or left out, never held against the remedy.
 func (e *Engine) EvaluateRemedies(ctx context.Context) {
 	rows, err := e.st.R.QueryContext(ctx, `select r.id, r.limitation_id, r.artifact_json, r.before_json from limitation_remedies r
 		where r.status='testing' and r.class in ('R2','R3')`)
@@ -302,31 +391,63 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 	}
 	rows.Close()
 	for _, it := range todo {
-		var art struct {
-			ToolID          string `json:"tool_id"` // R3
-			SkillID         string `json:"skill_id"`
-			Version         int    `json:"version"`
-			PreviousVersion int    `json:"previous_version"`
-			Fixtures        []struct {
-				TaskID string `json:"task_id"`
-				Kind   string `json:"kind"`
-			} `json:"fixtures"`
-		}
+		var art map[string]any
 		var before map[string]any
 		json.Unmarshal([]byte(it.art), &art)
 		json.Unmarshal([]byte(it.before), &before)
-		var exposing, exposingOK, regress, regressOK int
-		allDone := len(art.Fixtures) > 0
-		for _, f := range art.Fixtures {
-			t, err := task.Get(ctx, e.st.R, f.TaskID)
-			if err != nil || !t.State.Terminal() {
+		toolID, _ := art["tool_id"].(string) // R3
+		skillID, _ := art["skill_id"].(string)
+		prevVersion := int(floatOr(art["previous_version"], 0))
+		fixtures, _ := art["fixtures"].([]any)
+		var exposing, exposingOK, regress, regressOK, unclear int
+		allDone, changed := len(fixtures) > 0, false
+		for _, raw := range fixtures {
+			f, _ := raw.(map[string]any)
+			id, _ := f["task_id"].(string)
+			t, err := task.Get(ctx, e.st.R, id)
+			if err != nil {
+				allDone = false
+				continue
+			}
+			if t.State == task.WaitingInput || t.State == task.WaitingApproval {
+				e.releaseWaitingRetest(ctx, t)
+				allDone = false // judged on the next cycle, as inconclusive
+				continue
+			}
+			if !t.State.Terminal() {
 				allDone = false
 				continue
 			}
 			var verified int
-			e.st.R.QueryRowContext(ctx, "select count(*) from task_events where task_id=? and type='VERIFIED'", f.TaskID).Scan(&verified)
-			ok := t.State == task.Succeeded && verified > 0
-			if f.Kind == "exposing" {
+			e.st.R.QueryRowContext(ctx, "select count(*) from task_events where task_id=? and type='VERIFIED'", id).Scan(&verified)
+			ok, inconclusive, retryable := retestOutcome(t, verified > 0)
+			if inconclusive {
+				attempts := int(floatOr(f["attempts"], 1))
+				from, _ := f["from"].(string)
+				if retryable && attempts < retestMaxAttempts && from != "" {
+					allDone = false
+					if time.Since(time.UnixMilli(t.UpdatedAt)) < retestBackoff || !e.improvementAllowed(ctx) {
+						continue
+					}
+					x, err := e.exemplarByID(ctx, from)
+					if err == nil {
+						var extra []string
+						if tool, _ := art["tool"].(string); tool != "" {
+							extra = append(extra, tool)
+						}
+						var nt *task.Task
+						if nt, _, err = e.submitRetest(ctx, x, extra...); err == nil {
+							f["task_id"], f["attempts"], changed = nt.ID, attempts+1, true
+							continue
+						}
+					}
+					f["attempts"], changed = retestMaxAttempts, true // cannot be re-run: left out on the next cycle
+					continue
+				}
+				unclear++
+				continue
+			}
+			if f["kind"] == "exposing" {
 				exposing++
 				if ok {
 					exposingOK++
@@ -338,15 +459,28 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 				}
 			}
 		}
+		if changed {
+			e.st.Write(ctx, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, "update limitation_remedies set artifact_json=?, updated_at=? where id=? and status='testing'", js(art), ids.NowMs(), it.id)
+				return err
+			})
+		}
 		if !allDone {
 			continue
 		}
-		baseline := floatOr(before["value"], 0)
+		// The baseline is the verified success rate the exposing tasks are compared with: the class rate for a
+		// success-rate limitation; zero for a repeated failure code (those tasks all failed with it).
+		baseline := 0.0
+		if before["metric"] == "verified_success_rate" {
+			baseline = floatOr(before["value"], 0)
+		}
 		after := float64(exposingOK) / float64(max(exposing, 1))
 		improved := after-baseline > e.ledgerCfg.NoiseMargin && exposingOK > 0
 		regressed := regress > 0 && regressOK < regress
 		after2 := map[string]any{"metric": "verified_success_rate_on_exposing_tasks", "value": after, "exposing_runs": exposing,
-			"exposing_ok": exposingOK, "regression_runs": regress, "regression_ok": regressOK, "baseline": baseline, "noise_margin": e.ledgerCfg.NoiseMargin}
+			"exposing_ok": exposingOK, "regression_runs": regress, "regression_ok": regressOK, "inconclusive_runs": unclear,
+			"baseline": baseline, "noise_margin": e.ledgerCfg.NoiseMargin}
+		noEvidence := exposing == 0
 		e.st.Write(ctx, func(tx *sql.Tx) error {
 			now := ids.NowMs()
 			if improved && !regressed {
@@ -355,7 +489,10 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 				return policy.Audit(ctx, tx, "REMEDY_PROMOTED", "core", "", "", map[string]any{"limitation": it.lim, "after": after2})
 			}
 			why := "did not beat the baseline beyond the noise margin"
-			if regressed {
+			switch {
+			case noEvidence:
+				why = "inconclusive: no re-test of the exposing tasks could run to a result (provider, worker or owner input unavailable); the remedy is withdrawn unproven"
+			case regressed:
 				why = "caused a regression on previously successful tasks"
 			}
 			after2["rollback_reason"] = why
@@ -363,16 +500,19 @@ func (e *Engine) EvaluateRemedies(ctx context.Context) {
 			tx.ExecContext(ctx, "update limitations set status='rolled_back', result_json=?, version=version+1, updated_at=? where id=?", js(after2), now, it.lim)
 			return policy.Audit(ctx, tx, "REMEDY_ROLLED_BACK", "core", "", "", map[string]any{"limitation": it.lim, "reason": why})
 		})
-		if !(improved && !regressed) && art.ToolID != "" {
-			e.DisableL2(ctx, art.ToolID, "core", "rolled back: "+fmt.Sprint(after2["rollback_reason"]))
+		if improved && !regressed {
 			continue
 		}
-		if !(improved && !regressed) {
-			if art.PreviousVersion > 0 {
-				e.RollbackSkill(ctx, art.SkillID, art.PreviousVersion)
-			} else {
-				e.SetSkillStatus(ctx, art.SkillID, "disabled")
-			}
+		if toolID != "" {
+			e.DisableL2(ctx, toolID, "core", "rolled back: "+fmt.Sprint(after2["rollback_reason"]))
+			continue
+		}
+		if prevVersion > 0 {
+			e.RollbackSkill(ctx, skillID, prevVersion)
+		} else {
+			e.SetSkillStatus(ctx, skillID, "disabled")
+		}
+		if !noEvidence {
 			e.proposeBrainRemedy(ctx, it.lim) // the next rung for a planning-strategy limitation (R4, P6)
 		}
 	}

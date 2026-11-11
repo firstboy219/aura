@@ -39,3 +39,26 @@ restart are failed on recovery (`interrupted_improvement`) with their grants rev
 counts only owner (`main`) tasks. Tests: `TestRecoveredLimitationIsNotReopenedByOldFailures`,
 `TestInterruptedImprovementTaskIsFailedOnRecovery`. The duplicate entries already stored are history; removing them is an owner
 decision (dismiss), not something the loop does to its own record.
+
+## Addendum 2026-11-11 (P10-M5b): re-test evidence must be about the remedy
+
+Production record before this change: R2 remedies 3 promoted, 98 rolled back, 2,269 escalated; re-test tasks 98 completed, 309
+failed, of which 282 with PROVIDER_UNAVAILABLE. Three defects made the loop ineffective:
+
+1. **Wrong baseline.** A repeated-failure-code limitation stored its failure *count* (for example 3) as the baseline, and the
+   evaluator compared the exposing tasks' success *rate* with it, so such a remedy could never be promoted (13 remedies with
+   every re-test passing were rolled back). The baseline is now the class success rate for a success-rate limitation and zero for
+   a failure-code limitation (its exposing tasks all failed with that code).
+2. **Infrastructure failures counted as regressions.** A fixture that ends with PROVIDER_UNAVAILABLE, WORKER_CRASH or KILL_SWITCH
+   is inconclusive: it is run again after a pause (10 min, at most 3 attempts, only when improvement work is allowed) and never
+   counts for or against the remedy. APPROVAL_EXPIRED, INPUT_TIMEOUT and cancellation are inconclusive without a re-run. A re-test
+   waiting for the owner is ended by the Core: improvement work never asks the owner (AGENTS rule 18). With no conclusive run of
+   an exposing task the remedy is withdrawn with the reason "inconclusive" (24 h cooldown as for any rollback) and no R4 follows.
+3. **Transient draft failures were escalated to the owner.** 2,204 of the escalations were "route circuit is open" while
+   drafting. A draft that could not run stays proposed and is tried again after 30 min, at most 4 attempts; only a draft that ran
+   and was refused (schema, protected topic, no exemplars), or the last attempt, is escalated.
+
+Nothing here widens a permission or touches an L4 component; promotion still needs a VERIFIED run, improvement beyond the noise
+margin and no regression. Tests: `TestRetestInfrastructureFailureIsRerunNotHeldAgainstTheRemedy`,
+`TestRetestWithoutEvidenceIsRecordedAsInconclusive`, `TestWaitingRetestIsReleasedAndLeftOut`,
+`TestRemedyDraftTransientFailureWaitsInsteadOfEscalating`.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -285,7 +286,7 @@ func dumpLedger(t *testing.T, h *harness) string {
 }
 
 // seedFromReal inserts a finished main task with a real objective/scope (so a re-test can re-run it).
-func seedFromReal(t *testing.T, h *harness, class, objective string, state task.State, code string, verified bool) {
+func seedFromReal(t *testing.T, h *harness, class, objective string, state task.State, code string, verified bool) string {
 	t.Helper()
 	tk := &task.Task{Objective: objective, ConfigHash: "h", Budget: task.Budget{MaxCostUSD: 0.5, MaxIterations: 20, MaxWallSeconds: 300},
 		Scope: task.Scope{Tools: []string{"web.fetch", "workspace.write"}, AllowDomains: []string{h.host}, DataClass: "public"}}
@@ -305,6 +306,7 @@ func seedFromReal(t *testing.T, h *harness, class, objective string, state task.
 	if err != nil {
 		t.Fatal(err)
 	}
+	return tk.ID
 }
 
 // SELF-05: improvement work has its own cap, runs only when the owner has no
@@ -616,5 +618,174 @@ func TestInterruptedImprovementTaskIsFailedOnRecovery(t *testing.T) {
 	got, _ := task.Get(ctx, h.st.R, tk.ID)
 	if got.State != task.Failed || deref(got.Reason) != "interrupted_improvement" {
 		t.Fatalf("%s %s", got.State, deref(got.Reason))
+	}
+}
+
+// seedRemedy opens a limitation with an R2 remedy in testing over the given fixtures.
+func seedRemedy(t *testing.T, h *harness, class string, baseline map[string]any, fixtures []map[string]any) (limID, remedyID string) {
+	t.Helper()
+	ctx := context.Background()
+	err := h.st.Write(ctx, func(tx *sql.Tx) error {
+		l, _, err := h.eng.recordLimitation(ctx, tx, &Limitation{Category: "quality", TaskClass: class, DetectedBy: "runtime_monitor", Status: "remedy_testing",
+			Title: "seeded", Baseline: baseline}, "code:"+class+":seeded")
+		if err != nil {
+			return err
+		}
+		limID = l.ID
+		if err := h.eng.addRemedy(ctx, tx, l.ID, taxonomy.R2, "testing", "seeded", map[string]any{"skill_id": "none", "fixtures": fixtures}); err != nil {
+			return err
+		}
+		if err := tx.QueryRow("select id from limitation_remedies where limitation_id=?", l.ID).Scan(&remedyID); err != nil {
+			return err
+		}
+		_, err = tx.Exec("update limitation_remedies set before_json=? where id=?", js(baseline), remedyID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limID, remedyID
+}
+
+func remedyRow(t *testing.T, h *harness, id string) (status string, art, after map[string]any) {
+	t.Helper()
+	var a, b string
+	if err := h.st.R.QueryRow("select status, artifact_json, after_json from limitation_remedies where id=?", id).Scan(&status, &a, &b); err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal([]byte(a), &art)
+	json.Unmarshal([]byte(b), &after)
+	return status, art, after
+}
+
+const retestClass = "web.fetch+workspace.write"
+const retestObjective = "Fetch http://fixture.test/one and summarize into reports/summary.md"
+
+// P10-M5b: a re-test that ended because no provider was available says nothing about the remedy. It is run
+// again and never counted as a regression; and a repeated-failure-code limitation is judged against a
+// success-rate baseline (its failure count, 3, was compared with a rate and could never be beaten).
+func TestRetestInfrastructureFailureIsRerunNotHeldAgainstTheRemedy(t *testing.T) {
+	h := newHarness(t, harnessOpts{noStart: true})
+	ctx := context.Background()
+	h.eng.ledgerCfg.ImprovementUSDDaily = 1
+	old := retestBackoff
+	retestBackoff = 0
+	t.Cleanup(func() { retestBackoff = old })
+	from := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	ok1 := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	ok2 := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	down := seedFromReal(t, h, retestClass, retestObjective, task.Failed, taxonomy.ProviderUnavailable, false)
+	_, rem := seedRemedy(t, h, retestClass, map[string]any{"metric": "repeat_failure_count", "value": 3.0}, []map[string]any{
+		{"task_id": ok1, "kind": "exposing", "from": from}, {"task_id": ok2, "kind": "exposing", "from": from},
+		{"task_id": down, "kind": "regression", "from": from}})
+	h.eng.EvaluateRemedies(ctx)
+	status, art, _ := remedyRow(t, h, rem)
+	fx := art["fixtures"].([]any)[2].(map[string]any)
+	if status != "testing" || fx["task_id"] == down || fx["attempts"] != 2.0 {
+		t.Fatalf("the inconclusive fixture was not run again: %s %+v", status, fx)
+	}
+	rerun, _ := task.Get(ctx, h.st.R, fx["task_id"].(string))
+	if rerun.AgentRole != "retest" || rerun.Priority >= 0 {
+		t.Fatalf("re-run is not a low-priority retest: %+v", rerun)
+	}
+	h.st.Write(ctx, func(tx *sql.Tx) error {
+		tx.Exec("update tasks set state='COMPLETED' where id=?", rerun.ID)
+		_, err := task.AppendEvent(ctx, tx, rerun.ID, nil, "VERIFIED", "core", map[string]any{})
+		return err
+	})
+	h.eng.EvaluateRemedies(ctx)
+	status, _, after := remedyRow(t, h, rem)
+	if status != "promoted" || after["baseline"] != 0.0 || after["exposing_ok"] != 2.0 {
+		t.Fatalf("%s %+v", status, after)
+	}
+}
+
+// With no conclusive run at all the remedy is withdrawn as unproven, and the record says so.
+func TestRetestWithoutEvidenceIsRecordedAsInconclusive(t *testing.T) {
+	h := newHarness(t, harnessOpts{noStart: true})
+	ctx := context.Background()
+	from := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	var fixtures []map[string]any
+	for _, kind := range []string{"exposing", "exposing", "regression"} {
+		id := seedFromReal(t, h, retestClass, retestObjective, task.Failed, taxonomy.ProviderUnavailable, false)
+		fixtures = append(fixtures, map[string]any{"task_id": id, "kind": kind, "from": from, "attempts": retestMaxAttempts})
+	}
+	lim, rem := seedRemedy(t, h, retestClass, map[string]any{"metric": "verified_success_rate", "value": 0.5}, fixtures)
+	h.eng.EvaluateRemedies(ctx)
+	status, _, after := remedyRow(t, h, rem)
+	why, _ := after["rollback_reason"].(string)
+	if status != "rolled_back" || !strings.HasPrefix(why, "inconclusive") || after["inconclusive_runs"] != 3.0 || after["regression_runs"] != 0.0 {
+		t.Fatalf("%s %+v", status, after)
+	}
+	var n int
+	h.st.R.QueryRow("select count(*) from limitation_remedies where limitation_id=? and class='R4'", lim).Scan(&n)
+	if n != 0 {
+		t.Fatal("an unproven remedy led to a brain remedy")
+	}
+}
+
+// Improvement work never asks the owner: a re-test waiting for an answer is ended and left out.
+func TestWaitingRetestIsReleasedAndLeftOut(t *testing.T) {
+	h := newHarness(t, harnessOpts{noStart: true})
+	ctx := context.Background()
+	from := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	ok1 := seedFromReal(t, h, retestClass, retestObjective, task.Succeeded, "", true)
+	asking := seedFromReal(t, h, retestClass, retestObjective, task.WaitingInput, "", false)
+	_, rem := seedRemedy(t, h, retestClass, map[string]any{"metric": "repeat_failure_count", "value": 3.0}, []map[string]any{
+		{"task_id": ok1, "kind": "exposing", "from": from}, {"task_id": asking, "kind": "exposing", "from": from}})
+	h.eng.EvaluateRemedies(ctx)
+	got, _ := task.Get(ctx, h.st.R, asking)
+	if got.State != task.Failed || got.ReasonCode == nil || *got.ReasonCode != taxonomy.InputTimeout {
+		t.Fatalf("waiting re-test not released: %s %v", got.State, got.ReasonCode)
+	}
+	h.eng.EvaluateRemedies(ctx)
+	status, _, after := remedyRow(t, h, rem)
+	if status != "promoted" || after["inconclusive_runs"] != 1.0 || after["exposing_runs"] != 1.0 {
+		t.Fatalf("%s %+v", status, after)
+	}
+}
+
+// A draft that could not run (no provider) waits and is tried again; it is escalated only after the last
+// attempt. A draft that ran and was refused is escalated at once.
+func TestRemedyDraftTransientFailureWaitsInsteadOfEscalating(t *testing.T) {
+	h := newHarness(t, harnessOpts{noStart: true})
+	ctx := context.Background()
+	mk := func(key string) (string, string) {
+		var lim, rem string
+		h.st.Write(ctx, func(tx *sql.Tx) error {
+			l, _, err := h.eng.recordLimitation(ctx, tx, &Limitation{Category: "quality", TaskClass: retestClass, DetectedBy: "runtime_monitor",
+				Status: "remedy_proposed", Title: key}, key)
+			if err != nil {
+				return err
+			}
+			lim = l.ID
+			h.eng.addRemedy(ctx, tx, l.ID, taxonomy.R2, "proposed", "seeded", map[string]any{"task_class": retestClass})
+			return tx.QueryRow("select id from limitation_remedies where limitation_id=?", l.ID).Scan(&rem)
+		})
+		return lim, rem
+	}
+	lim, rem := mk("code:a")
+	down := errors.New("all_routes_failed: provider error 0: route circuit is open")
+	for i := 1; i < draftMaxAttempts; i++ {
+		h.eng.draftFailed(ctx, rem, lim, down)
+		status, art, _ := remedyRow(t, h, rem)
+		if status != "proposed" || art["draft_attempts"] != float64(i) || art["next_draft_at"] == nil || art["task_class"] != retestClass {
+			t.Fatalf("attempt %d: %s %+v", i, status, art)
+		}
+	}
+	// while it waits, the loop does not draft it again
+	h.eng.ledgerCfg.ImprovementUSDDaily = 1
+	h.eng.ActOnRemedies(ctx)
+	if _, art, _ := remedyRow(t, h, rem); art["draft_attempts"] != float64(draftMaxAttempts-1) {
+		t.Fatalf("drafted during the pause: %+v", art)
+	}
+	h.eng.draftFailed(ctx, rem, lim, down)
+	if status, _, _ := remedyRow(t, h, rem); status != "escalated" {
+		t.Fatalf("last attempt not escalated: %s", status)
+	}
+	lim2, rem2 := mk("code:b")
+	h.eng.draftFailed(ctx, rem2, lim2, errors.New("protected_topic"))
+	if status, _, _ := remedyRow(t, h, rem2); status != "escalated" {
+		t.Fatalf("a refused draft must go to the owner: %s", status)
 	}
 }
