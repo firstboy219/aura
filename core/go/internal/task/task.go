@@ -93,6 +93,20 @@ type Scope struct {
 	Workflow string `json:"workflow,omitempty"`
 	// Reply is "none" for a task that needs no owner reply (ADR-0055); empty means the default.
 	Reply string `json:"reply,omitempty"`
+	// Voice is set when the owner spoke the objective (ADR-0058): what the
+	// device's recognizer heard, best first. It is input, never authorization.
+	Voice *Voice `json:"voice,omitempty"`
+}
+
+// Voice is the recognizer's view of one spoken turn.
+type Voice struct {
+	Alternatives []VoiceAlt `json:"alternatives"`
+}
+
+// VoiceAlt is one recognition hypothesis; Confidence is nil when the device does not report it.
+type VoiceAlt struct {
+	Text       string   `json:"text"`
+	Confidence *float64 `json:"confidence,omitempty"`
 }
 
 // IsPublic reports whether the task's content may go to prompt-logging routes.

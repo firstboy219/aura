@@ -55,6 +55,7 @@ var routeRole = map[string]string{
 	"POST /api/v1/workflows/{id}/disable":                RoleOwner,
 	"DELETE /api/v1/memories/{id}":                       RoleOwner,
 	"POST /api/v1/skills/{id}/{action}":                  RoleOwner,
+	"POST /api/v1/skills/import":                         RoleOwner,
 	"POST /api/v1/improvement/run":                       RoleOwner,
 	"POST /api/v1/browser/check":                         RoleOwner,
 	"GET /api/v1/browser/profiles":                       RoleOwner,

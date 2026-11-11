@@ -28,3 +28,14 @@ func TestNoShellCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillMarkdownIsSplitIntoNameDescriptionAndGuidance(t *testing.T) {
+	name, desc, body := splitSkillMarkdown("---\nname: riset-bersumber\ndescription: \"Riset web yang dapat dipercaya\"\nsource: x\n---\n# Riset\n1. Cari.")
+	if name != "riset-bersumber" || desc != "Riset web yang dapat dipercaya" || body != "# Riset\n1. Cari." {
+		t.Fatalf("%q %q %q", name, desc, body)
+	}
+	tr := skillTriggers("riset-bersumber Riset web yang dapat dipercaya")
+	if strings.Join(tr, ",") != "riset,bersumber,yang,dapat,dipercaya" {
+		t.Fatalf("triggers %v", tr)
+	}
+}

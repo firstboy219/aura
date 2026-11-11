@@ -15,6 +15,8 @@ class Api(private val base: String, private val token: String) {
     data class Task(
         val id: String, val objective: String, val state: String, val reasonCode: String?, val waitReason: String?, val costUsd: Double,
         val public: Boolean = false, val reply: Reply? = null,
+        /** What AURA understood a spoken request to mean (ADR-0058); null when typed or not yet planned. */
+        val heardAs: String? = null,
     )
 
     /** AURA's answer to the owner (ADR-0055). The view is declarative data already sanitised by the Core; the app draws it natively. */
@@ -39,9 +41,10 @@ class Api(private val base: String, private val token: String) {
     fun notifications(unreadOnly: Boolean): List<Notice> = parseNotices(call("GET", "/notifications" + if (unreadOnly) "?unread=true" else ""))
     fun markRead(id: String) { call("POST", "/notifications/${enc(id)}/read") }
 
-    fun createTask(objective: String, tools: List<String>, domains: List<String>, public: Boolean): Task {
+    fun createTask(objective: String, tools: List<String>, domains: List<String>, public: Boolean, spoken: List<LiveTalk.Alt> = emptyList()): Task {
         val body = JSONObject().put("objective", objective).put("tools", JSONArray(tools)).put("allow_domains", JSONArray(domains))
         if (public) body.put("data_class", "public")
+        if (spoken.isNotEmpty()) body.put("voice", voiceJson(spoken))
         return parseTask(call("POST", "/tasks", body))
     }
 
@@ -105,7 +108,12 @@ class Api(private val base: String, private val token: String) {
 
         fun parseTask(o: JSONObject) = Task(o.getString("id"), o.optString("objective"), o.optString("state"),
             str(o, "reason_code"), str(o, "wait_reason"), o.optDouble("cost_usd", 0.0),
-            o.optString("data_class") == "public", o.optJSONObject("reply")?.let { parseReply(it) })
+            o.optString("data_class") == "public", o.optJSONObject("reply")?.let { parseReply(it) }, str(o, "heard_as")?.takeIf { it.isNotBlank() })
+
+        /** The recognizer's hypotheses as the task's voice input (ADR-0058). */
+        fun voiceJson(alts: List<LiveTalk.Alt>): JSONObject = JSONObject().put("alternatives", JSONArray(alts.take(5).map { a ->
+            JSONObject().put("text", a.text.take(2000)).also { o -> a.confidence?.let { o.put("confidence", it.toDouble()) } }
+        }))
 
         private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }
 

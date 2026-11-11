@@ -216,7 +216,40 @@ Rules:
 - Never add a step that only asks the owner to confirm: the Core itself asks the owner to approve every action that
   needs approval.
 - {answer_rule}
+- The owner often writes informally: Indonesian abbreviations and slang ("skrg", "brp", "gmn", "tlg", "bsk", "udh",
+  "nggak", "cekin"), typos and mixed Indonesian-English. Understand the meaning as the owner intends it; do not ask the
+  owner to rephrase what is clear from the words and the conversation.
 Reply with JSON only."""
+
+VOICE_RULE = """The owner SPOKE this objective. It reached you through the phone's speech recognizer, which mishears.
+Before planning, reconstruct what the owner actually said and meant:
+- Compare the recognizer's alternatives below (best first, with confidence when known): words that differ between them
+  are the doubtful ones.
+- Repair typical Indonesian recognition errors: words wrongly split or joined ("di kirim"/"dikirim"), similar-sounding
+  words, numbers and times heard as words ("jam tiga sore" = 15:00), English and brand words written as they sound
+  ("wasap" = WhatsApp, "imel" = email, "gugel" = Google, "miting" = meeting), misspelled names and places.
+- Use the recent conversation, the owner's memory and preferences to resolve names, businesses, places and references
+  such as "yang tadi" or "itu".
+- Understand colloquial and mixed Indonesian-English speech as the owner means it, and ignore fillers ("eh", "emm",
+  "apa ya", repeated words).
+- Never add anything the owner did not say. Keep every name, number, amount, date and time unless a recognition error
+  is evident.
+Set "heard_as" to the corrected request as one clear sentence in the owner's language (the recognizer's text itself
+when nothing needed correcting). {confirm_rule}"""
+VOICE_CONFIRM_ALLOWED = ('If two readings stay plausible and they lead to different actions (another person, amount, date, '
+                         'place or action), set "question" to ONE short confirmation in the owner\'s language, for example '
+                         '"Maksud Tuan: <reading>?", and return no steps.')
+VOICE_CONFIRM_DENIED = "Choose the most plausible reading."
+
+
+def render_voice(voice: dict | None) -> str:
+    alts = (voice or {}).get("alternatives") or []
+    lines = []
+    for i, a in enumerate(alts[:5], start=1):
+        conf = a.get("confidence")
+        conf_txt = f" (confidence {float(conf):.2f})" if isinstance(conf, (int, float)) else ""
+        lines.append(f"{i}. {str(a.get('text', ''))[:2000]!r}{conf_txt}")
+    return "\n".join(lines)
 
 ANSWER_RULE_ALLOWED = ('After the plan runs, a separate module writes the reply to the owner from the results, so never add a '
                        'step only to "answer" or "summarise". If NO tool is needed at all (a greeting, a question about '
@@ -409,6 +442,7 @@ def render_skills(items: list[dict]) -> str:
     out = []
     for s in items or []:
         steps = "; ".join(f"{st.get('tool_id')}: {st.get('description')}" for st in (s.get("steps") or []))
+        steps = steps or "guidance only, no fixed steps"
         out.append(f"- {s.get('name')} (v{s.get('version')}): {steps}. Notes: {s.get('notes') or '-'}")
     return "\n".join(out)
 
@@ -602,8 +636,13 @@ def plan(ch: Channel, params: dict) -> dict:
     system = PLANNER_SYSTEM.format(tool_docs=tool_docs(granted, domains, params.get("tool_docs")), max_steps=MAX_STEPS, start=1,
                                    ask_rule=ASK_RULE_ALLOWED if may_ask else ASK_RULE_DENIED,
                                    answer_rule=ANSWER_RULE_ALLOWED if may_answer else ANSWER_RULE_DENIED)
+    voice = render_voice(params.get("voice"))
+    if voice:
+        system += "\n\n" + VOICE_RULE.format(confirm_rule=VOICE_CONFIRM_ALLOWED if may_ask or may_answer else VOICE_CONFIRM_DENIED)
     system = with_guidance(system, params, "planner")
     user = f"Objective:\n{objective}"
+    if voice:
+        user += f"\n\nWhat the speech recognizer heard (alternatives, best first):\n{voice}"
     if params.get("self"):
         user += f"\n\nAbout you (facts from the Core's records):\n{params['self']}"
     talk = render_conversation(params.get("conversation") or [])
@@ -624,22 +663,32 @@ def plan(ch: Channel, params: dict) -> dict:
     user += render_profile(params.get("profile"))
     messages = [{"role": "system", "content": sys_prompt(system)}, {"role": "user", "content": user}]
     tier = params.get("tier") or "standard"
+    schema = plan_schema(granted)
+    if voice:
+        schema["properties"]["heard_as"] = NULLABLE_STR
+        schema["required"] = [*schema["required"], "heard_as"]
+
+    def heard(result: dict) -> dict:
+        h = (out.get("heard_as") or "").strip() if voice else ""
+        return {**result, "heard_as": h[:2000]} if h else result
+
     for attempt in range(2):
-        res = llm(ch, {"tier": tier, "messages": messages, "response_schema": plan_schema(granted),
+        res = llm(ch, {"tier": tier, "messages": messages, "response_schema": schema,
                                        "max_output_tokens": 3000, "purpose": "plan"})
         out = res.get("structured") or {}
         question = (out.get("question") or "").strip()
-        if question and may_ask and not out.get("steps"):
-            return {"steps": [], "completion_criteria": [], "question": question[:1000]}
+        # A spoken request may confirm its reading even where a typed one would just be answered (ADR-0058).
+        if question and (may_ask or (may_answer and voice)) and not out.get("steps"):
+            return heard({"steps": [], "completion_criteria": [], "question": question[:1000]})
         if may_answer and not out.get("steps"):
-            return {"steps": [], "completion_criteria": [], "question": None}
+            return heard({"steps": [], "completion_criteria": [], "question": None})
         problem = ""
         try:
             p = validate_plan(out, granted)
             missing = missing_outputs(p, objective, attachments=params.get("attachments")) if "workspace.write" in granted else []
             delegation = missing_delegations(p["steps"], objective, granted)
             if not missing and not delegation:
-                return p
+                return heard(p)
             problem = delegation or ("The plan never writes " + ", ".join(missing) +
                                      ", which the objective asks for. Add a workspace.write step for each, after the steps it needs.")
         except StepFailure as e:

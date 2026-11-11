@@ -71,7 +71,7 @@ func (e *Engine) reflect(ctx context.Context, taskID string, evidence []evidence
 		return
 	}
 	octx, _ := e.ownerContext(ctx, t)
-	raw, err := e.callWorker(ctx, s, "task.reflect", map[string]any{"objective": t.Objective, "steps": plan, "evidence": evidence,
+	raw, err := e.callWorker(ctx, s, "task.reflect", map[string]any{"objective": e.objectiveFor(ctx, t), "steps": plan, "evidence": evidence,
 		"owner_context": octx, "replans": t.Replans, "tier": tierFor(t)})
 	// The task is finished: the grant minted for reflection must not outlive the
 	// worker call (revoked before anything else is recorded).
@@ -148,8 +148,25 @@ func (e *Engine) saveSkill(ctx context.Context, t *task.Task, name string, trigg
 		return nil, ErrProtected
 	}
 	tmpl, _ := json.Marshal(steps)
-	trig := truncate(strings.Join(triggers, ", "), 500)
-	notes = truncate(notes, 1000)
+	tid := t.ID
+	return e.writeSkillVersion(ctx, name, truncate(strings.Join(triggers, ", "), 500), string(tmpl), truncate(notes, 1000), &tid)
+}
+
+// ImportSkill stores an owner-provided guidance skill: notes only, no plan
+// template and no source task. It carries no permissions, like every skill.
+func (e *Engine) ImportSkill(ctx context.Context, name string, triggers []string, notes string) (*Skill, error) {
+	name = strings.ToLower(reSkillName.Replace(strings.TrimSpace(name)))
+	notes = strings.TrimSpace(notes)
+	if len(name) == 0 || len(name) > 60 || notes == "" || len(notes) > 2000 {
+		return nil, fmt.Errorf("%w: an imported skill needs a name and 1..2000 characters of guidance", ErrInvalid)
+	}
+	if protectedTopic(name + " " + strings.Join(triggers, " ") + " " + notes) {
+		return nil, ErrProtected
+	}
+	return e.writeSkillVersion(ctx, name, truncate(strings.Join(triggers, ", "), 500), "[]", notes, nil)
+}
+
+func (e *Engine) writeSkillVersion(ctx context.Context, name, trig, tmpl, notes string, source *string) (*Skill, error) {
 	var id string
 	err := e.st.Write(ctx, func(tx *sql.Tx) error {
 		now := ids.NowMs()
@@ -170,9 +187,8 @@ func (e *Engine) saveSkill(ctx context.Context, t *task.Task, name string, trigg
 			version = latest
 		}
 		version++
-		tid := t.ID
 		if _, err := tx.ExecContext(ctx, `insert into skill_versions(skill_id, version, triggers, template_json, notes, source_task_id, created_at)
-			values(?,?,?,?,?,?,?)`, id, version, trig, string(tmpl), notes, tid, now); err != nil {
+			values(?,?,?,?,?,?,?)`, id, version, trig, tmpl, notes, source, now); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "update skills set current_version=?, updated_at=? where id=?", version, now, id); err != nil {

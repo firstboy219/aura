@@ -36,6 +36,8 @@ type CreateInput struct {
 	Reply string
 	// CreatedBy is the principal that asked (member id); recorded with the task.
 	CreatedBy string
+	// Voice carries the recognizer's hypotheses when the objective was spoken (ADR-0058).
+	Voice *task.Voice
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -158,6 +160,13 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	}
 	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec,
 		BrowserProfile: in.BrowserProfile, Reply: in.Reply}, ConfigHash: e.cfg.Hash()}
+	if in.Voice != nil {
+		v, err := cleanVoice(in.Voice)
+		if err != nil {
+			return nil, bad("%v", err)
+		}
+		t.Scope.Voice = v
+	}
 	switch in.Tier {
 	case "":
 	case "fast", "standard", "deep":
@@ -510,3 +519,27 @@ func (e *Engine) Stop(ctx context.Context, by string) (int, error) {
 
 // Store exposes the store for read-side API handlers.
 func (e *Engine) Store() *store.Store { return e.st }
+
+// cleanVoice bounds a spoken turn's hypotheses: 1..5 alternatives, each 1..2000
+// characters, confidence within 0..1. Duplicates are dropped.
+func cleanVoice(v *task.Voice) (*task.Voice, error) {
+	if len(v.Alternatives) == 0 || len(v.Alternatives) > 5 {
+		return nil, fmt.Errorf("voice needs 1..5 alternatives")
+	}
+	out := &task.Voice{}
+	seen := map[string]bool{}
+	for _, a := range v.Alternatives {
+		a.Text = strings.TrimSpace(a.Text)
+		if a.Text == "" || len(a.Text) > 2000 {
+			return nil, fmt.Errorf("voice alternatives must be 1..2000 characters")
+		}
+		if a.Confidence != nil && (*a.Confidence < 0 || *a.Confidence > 1) {
+			return nil, fmt.Errorf("voice confidence must be within 0..1")
+		}
+		if k := strings.ToLower(a.Text); !seen[k] {
+			seen[k] = true
+			out.Alternatives = append(out.Alternatives, a)
+		}
+	}
+	return out, nil
+}

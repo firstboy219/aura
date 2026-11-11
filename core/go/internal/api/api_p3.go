@@ -105,6 +105,24 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name     string   `json:"name"`
+		Triggers []string `json:"triggers"`
+		Notes    string   `json:"notes"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	sk, err := s.Engine.ImportSkill(r.Context(), in.Name, in.Triggers, in.Notes)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, sk)
+}
+
 func (s *Server) skillAction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch r.PathValue("action") {

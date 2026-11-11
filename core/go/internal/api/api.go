@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/memories/{id}", auth(s.deleteMemory))
 	mux.Handle("GET /api/v1/skills", auth(s.listSkills))
 	mux.Handle("GET /api/v1/skills/{id}", auth(s.getSkill))
+	mux.Handle("POST /api/v1/skills/import", auth(s.importSkill))
 	mux.Handle("POST /api/v1/skills/{id}/{action}", auth(s.skillAction))
 	mux.HandleFunc("POST /api/v1/web/login", s.webOnly(s.webLogin))
 	mux.HandleFunc("POST /api/v1/web/logout", s.webOnly(s.webLogout))
@@ -294,31 +295,33 @@ func decodeStrict(r *http.Request, v any) error {
 
 // Task is the API representation (openapi Task).
 type Task struct {
-	ID           string        `json:"id"`
-	State        task.State    `json:"state"`
-	Reason       *string       `json:"reason"`
-	ReasonCode   *string       `json:"reason_code"`
-	TaskClass    *string       `json:"task_class"`
-	WaitReason   *string       `json:"wait_reason"`
-	Objective    string        `json:"objective"`
-	ParentTaskID *string       `json:"parent_task_id"`
-	RootTaskID   string        `json:"root_task_id"`
-	AgentRole    string        `json:"agent_role"`
-	Depth        int           `json:"depth"`
-	CostUSD      float64       `json:"cost_usd"`
-	Budget       task.Budget   `json:"budget"`
-	Tools        []string      `json:"tools"`
-	AllowDomains []string      `json:"allow_domains"`
-	DataClass    string        `json:"data_class"`
-	Recovery     string        `json:"recovery"`
-	Attachments  []string      `json:"attachments,omitempty"`
-	Priority     int           `json:"priority"`
-	Replans      int           `json:"replans"`
-	Tier         *string       `json:"tier"`
-	Question     *string       `json:"question,omitempty"`
-	Reply        *engine.Reply `json:"reply,omitempty"`
-	CreatedAt    string        `json:"created_at"`
-	UpdatedAt    string        `json:"updated_at"`
+	ID           string      `json:"id"`
+	State        task.State  `json:"state"`
+	Reason       *string     `json:"reason"`
+	ReasonCode   *string     `json:"reason_code"`
+	TaskClass    *string     `json:"task_class"`
+	WaitReason   *string     `json:"wait_reason"`
+	Objective    string      `json:"objective"`
+	ParentTaskID *string     `json:"parent_task_id"`
+	RootTaskID   string      `json:"root_task_id"`
+	AgentRole    string      `json:"agent_role"`
+	Depth        int         `json:"depth"`
+	CostUSD      float64     `json:"cost_usd"`
+	Budget       task.Budget `json:"budget"`
+	Tools        []string    `json:"tools"`
+	AllowDomains []string    `json:"allow_domains"`
+	DataClass    string      `json:"data_class"`
+	Recovery     string      `json:"recovery"`
+	Attachments  []string    `json:"attachments,omitempty"`
+	Priority     int         `json:"priority"`
+	Replans      int         `json:"replans"`
+	Tier         *string     `json:"tier"`
+	Question     *string     `json:"question,omitempty"`
+	// HeardAs is what AURA understood a spoken objective to mean (ADR-0058).
+	HeardAs   string        `json:"heard_as,omitempty"`
+	Reply     *engine.Reply `json:"reply,omitempty"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
 }
 
 func recoveryOf(t *task.Task) string {
@@ -348,6 +351,7 @@ type createReq struct {
 	Reply        string            `json:"reply"`
 	BrowserProf  string            `json:"browser_profile"`
 	Attachments  map[string]string `json:"attachments"`
+	Voice        *task.Voice       `json:"voice"`
 	Budget       *struct {
 		MaxCostUSD     float64 `json:"max_cost_usd"`
 		MaxIterations  int     `json:"max_iterations"`
@@ -368,7 +372,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Recovery: in.Recovery, BrowserProfile: in.BrowserProf, Attachments: in.Attachments,
-		Reply: in.Reply, CreatedBy: PrincipalOf(r).ID, IdempotencyKey: r.Header.Get("Idempotency-Key")}
+		Reply: in.Reply, Voice: in.Voice, CreatedBy: PrincipalOf(r).ID, IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}
 	}
@@ -442,6 +446,9 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		out.Question = s.Engine.PendingQuestion(r.Context(), t.ID)
 	}
 	out.Reply, _ = s.Engine.GetReply(r.Context(), t.ID)
+	if t.Scope.Voice != nil {
+		out.HeardAs = s.Engine.HeardAs(r.Context(), t.ID)
+	}
 	writeJSON(w, 200, out)
 }
 

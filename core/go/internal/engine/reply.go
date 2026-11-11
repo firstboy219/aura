@@ -43,7 +43,7 @@ const (
 
 // ReplyNote is an honest caveat the Core attaches to a reply; clients show it.
 type ReplyNote struct {
-	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed
+	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed | voice_confirm
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -194,6 +194,11 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 	for _, ev := range evidence {
 		if ev.Kind == "file" {
 			files = append(files, ev.Source)
+		}
+	}
+	if basis == BasisModel && t.Scope.Voice != nil {
+		if q := e.askInReply(ctx, t.ID); q != "" {
+			return e.storeReply(ctx, t, q, nil, BasisModel, []ReplyNote{{Code: "voice_confirm"}}, nil)
 		}
 	}
 	text, blocks, notes, err := e.writeReply(ctx, t, evidence, basis, nil)
@@ -424,7 +429,7 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	}
 	octx, _ := e.ownerContext(ctx, t)
 	guidance, _ := e.brainGuidance(ctx, t)
-	params := map[string]any{"guidance": guidance, "objective": t.Objective, "basis": basis,
+	params := map[string]any{"guidance": guidance, "objective": e.objectiveFor(ctx, t), "basis": basis,
 		"evidence": evidence, "owner_context": octx, "conversation": e.conversation(ctx, t), "self": e.selfBrief(ctx, t),
 		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types}
 	if failure != nil {
@@ -454,7 +459,7 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 		notes = append(notes, ReplyNote{Code: "task_failed", Detail: failure.Code})
 	} else if basis == BasisModel {
 		notes = append(notes, ReplyNote{Code: "model_knowledge"})
-	} else if missing := ungroundedNumbers(text, blocks, evidence, t.Objective); len(missing) > 0 {
+	} else if missing := ungroundedNumbers(text, blocks, evidence, e.objectiveFor(ctx, t)); len(missing) > 0 {
 		notes = append(notes, ReplyNote{Code: "ungrounded_numbers", Detail: strings.Join(missing, ", ")})
 	}
 	if len(removed) > 0 {

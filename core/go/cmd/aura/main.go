@@ -23,6 +23,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"aura.local/core/internal/api"
 	"aura.local/core/internal/app"
@@ -67,7 +68,7 @@ func usage(w io.Writer) {
   task tree <id>                task with its subagents and rolled-up cost
   correct <id> "<text>"         owner correction; reaches every task in the tree
   memory list [--q TEXT] | add "<fact>" [--private] | correct <id> "<text>" | delete <id>
-  skill list | show <id> [--diff FROM TO] | disable <id> | enable <id> | rollback <id> <version>
+  skill list | show <id> [--diff FROM TO] | disable <id> | enable <id> | rollback <id> <version> | import --stdin
   trigger list | add-task|add-watch … | enable|disable|run|delete <id>   scheduled tasks and read-only watches
   notifications [--unread]      findings from watches
   self                          who I am, what I can do, my measured weaknesses and how I improve (no model writes this)
@@ -1059,7 +1060,7 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "stopped; %v task(s) paused\n", out["stopped_tasks"])
 		return nil
 	case "memory", "skill", "profile":
-		return ownerData(c, cmd, rest, stdout)
+		return ownerData(c, cmd, rest, stdin, stdout)
 	case "trigger":
 		return triggerCmd(c, rest, stdout)
 	case "notifications":
@@ -1605,7 +1606,7 @@ func toolsCmd(c *apiClient, rest []string, stdin io.Reader, stdout io.Writer) er
 	return usageErr(use)
 }
 
-func ownerData(c *apiClient, cmd string, rest []string, stdout io.Writer) error {
+func ownerData(c *apiClient, cmd string, rest []string, stdin io.Reader, stdout io.Writer) error {
 	if len(rest) == 0 {
 		return usageErr(cmd + " needs a subcommand")
 	}
@@ -1668,6 +1669,17 @@ func ownerData(c *apiClient, cmd string, rest []string, stdout io.Writer) error 
 			return usageErr("skill " + sub + " <id>")
 		}
 		err = c.do("POST", "/skills/"+args[0]+"/"+sub, nil, nil, &out)
+	case "skill import":
+		// An owner-provided guidance skill: Markdown with a front matter of name and description.
+		if len(args) != 1 || args[0] != "--stdin" {
+			return usageErr("skill import --stdin  (Markdown with name: and description: front matter)")
+		}
+		b, rerr := io.ReadAll(io.LimitReader(stdin, 8<<10))
+		if rerr != nil {
+			return rerr
+		}
+		name, desc, body := splitSkillMarkdown(string(b))
+		err = c.do("POST", "/skills/import", map[string]any{"name": name, "triggers": skillTriggers(name + " " + desc), "notes": desc + "\n" + body}, nil, &out)
 	case "skill rollback":
 		if len(args) != 2 {
 			return usageErr("skill rollback <id> <version>")
@@ -1839,4 +1851,42 @@ func printReply(w io.Writer, t *askTask) {
 		fmt.Fprintf(w, "note: %s %s\n", n.Code, n.Detail)
 	}
 	fmt.Fprintf(w, "basis: %s  cost: $%.4f  task: %s\n", t.Reply.Basis, t.CostUSD, t.ID)
+}
+
+// splitSkillMarkdown reads the name and description from a skill file's front
+// matter and returns the body that follows it.
+func splitSkillMarkdown(s string) (name, desc, body string) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "---") {
+		return "", "", s
+	}
+	parts := strings.SplitN(s[3:], "\n---", 2)
+	if len(parts) != 2 {
+		return "", "", s
+	}
+	for _, line := range strings.Split(parts[0], "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		v = strings.Trim(strings.TrimSpace(v), `"`)
+		switch {
+		case ok && strings.TrimSpace(k) == "name":
+			name = v
+		case ok && strings.TrimSpace(k) == "description":
+			desc = v
+		}
+	}
+	return name, desc, strings.TrimSpace(parts[1])
+}
+
+// skillTriggers picks the distinct words of a skill's name and description
+// that are long enough to be useful search terms.
+func skillTriggers(text string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if len([]rune(w)) >= 4 && !seen[w] && len(out) < 12 {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	return out
 }

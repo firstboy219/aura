@@ -106,4 +106,36 @@ class ClientTest {
         assertTrue(l.heard("apa kabar", null) is LiveTalk.Do.Submit)
         assertTrue(l.failed("401") is LiveTalk.Do.End)
     }
+
+    @Test
+    fun spokenTurnCarriesTheAlternativesSoAuraCanRepairMisheardWords() {
+        val alts = LiveTalk.alternatives(listOf(" kirim imel ke pak budi ", "kirim email ke pak budhi", "", "Kirim imel ke pak budi"),
+            floatArrayOf(0.3f, 0.2f, 0.1f, -1f))
+        assertEquals(listOf(LiveTalk.Alt("kirim imel ke pak budi", 0.3f), LiveTalk.Alt("kirim email ke pak budhi", 0.2f)), alts)
+        val l = LiveTalk()
+        l.start()
+        // Doubtful but with a second hypothesis: sent as hypotheses (AURA reconciles and confirms), not as certain words.
+        assertEquals(LiveTalk.Do.Submit("kirim imel ke pak budi", alts), l.heard(alts))
+        l.replied("T1", "COMPLETED", "Maksud Tuan: kirim email ke Pak Budi?", null)
+        l.spoken()
+        // Hardly understood at all: never sent.
+        assertEquals(LiveTalk.Do.Speak(LiveTalk.UNCLEAR), l.heard(listOf(LiveTalk.Alt("xx", 0.1f), LiveTalk.Alt("yy", 0.05f))))
+        l.spoken()
+        // A doubtful answer to AURA's question is never sent either, alternatives or not.
+        l.heard("rangkum halaman itu", 0.9f)
+        l.replied("T2", "WAITING_INPUT", null, "Halaman yang mana?")
+        l.spoken()
+        assertEquals(LiveTalk.Do.Speak(LiveTalk.UNCLEAR), l.heard(listOf(LiveTalk.Alt("contoh.com", 0.2f), LiveTalk.Alt("contoh.co", 0.1f))))
+    }
+
+    @Test
+    fun stopWordsAndLearnedVocabulary() {
+        for (s in listOf("Berhenti.", "stop, Aura", "AURA cukup", "udahan", "sudah cukup!")) assertTrue(s, LiveTalk.isStop(s))
+        for (s in listOf("stop kontak rusak", "berhenti langganan netflix", "cukupkah uangnya")) assertTrue(s, !LiveTalk.isStop(s))
+        assertEquals(listOf("email", "Budi", "Cosger"), LiveTalk.learnedWords("tolong kirim imel ke pak budhi soal kosger",
+            "Tolong kirim email ke Pak Budi soal Cosger"))
+        val j = Api.voiceJson(listOf(LiveTalk.Alt("a", 0.5f), LiveTalk.Alt("b", null)))
+        assertEquals(0.5, j.getJSONArray("alternatives").getJSONObject(0).getDouble("confidence"), 1e-6)
+        assertTrue(!j.getJSONArray("alternatives").getJSONObject(1).has("confidence"))
+    }
 }

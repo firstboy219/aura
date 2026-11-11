@@ -51,6 +51,10 @@ type planDoc struct {
 	Steps              []plannedStep `json:"steps"`
 	CompletionCriteria []string      `json:"completion_criteria"`
 	Question           *string       `json:"question"`
+	// HeardAs is what the planner understood a spoken objective to mean (ADR-0058).
+	HeardAs *string `json:"heard_as,omitempty"`
+	// AskInReply is a spoken request's confirmation question, asked as the reply (ADR-0058).
+	AskInReply *string `json:"ask_in_reply,omitempty"`
 }
 
 func decodePlan(raw json.RawMessage) (*planDoc, error) {
@@ -176,7 +180,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 		"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
 		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
 		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t),
-		"may_answer": mayAnswer, "conversation": conversation, "self": self})
+		"may_answer": mayAnswer, "conversation": conversation, "self": self, "voice": t.Scope.Voice})
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -190,12 +194,21 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	if err != nil {
 		return err
 	}
+	if err := e.noteHeardAs(ctx, t, p); err != nil {
+		return err
+	}
 	inReply := false
 	if p.Question != nil && strings.TrimSpace(*p.Question) != "" && mayAnswer {
 		// A conversational request (nothing a tool must produce) is never parked
 		// waiting for an answer: the reply itself asks, and the owner's next message
 		// continues the conversation (ADR-0055 addendum 2026-11-11). Parking turned
 		// greetings into tasks that waited two days for an answer nobody owed.
+		if t.Scope.Voice != nil {
+			// A spoken request the planner could read two ways: the reply is the
+			// confirmation question itself, not an answer to a guess.
+			q := strings.TrimSpace(*p.Question)
+			p.AskInReply = &q
+		}
 		p.Question, p.Steps, inReply = nil, nil, true
 	}
 	if p.Question != nil && strings.TrimSpace(*p.Question) != "" {
@@ -302,7 +315,7 @@ func (e *Engine) review(ctx context.Context, t *task.Task, p *planDoc) (*planDoc
 	if err != nil {
 		return nil, nil, false
 	}
-	raw, err := e.callWorker(ctx, s, "task.review", map[string]any{"objective": t.Objective, "plan": p,
+	raw, err := e.callWorker(ctx, s, "task.review", map[string]any{"objective": e.objectiveFor(ctx, t), "plan": p,
 		"granted_tools": t.Scope.Tools, "tier": tierFor(t)})
 	var r struct {
 		OK      bool     `json:"ok"`
@@ -666,7 +679,7 @@ func (e *Engine) replan(ctx context.Context, t *task.Task, cause map[string]any)
 	octx, _ := e.ownerContext(ctx, cur)
 	obs, _ := e.observations(ctx, cur, next)
 	guidance, _ := e.brainGuidance(ctx, cur)
-	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"guidance": guidance, "objective": cur.Objective, "granted_tools": cur.Scope.Tools,
+	raw, err := e.callWorker(ctx, s, "task.replan", map[string]any{"guidance": guidance, "objective": e.objectiveFor(ctx, cur), "granted_tools": cur.Scope.Tools,
 		"allow_domains": cur.Scope.AllowDomains, "steps": summary, "cause": cause, "next_step_no": next,
 		"completion_criteria": e.criteria(ctx, t.ID), "observations": obs, "owner_context": octx, "tier": tier,
 		"attachments": cur.Scope.Attachments, "tool_docs": e.toolDocs(cur)})
@@ -922,7 +935,7 @@ func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, ev
 			return nil, err
 		}
 		guidance, _ := e.brainGuidance(ctx, t)
-		raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"guidance": guidance, "objective": t.Objective, "completion_criteria": modelCriteria,
+		raw, err := e.callWorker(ctx, s, "task.verify", map[string]any{"guidance": guidance, "objective": e.objectiveFor(ctx, t), "completion_criteria": modelCriteria,
 			"evidence": evidence, "tier": tierFor(t)})
 		if s.fatal != nil {
 			return nil, s.fatal

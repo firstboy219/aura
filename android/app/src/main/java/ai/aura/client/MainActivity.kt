@@ -43,6 +43,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = SecureStore(this)
         voice = Voice(this, policy)
+        voice.vocabulary = store.vocabulary
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         // The sensor banner: always visible while the microphone is on, with one button that stops everything.
         banner = LinearLayout(this).apply {
@@ -410,13 +411,15 @@ class MainActivity : Activity() {
                 liveStatus.text = "● Mendengarkan… silakan bicara"
                 voice.hear(
                     { liveHeard.text = "Tuan: $it…" },
-                    { text, conf -> liveHeard.text = "Tuan: $text"; act(live.heard(text, conf)) },
+                    { alts -> liveHeard.text = "Tuan: ${alts.first().text}"; act(live.heard(alts)) },
                     { act(live.silence()) },
                     { toast(it); voice.stop() })
             }
             is LiveTalk.Do.Submit -> {
                 liveStatus.text = "AURA sedang memproses…"
-                liveTurn({ api().createTask(d.text, listOf("web.search", "web.fetch", "workspace.write"), emptyList(), lastPublic).id })
+                // Every spoken request carries what the recognizer heard, so AURA can repair misheard words.
+                val spoken = d.alternatives.ifEmpty { listOf(LiveTalk.Alt(d.text, null)) }
+                liveTurn({ api().createTask(d.text, listOf("web.search", "web.fetch", "workspace.write"), emptyList(), lastPublic, spoken).id })
             }
             is LiveTalk.Do.Answer -> {
                 liveStatus.text = "AURA sedang memproses…"
@@ -454,12 +457,24 @@ class MainActivity : Activity() {
                 val r = runCatching { api().task(id).let { t -> t to if (t.state == "WAITING_INPUT") api().events(id).lastOrNull { it.type == "INPUT_REQUESTED" }?.data else null } }
                 runOnUiThread {
                     r.onSuccess { (t, q) ->
+                        t.heardAs?.let { h -> showHeardAs(t.objective, h) }
                         if (t.state in ACTIVE && n < 150) liveFollow(id, n + 1)
                         else act(live.replied(id, t.state, t.reply?.text, q?.let { questionText(it) }))
                     }.onFailure { e -> act(live.failed(e.message ?: e.toString())) }
                 }
             }
         }, 800)
+    }
+
+    /** Shows what AURA understood when it differs from what the recognizer heard, and learns the corrected words. */
+    private fun showHeardAs(transcript: String, heardAs: String) {
+        if (heardAs.trim().equals(transcript.trim(), ignoreCase = true)) return
+        liveHeard.text = "Tuan: $transcript\n🎧 Saya tangkap: $heardAs"
+        val learned = LiveTalk.learnedWords(transcript, heardAs)
+        if (learned.isNotEmpty()) {
+            store.vocabulary = (learned + store.vocabulary).distinctBy { it.lowercase() }.take(100)
+            voice.vocabulary = store.vocabulary
+        }
     }
 
     private fun questionText(data: String) = runCatching { org.json.JSONObject(data).optString("question") }.getOrNull()?.takeIf { it.isNotBlank() } ?: data

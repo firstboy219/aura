@@ -29,6 +29,10 @@ class SecureStore(ctx: Context) {
     var backgroundChecks: Boolean
         get() = prefs.getBoolean("bg", false)
         set(v) = prefs.edit().putBoolean("bg", v).apply()
+    /** Words learned from AURA's corrections of what the recognizer heard (names, places, terms); newest first. */
+    var vocabulary: List<String>
+        get() = prefs.getString("vocabulary", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
+        set(v) = prefs.edit().putString("vocabulary", v.take(100).joinToString("\n")).apply()
     var seenNotices: Set<String>
         get() = prefs.getStringSet("seen", emptySet()) ?: emptySet()
         set(v) = prefs.edit().putStringSet("seen", v.toList().takeLast(200).toSet()).apply()

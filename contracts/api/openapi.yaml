@@ -130,6 +130,8 @@ paths:
     post: { operationId: addMemory, responses: { '201': { description: Created } } }
   /skills:
     get: { operationId: listSkills, responses: { '200': { description: Skills } } }
+  /skills/import:
+    post: { operationId: importSkill, description: "Owner: store a guidance skill (name, triggers, notes up to 2000 characters; no plan template, no permissions).", responses: { '200': { description: Skill } } }
   /profile:
     get: { operationId: listProfile, responses: { '200': { description: Owner Working Profile } } }
     post: { operationId: addPreference, responses: { '201': { description: Created } } }

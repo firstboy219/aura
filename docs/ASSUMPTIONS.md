@@ -96,4 +96,4 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 - Risk if wrong: the reply contract and `task_replies` table may need changes after owner review.
 - Reversibility: moderate (`reply.disabled: true` turns the feature off; the table stays).
 - Needs owner approval: Y (contract and data model change; instructed, review pending)
-- Status: proposed
+- Status: approved (owner, 2026-11-11: "setuju assumption0029")

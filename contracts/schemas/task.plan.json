@@ -98,6 +98,43 @@
         "self": {
           "type": "string",
           "description": "The Core's deterministic self brief (ADR-0055)."
+        },
+        "voice": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The recognizer's hypotheses when the owner spoke the objective (ADR-0058).",
+          "additionalProperties": false,
+          "required": [
+            "alternatives"
+          ],
+          "properties": {
+            "alternatives": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "required": [
@@ -218,6 +255,14 @@
             "string",
             "null"
           ]
+        },
+        "heard_as": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000,
+          "description": "What a spoken objective was understood to mean (ADR-0058)."
         }
       },
       "required": [

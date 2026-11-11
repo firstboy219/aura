@@ -2,6 +2,7 @@ package ai.aura.client
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +18,9 @@ import java.util.Locale
  * audio is recorded or stored by AURA; speech output uses the device's text-to-speech. No external voice provider.
  */
 class Voice(private val ctx: Context, private val policy: SensorPolicy) {
+    /** Words the owner uses that the recognizer should favour (names, places, businesses); learned from corrections. */
+    var vocabulary: List<String> = emptyList()
+
     private var rec: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private val main = Handler(Looper.getMainLooper())
@@ -26,24 +30,26 @@ class Voice(private val ctx: Context, private val policy: SensorPolicy) {
 
     /** One dictation: the recognized text, then the microphone is off. */
     fun listen(onText: (String) -> Unit, onError: (String) -> Unit) {
-        hear({}, { text, _ -> stop(); onText(text) }, { stop(); onError("Tidak ada suara yang dikenali") }, { stop(); onError(it) })
+        hear({}, { alts -> stop(); onText(alts.first().text) }, { stop(); onError("Tidak ada suara yang dikenali") }, { stop(); onError(it) })
     }
 
     /**
      * One turn of a live conversation: [onPartial] receives the words while they are spoken, [onFinal] the finished
-     * turn with the recognizer's confidence (null if not reported), [onSilence] when nothing was said. The sensor
-     * stays marked active between turns; only [stop] ends it.
+     * turn as the recognizer's hypotheses, best first, each with its confidence (null if not reported) — AURA uses
+     * the alternatives to repair misheard words (ADR-0058). [onSilence] when nothing was said. The sensor stays
+     * marked active between turns; only [stop] ends it.
      */
-    fun hear(onPartial: (String) -> Unit, onFinal: (String, Float?) -> Unit, onSilence: () -> Unit, onError: (String) -> Unit) {
+    fun hear(onPartial: (String) -> Unit, onFinal: (List<LiveTalk.Alt>) -> Unit, onSilence: () -> Unit, onError: (String) -> Unit) {
         release()
         val r = SpeechRecognizer.createSpeechRecognizer(ctx)
         rec = r
         r.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                val conf = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.firstOrNull()?.takeIf { it >= 0f }
+                val texts = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                val confs = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+                val alts = LiveTalk.alternatives(texts, confs)
                 release()
-                if (text.isNotBlank()) onFinal(text, conf) else onSilence()
+                if (alts.isNotEmpty()) onFinal(alts) else onSilence()
             }
             override fun onError(error: Int) {
                 release()
@@ -66,7 +72,16 @@ class Voice(private val ctx: Context, private val policy: SensorPolicy) {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "id-ID")
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // The owner may pause mid-sentence to think; do not end the turn on a short breath.
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1300L)
+        if (Build.VERSION.SDK_INT >= 33) {
+            i.putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY)
+            if (vocabulary.isNotEmpty()) i.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(vocabulary.take(100)))
+        }
         policy.started()
         r.startListening(i)
     }
