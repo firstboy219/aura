@@ -407,3 +407,8 @@ def test_typed_objective_has_no_voice_rule_and_no_heard_as():
     call = core.seen[0]["params"]
     assert "heard_as" not in call["response_schema"]["properties"] and "SPOKE" not in call["messages"][0]["content"]
     assert "skrg" in call["messages"][0]["content"]  # informal writing is understood, not questioned
+
+
+def test_model_knowledge_reply_may_not_promise_actions():
+    rule = agent.REPLY_BASIS["model_knowledge"]
+    assert "NOTHING was done" in rule and "never promise" in rule and "saya akan mengingatkan" in rule

@@ -1001,7 +1001,10 @@ REPLY_BASIS = {
                         "say what you would need to look up instead. The owner is told this answer was not checked. "
                         "If the request cannot be answered or carried out without ONE missing detail (which page, which "
                         "file, which date), ask for it in one short question instead of guessing: the owner's next "
-                        "message continues this conversation."),
+                        "message continues this conversation. NOTHING was done for this request: nothing was saved, "
+                        "noted, scheduled, sent or set up. Never say or imply otherwise, and never promise to do it later "
+                        "(\"saya akan mengingatkan\", \"sudah saya catat\", \"I'll remind you\"). If the owner asked "
+                        "for a reminder, a message or another action, say plainly that it has not been set up yet."),
 }
 
 REPLY_FAILURE = """THIS TASK FAILED: it was not completed and nothing in it was verified. Never present it as done.
