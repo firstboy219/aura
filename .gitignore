@@ -10,3 +10,4 @@ __pycache__/
 secrets/
 deploy/.env
 /.cache/
+android/.kotlin/
