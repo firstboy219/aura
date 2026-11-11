@@ -18,7 +18,7 @@ by piece on that same surface, in step with what AURA says.
 2. **Three block types** join the view language (`internal/view`), sanitised like the rest:
    - `figures` — the people, organisations and things an explanation is about: `label` (name), `value` (what
      happened), `note` (what it led to). The **Core** looks each name up (`tools.WikiPictures`: the lead image of
-     the matching Wikipedia page, two fixed hosts through the SSRF guard, no redirects, bounded size, image types
+     the matching Wikipedia page, fixed Wikimedia hosts through the SSRF guard, no redirects, bounded size, image types
      only) and stores the picture by content hash in `media`; the item then carries `image` (the hash) and `url`
      (the source page). A model never supplies a picture address. No picture found → the client shows initials.
      Lookups are remembered in `media_lookups`, bounded in time per reply, and a failure never fails the reply.

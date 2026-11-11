@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -31,19 +32,19 @@ type PictureFinder interface {
 const MaxPictureBytes = 400 << 10
 
 // WikiPictures finds the lead image of the best-matching Wikipedia page
-// (ADR-0061). It asks only for freely licensed page images, talks to two
+// (ADR-0061). It asks only for freely licensed page images, talks only to
 // fixed hosts through the SSRF guard, and never follows a redirect.
 type WikiPictures struct {
-	api       apiClient
-	guard     *Guard
-	imageHost string
+	api        apiClient
+	guard      *Guard
+	imageHosts []string // the only hosts a picture may be fetched from
 }
 
 func NewWikiPictures(g *Guard, lang string) *WikiPictures {
 	if lang == "" {
 		lang = "en"
 	}
-	return &WikiPictures{api: apiClient{guard: g, host: lang + ".wikipedia.org", timeout: 8 * time.Second}, guard: g, imageHost: "upload.wikimedia.org"}
+	return &WikiPictures{api: apiClient{guard: g, host: lang + ".wikipedia.org", timeout: 8 * time.Second}, guard: g, imageHosts: []string{"upload.wikimedia.org", "thumb.wikimedia.org"}}
 }
 
 func (w *WikiPictures) Find(ctx context.Context, name string) (*Picture, error) {
@@ -83,8 +84,8 @@ func (w *WikiPictures) Find(ctx context.Context, name string) (*Picture, error) 
 
 func (w *WikiPictures) image(ctx context.Context, raw string) ([]byte, string, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Hostname() != w.imageHost {
-		return nil, "", fmt.Errorf("%w: picture must come from https://%s", ErrSearch, w.imageHost)
+	if err != nil || u.Scheme != "https" || !slices.Contains(w.imageHosts, u.Hostname()) {
+		return nil, "", fmt.Errorf("%w: picture is not on a Wikimedia image host", ErrSearch)
 	}
 	client := &http.Client{Timeout: w.api.timeout, Transport: &http.Transport{Proxy: nil, DialContext: w.guard.DialContext},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -99,7 +100,7 @@ func (w *WikiPictures) image(ctx context.Context, raw string) ([]byte, string, e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, "", fmt.Errorf("%w: %s returned HTTP %d", ErrSearch, w.imageHost, resp.StatusCode)
+		return nil, "", fmt.Errorf("%w: %s returned HTTP %d", ErrSearch, u.Hostname(), resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxPictureBytes+1))
 	if err != nil {

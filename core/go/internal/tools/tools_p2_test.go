@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -87,6 +89,16 @@ func TestPictureTypeAcceptsOnlyRasterImages(t *testing.T) {
 		"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>": "", "<html><body>x</body></html>": "", "GIF89a....": ""} {
 		if got, _ := PictureType([]byte(in)); got != want {
 			t.Errorf("%q: got %q want %q", in[:6], got, want)
+		}
+	}
+}
+
+func TestPictureIsFetchedOnlyFromWikimediaImageHosts(t *testing.T) {
+	w := NewWikiPictures(NewGuard(), "en")
+	for _, raw := range []string{"https://evil.example/a.jpg", "http://upload.wikimedia.org/a.jpg", "https://upload.wikimedia.org.evil.example/a.jpg",
+		"https://user@evil.example/upload.wikimedia.org/a.jpg", "file:///etc/passwd"} {
+		if _, _, err := w.image(context.Background(), raw); !errors.Is(err, ErrSearch) {
+			t.Errorf("%s: want refusal, got %v", raw, err)
 		}
 	}
 }
