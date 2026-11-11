@@ -44,6 +44,8 @@ def serve(ch: Channel) -> None:
                 result = agent.reflect(ch, msg.get("params") or {})
             elif method == "task.reply":
                 result = agent.reply(ch, msg.get("params") or {})
+            elif method == "ui.design":
+                result = agent.design(ch, msg.get("params") or {})
             elif method == "task.watch":
                 result = agent.watch(ch, msg.get("params") or {})
             elif method == "task.diagnose":

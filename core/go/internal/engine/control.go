@@ -38,6 +38,8 @@ type CreateInput struct {
 	CreatedBy string
 	// Voice carries the recognizer's hypotheses when the objective was spoken (ADR-0058).
 	Voice *task.Voice
+	// Design names the app screen to redesign (ADR-0060).
+	Design string
 }
 
 // Submit validates and stores a new task. A repeated Idempotency-Key returns
@@ -160,6 +162,12 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	}
 	t := &task.Task{Objective: obj, Budget: b, Scope: task.Scope{Tools: granted, AllowDomains: domains, DataClass: dc, Recovery: rec,
 		BrowserProfile: in.BrowserProfile, Reply: in.Reply}, ConfigHash: e.cfg.Hash()}
+	if in.Design != "" {
+		if !knownScreen(in.Design) {
+			return nil, bad("unknown screen %q", in.Design)
+		}
+		t.Scope.Design = in.Design
+	}
 	if in.Voice != nil {
 		v, err := cleanVoice(in.Voice)
 		if err != nil {

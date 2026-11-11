@@ -23,6 +23,7 @@
         "task.verify",
         "task.reflect",
         "task.reply",
+          "ui.design",
         "worker.health",
         "worker.shutdown",
         "llm.complete",

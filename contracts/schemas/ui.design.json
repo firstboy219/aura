@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aura.local/contracts/schemas/ui.design.json",
+  "title": "ui.design (Core → Worker)",
+  "description": "Propose a new design of one screen of the owner's app as data: a scene plus blocks, where widget blocks name a live source from a closed list. The Core sanitises the proposal, stores it as a new version and keeps earlier versions for rollback (ADR-0060).",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "required": [
+        "request",
+        "screen",
+        "current",
+        "widgets",
+        "blocks_schema",
+        "scene_schema",
+        "max_blocks"
+      ],
+      "properties": {
+        "request": {
+          "type": "string"
+        },
+        "screen": {
+          "type": "string"
+        },
+        "current": {
+          "type": "object",
+          "description": "The design in use now."
+        },
+        "widgets": {
+          "type": "object",
+          "description": "Live source → what it shows.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "blocks_schema": {
+          "type": "object"
+        },
+        "scene_schema": {
+          "type": "object"
+        },
+        "max_blocks": {
+          "type": "integer"
+        },
+        "owner_context": {
+          "type": "array"
+        },
+        "conversation": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "self": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "guidance": {
+          "type": "object"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "blocks"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "What changed, for the owner."
+        },
+        "scene": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

@@ -258,6 +258,10 @@ ANSWER_RULE_ALLOWED = ('After the plan runs, a separate module writes the reply 
                        'owner is then answered directly from your own knowledge. Use tools whenever the answer depends on '
                        'current facts, prices, news, a web page, a file, or precise calculation over data.')
 ANSWER_RULE_DENIED = "Every plan needs at least one step."
+DESIGN_RULE = ('You can also redesign the owner\'s app. If the owner asks to change how a screen of the app looks or what it '
+               'shows (for example "ubah tampilan beranda", "tampilkan persetujuan paling atas", "buat beranda lebih ringkas", '
+               '"kembalikan fokus ke jadwal"), return "steps": [], "question": null and set "design" to the screen name, one of: '
+               '{screens}. A separate designer then builds the new screen. Otherwise set "design" to null.')
 
 ASK_RULE_ALLOWED = ('If the objective is genuinely ambiguous so that any plan would be a guess (for example it does not '
                     'say which source, file or time), set "question" to ONE specific question for the owner and return '
@@ -636,6 +640,9 @@ def plan(ch: Channel, params: dict) -> dict:
     system = PLANNER_SYSTEM.format(tool_docs=tool_docs(granted, domains, params.get("tool_docs")), max_steps=MAX_STEPS, start=1,
                                    ask_rule=ASK_RULE_ALLOWED if may_ask else ASK_RULE_DENIED,
                                    answer_rule=ANSWER_RULE_ALLOWED if may_answer else ANSWER_RULE_DENIED)
+    screens = [str(x) for x in params.get("screens") or []] if may_answer and params.get("may_design") else []
+    if screens:
+        system += "\n\n" + DESIGN_RULE.format(screens=", ".join(screens))
     voice = render_voice(params.get("voice"))
     if voice:
         system += "\n\n" + VOICE_RULE.format(confirm_rule=VOICE_CONFIRM_ALLOWED if may_ask or may_answer else VOICE_CONFIRM_DENIED)
@@ -668,6 +675,10 @@ def plan(ch: Channel, params: dict) -> dict:
         schema["properties"]["heard_as"] = NULLABLE_STR
         schema["required"] = [*schema["required"], "heard_as"]
 
+    if screens:
+        schema["properties"]["design"] = {"type": ["string", "null"], "enum": [*screens, None]}
+        schema["required"] = [*schema["required"], "design"]
+
     def heard(result: dict) -> dict:
         h = (out.get("heard_as") or "").strip() if voice else ""
         return {**result, "heard_as": h[:2000]} if h else result
@@ -677,6 +688,8 @@ def plan(ch: Channel, params: dict) -> dict:
                                        "max_output_tokens": 3000, "purpose": "plan"})
         out = res.get("structured") or {}
         question = (out.get("question") or "").strip()
+        if screens and out.get("design") in screens:
+            return heard({"steps": [], "completion_criteria": [], "question": None, "design": out["design"]})
         # A spoken request may confirm its reading even where a typed one would just be answered (ADR-0058).
         if question and (may_ask or (may_answer and voice)) and not out.get("steps"):
             return heard({"steps": [], "completion_criteria": [], "question": question[:1000]})
@@ -976,17 +989,38 @@ tables, no HTML). Do not describe your internal steps unless the owner asked how
 {basis_rule}
 
 Then choose "view": 0-6 blocks that present the result in the form that fits THIS task; the owner's app draws them
-natively. Use [] when the text alone is enough (greetings, short answers). Block types:
+natively and animates them. Use [] when the text alone is enough (greetings, short answers). Do not repeat in a block
+what "text" already says in full: text is the headline, blocks carry the substance. Block types:
+- hero: the single most important result, large (title, text = one supporting line, icon, tone).
 - text: a longer passage (title, text).           - callout: one key message (text, tone: info|success|warning|danger).
 - metrics: 1-6 headline figures (items: label, value, note).   - kv: label/value facts (items: label, value).
-- table: comparisons (columns, rows of strings).  - list: bullet items (items: label, note).
+- table: detailed rows (columns, rows of strings). - list: bullet items (items: label, note).
+- compare: 2-4 options side by side (columns = the option names; each row = [criterion, one cell per option];
+  text = the name of the option you recommend, or null).
 - steps: an ordered procedure (items: label, note).
+- timeline: events in time order (items: label = when, value = what, note).
+- progress: shares or completion in percent (items: label, value = 0-100, note).
 - chart: numeric series (chart: bar|line|pie; items: label, value as a plain number such as 1250000 or 12.5).
+- quote: a passage quoted from a source (text, title = who or where it is from).
 - links: sources (items: label, url) - only URLs that appear in the evidence.
 - code: code or a command (title, text).
 - actions: 1-4 suggested follow-up requests the owner can tap (items: label, value = the full request text to send).
+- form: ask the owner for details in one go (text = the request to send, with {{field}} placeholders; items: label =
+  the field name used in a placeholder, value = choices separated by "|" or null for free text, note = a hint).
+  Use it when your answer depends on choices only the owner can make.
+Every block may also set: icon (ONE emoji that fits), span ("half" puts two consecutive short blocks side by side),
+emphasis ("strong" for the block that matters most, "quiet" for background detail), and say.
+"say" is what you would SAY ALOUD while pointing at that block: one short spoken sentence that explains what the
+block shows and why it matters, without reading its numbers one by one. The app speaks "text" first, then reveals
+each block while speaking its "say", so words and screen stay in step. Give "say" to the blocks worth explaining.
 Set every field a block does not use to null. Never put HTML, scripts or images in any field.
 
+Then choose "scene", the look of this answer (each may be null to let the app decide):
+- mood: calm (ordinary answer) | focus (analysis, detail) | celebrate (something achieved) | alert (a problem or
+  warning) | explore (ideas, options, discovery).
+- accent: aurora | ocean | emerald | amber | rose | violet - a colour family that suits the topic.
+- layout: stack (read top to bottom) | grid (dashboard of short blocks) | story (one block at a time, presented).
+{spoken_rule}
 Honesty rules:
 - Never claim an action that the evidence does not show. If something was not done or not found, say so plainly.
 - You are software. Never claim consciousness, feelings or abilities beyond the facts given under "About you".
@@ -1007,6 +1041,10 @@ REPLY_BASIS = {
                         "for a reminder, a message or another action, say plainly that it has not been set up yet."),
 }
 
+REPLY_SPOKEN = """The owner asked this ALOUD and is listening: "text" will be spoken. Write it the way a person talks: short
+sentences, no lists, no symbols, no URLs, at most three sentences. Put figures, tables and detail in blocks, each with
+a "say", and prefer layout "story" when there are two or more blocks."""
+
 REPLY_FAILURE = """THIS TASK FAILED: it was not completed and nothing in it was verified. Never present it as done.
 Tell the owner plainly that it did not succeed and, in everyday words (no internal codes or jargon), why. Then say what
 was found before it failed, using only the findings below (if there are none, say nothing was found). If the request is
@@ -1019,7 +1057,8 @@ def reply(ch: Channel, params: dict) -> dict:
     basis = "model_knowledge" if params.get("basis") == "model_knowledge" else "evidence"
     evidence = params.get("evidence") or []
     failure = params.get("failure") or None
-    system = with_guidance(REPLY_SYSTEM.format(basis_rule=REPLY_FAILURE if failure else REPLY_BASIS[basis]), params, "reply")
+    system = with_guidance(REPLY_SYSTEM.format(basis_rule=REPLY_FAILURE if failure else REPLY_BASIS[basis],
+                                               spoken_rule=REPLY_SPOKEN if params.get("spoken") else ""), params, "reply")
     user = f"Objective (the owner's request):\n{params.get('objective', '')}"
     if params.get("self"):
         user += f"\n\nAbout you (facts from the Core's records):\n{params['self']}"
@@ -1039,6 +1078,9 @@ def reply(ch: Channel, params: dict) -> dict:
     view_schema = params.get("view_schema") or {"type": "array", "items": {"type": "object"}}
     schema = {"type": "object", "additionalProperties": False, "required": ["text", "view"],
               "properties": {"text": {"type": "string"}, "view": view_schema}}
+    if params.get("scene_schema"):
+        schema["required"].append("scene")
+        schema["properties"]["scene"] = params["scene_schema"]
     # A direct answer is the whole product of the task, so it starts on the task's own tier.
     override = params.get("tier") or ("standard" if basis == "model_knowledge" else "")
 
@@ -1058,7 +1100,60 @@ def reply(ch: Channel, params: dict) -> dict:
     if not usable(out):
         raise StepFailure("the reply writer returned no text", "invalid_reply")
     view = out.get("view")
-    return {"text": str(out["text"]).strip(), "view": view if isinstance(view, list) else []}
+    scene = out.get("scene")
+    return {"text": str(out["text"]).strip(), "view": view if isinstance(view, list) else [],
+            "scene": scene if isinstance(scene, dict) else None}
+
+
+DESIGN_SYSTEM = """You are the interface designer of AURA. The owner asked you to change a screen of their app. You do
+not write code: you compose the screen from blocks, and the app draws them natively with its own design system.
+
+Return "blocks": the whole new screen, top to bottom, at most {max_blocks} blocks. Two kinds of block:
+- widget: live data the app loads itself. Set "source" to one of the sources listed under "Live sources" and "limit" to
+  how many entries to show (1-20, or null). A widget may have a title and an icon.
+- any content block (hero, text, callout, metrics, kv, list, steps, timeline, progress, quote, actions, form ...):
+  fixed content you write, for example a motto as a quote, a set of one-tap requests as actions, or a form for a
+  request the owner makes often. Content blocks hold no live data: never invent figures, counts or statuses in them.
+Every block may set icon (one emoji), span ("half" puts two consecutive blocks side by side) and emphasis ("strong"
+for what matters most, "quiet" for background). Set every field a block does not use to null.
+Then "scene": mood, accent and layout for the screen (null lets the app follow the time of day and what is waiting).
+Then "summary": one or two sentences to the owner, in the owner's language, saying what you changed.
+
+Rules:
+- Start from the current design and change what the owner asked; keep what they did not mention.
+- Keep the "ask" or "greeting" widget unless the owner asked to remove it: the owner must always be able to make a request.
+- You cannot hide what needs the owner's decision: the app always shows pending approvals and provider problems.
+- Never put HTML, scripts, URLs or images in any field.
+Reply with JSON only."""
+
+
+def design(ch: Channel, params: dict) -> dict:
+    request = str(params.get("request") or "").strip()
+    if not request:
+        raise StepFailure("a design request is required", "invalid_params")
+    system = with_guidance(DESIGN_SYSTEM.format(max_blocks=int(params.get("max_blocks") or 16)), params, "reply")
+    widgets = params.get("widgets") or {}
+    user = (f"The owner's request:\n{request}\n\nScreen: {params.get('screen', 'home')}\n\nLive sources:\n"
+            + "\n".join(f"- {k}: {v}" for k, v in sorted(widgets.items()))
+            + f"\n\nCurrent design:\n{json.dumps(params.get('current') or {}, ensure_ascii=False)[:6000]}")
+    owner = render_owner_context(params.get("owner_context") or [])
+    if owner:
+        user += f"\n\nWhat the owner told this task:\n{owner}"
+    talk = render_conversation(params.get("conversation") or [])
+    if talk:
+        user += f"\n\nRecent conversation with the owner, oldest first (context only):\n{talk}"
+    schema = {"type": "object", "additionalProperties": False, "required": ["summary", "scene", "blocks"],
+              "properties": {"summary": {"type": "string"},
+                             "scene": params.get("scene_schema") or {"type": ["object", "null"]},
+                             "blocks": params.get("blocks_schema") or {"type": "array", "items": {"type": "object"}}}}
+
+    def usable(r: dict) -> bool:
+        return isinstance(r.get("blocks"), list) and len(r["blocks"]) > 0
+    out = cascade(ch, params.get("tier") or "standard", system, user, schema, 4000, ok=usable, purpose="design")
+    if not usable(out):
+        raise StepFailure("the designer returned no blocks", "invalid_design")
+    scene = out.get("scene")
+    return {"summary": str(out.get("summary") or "").strip(), "scene": scene if isinstance(scene, dict) else None, "blocks": out["blocks"]}
 
 
 WATCH_SYSTEM = """You are the proactive research module of AURA (read-only). Some public sources the owner watches

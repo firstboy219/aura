@@ -43,7 +43,7 @@ const (
 
 // ReplyNote is an honest caveat the Core attaches to a reply; clients show it.
 type ReplyNote struct {
-	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed | voice_confirm
+	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed | voice_confirm | screen_designed
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -52,6 +52,7 @@ type Reply struct {
 	TaskID    string       `json:"task_id"`
 	Text      string       `json:"text"`
 	View      []view.Block `json:"view"`
+	Scene     view.Scene   `json:"scene"`
 	Basis     string       `json:"basis"`
 	Notes     []ReplyNote  `json:"notes"`
 	Files     []string     `json:"files"`
@@ -90,7 +91,7 @@ func (e *Engine) Replies(ctx context.Context, taskIDs []string) (map[string]*Rep
 	for i, id := range taskIDs {
 		args[i] = id
 	}
-	rows, err := e.st.R.QueryContext(ctx, "select task_id, text, view_json, basis, notes_json, files_json, created_at from task_replies where task_id in (?"+
+	rows, err := e.st.R.QueryContext(ctx, "select task_id, text, view_json, basis, notes_json, files_json, created_at, scene_json from task_replies where task_id in (?"+
 		strings.Repeat(",?", len(taskIDs)-1)+")", args...)
 	if err != nil {
 		return nil, err
@@ -98,10 +99,11 @@ func (e *Engine) Replies(ctx context.Context, taskIDs []string) (map[string]*Rep
 	defer rows.Close()
 	for rows.Next() {
 		r := &Reply{View: []view.Block{}, Notes: []ReplyNote{}, Files: []string{}}
-		var v, n, f string
-		if err := rows.Scan(&r.TaskID, &r.Text, &v, &r.Basis, &n, &f, &r.CreatedAt); err != nil {
+		var v, n, f, sc string
+		if err := rows.Scan(&r.TaskID, &r.Text, &v, &r.Basis, &n, &f, &r.CreatedAt, &sc); err != nil {
 			return nil, err
 		}
+		json.Unmarshal([]byte(sc), &r.Scene)
 		json.Unmarshal([]byte(v), &r.View)
 		json.Unmarshal([]byte(n), &r.Notes)
 		json.Unmarshal([]byte(f), &r.Files)
@@ -196,12 +198,17 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 			files = append(files, ev.Source)
 		}
 	}
-	if basis == BasisModel && t.Scope.Voice != nil {
-		if q := e.askInReply(ctx, t.ID); q != "" {
-			return e.storeReply(ctx, t, q, nil, BasisModel, []ReplyNote{{Code: "voice_confirm"}}, nil)
+	if basis == BasisModel {
+		if name := e.designTarget(ctx, t); name != "" {
+			return e.designScreen(ctx, t, name)
 		}
 	}
-	text, blocks, notes, err := e.writeReply(ctx, t, evidence, basis, nil)
+	if basis == BasisModel && t.Scope.Voice != nil {
+		if q := e.askInReply(ctx, t.ID); q != "" {
+			return e.storeReply(ctx, t, q, nil, view.Scene{}, BasisModel, []ReplyNote{{Code: "voice_confirm"}}, nil)
+		}
+	}
+	text, blocks, scene, notes, err := e.writeReply(ctx, t, evidence, basis, nil)
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, budget.ErrHalted) {
 			return err
@@ -213,10 +220,10 @@ func (e *Engine) reply(ctx context.Context, t *task.Task, evidence []evidenceIte
 		text, blocks = summaryReply(evidence, files)
 		basis, notes = BasisSummary, []ReplyNote{{Code: "core_summary", Detail: reasonCode(err)}}
 	}
-	return e.storeReply(ctx, t, text, blocks, basis, notes, files)
+	return e.storeReply(ctx, t, text, blocks, scene, basis, notes, files)
 }
 
-func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, blocks []view.Block, basis string, notes []ReplyNote, files []string) error {
+func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, blocks []view.Block, scene view.Scene, basis string, notes []ReplyNote, files []string) error {
 	if blocks == nil {
 		blocks = []view.Block{}
 	}
@@ -229,10 +236,11 @@ func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, bloc
 	vj, _ := json.Marshal(blocks)
 	nj, _ := json.Marshal(notes)
 	fj, _ := json.Marshal(files)
+	sj, _ := json.Marshal(scene)
 	return e.st.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `insert into task_replies(task_id, text, view_json, basis, notes_json, files_json, created_at) values(?,?,?,?,?,?,?)
+		if _, err := tx.ExecContext(ctx, `insert into task_replies(task_id, text, view_json, basis, notes_json, files_json, created_at, scene_json) values(?,?,?,?,?,?,?,?)
 			on conflict(task_id) do update set text=excluded.text, view_json=excluded.view_json, basis=excluded.basis, notes_json=excluded.notes_json,
-			files_json=excluded.files_json, created_at=excluded.created_at`, t.ID, text, string(vj), basis, string(nj), string(fj), ids.NowMs()); err != nil {
+			files_json=excluded.files_json, created_at=excluded.created_at, scene_json=excluded.scene_json`, t.ID, text, string(vj), basis, string(nj), string(fj), ids.NowMs(), string(sj)); err != nil {
 			return err
 		}
 		types := []string{}
@@ -289,10 +297,11 @@ func (e *Engine) failureReply(parent context.Context, t *task.Task, reason, deta
 	var text string
 	var blocks []view.Block
 	var notes []ReplyNote
+	scene := view.Scene{Mood: "alert"}
 	basis := BasisSummary
 	if explainable(code) && parent.Err() == nil {
 		var err error
-		text, blocks, notes, err = e.writeReply(ctx, t, evidence, BasisModel, &taskFailure{Code: code, Detail: truncate(detail, 600)})
+		text, blocks, _, notes, err = e.writeReply(ctx, t, evidence, BasisModel, &taskFailure{Code: code, Detail: truncate(detail, 600)})
 		if err != nil {
 			e.log.Warn("failure reply writer failed; the Core states the failure", "task_id", t.ID, "err", err)
 			text = ""
@@ -309,7 +318,7 @@ func (e *Engine) failureReply(parent context.Context, t *task.Task, reason, deta
 		}
 		notes = []ReplyNote{note}
 	}
-	if err := e.storeReply(ctx, t, text, blocks, basis, notes, nil); err != nil {
+	if err := e.storeReply(ctx, t, text, blocks, scene, basis, notes, nil); err != nil {
 		e.log.Warn("failure reply not stored", "task_id", t.ID, "err", err)
 	}
 }
@@ -412,10 +421,11 @@ func failureSummary(code, objective string, evidence []evidenceItem) (string, []
 
 // writeReply asks the worker for the reply. With failure set the writer explains
 // a task that did not finish; the reply is then labelled task_failed.
-func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []evidenceItem, basis string, failure *taskFailure) (string, []view.Block, []ReplyNote, error) {
+func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []evidenceItem, basis string, failure *taskFailure) (string, []view.Block, view.Scene, []ReplyNote, error) {
+	none := view.Scene{}
 	gen, err := e.supFor(t.ID).Ensure()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, none, nil, err
 	}
 	// The reply writer needs no tool: its grant carries none.
 	s := &session{t: t, gen: gen}
@@ -425,33 +435,36 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 		s.token, s.grant, err = policy.Mint(ctx, tx, t.ID, gen, policy.Scopes{}, expires, nil)
 		return err
 	}); err != nil {
-		return "", nil, nil, err
+		return "", nil, none, nil, err
 	}
 	octx, _ := e.ownerContext(ctx, t)
 	guidance, _ := e.brainGuidance(ctx, t)
 	params := map[string]any{"guidance": guidance, "objective": e.objectiveFor(ctx, t), "basis": basis,
 		"evidence": evidence, "owner_context": octx, "conversation": e.conversation(ctx, t), "self": e.selfBrief(ctx, t),
-		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types}
+		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types, "scene_schema": view.SceneSchema(),
+		// A spoken request is answered aloud: the text is what AURA says, the blocks what it shows meanwhile.
+		"spoken": t.Scope.Voice != nil}
 	if failure != nil {
 		params["failure"] = failure
 	}
 	raw, err := e.callWorker(ctx, s, "task.reply", params)
 	if s.fatal != nil {
-		return "", nil, nil, s.fatal
+		return "", nil, none, nil, s.fatal
 	}
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, none, nil, err
 	}
 	var r struct {
-		Text string          `json:"text"`
-		View json.RawMessage `json:"view"`
+		Text  string          `json:"text"`
+		View  json.RawMessage `json:"view"`
+		Scene json.RawMessage `json:"scene"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", nil, nil, fmt.Errorf("invalid_reply: %v", err)
+		return "", nil, none, nil, fmt.Errorf("invalid_reply: %v", err)
 	}
 	text := view.CleanText(r.Text, maxReplyChars)
 	if text == "" {
-		return "", nil, nil, errors.New("invalid_reply: empty text")
+		return "", nil, none, nil, errors.New("invalid_reply: empty text")
 	}
 	blocks, removed := view.Sanitize(r.View, view.Options{KnownURL: func(u string) bool { return e.hasProvenance(t, u) }})
 	var notes []ReplyNote
@@ -468,7 +481,7 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	if notes == nil {
 		notes = []ReplyNote{}
 	}
-	return text, blocks, notes, nil
+	return text, blocks, view.SanitizeScene(r.Scene), notes, nil
 }
 
 // summaryReply is the Core's own plain reply: the files written and the last

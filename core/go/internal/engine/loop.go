@@ -55,6 +55,8 @@ type planDoc struct {
 	HeardAs *string `json:"heard_as,omitempty"`
 	// AskInReply is a spoken request's confirmation question, asked as the reply (ADR-0058).
 	AskInReply *string `json:"ask_in_reply,omitempty"`
+	// Design names the app screen the owner asked to redesign (ADR-0060).
+	Design *string `json:"design,omitempty"`
 }
 
 func decodePlan(raw json.RawMessage) (*planDoc, error) {
@@ -175,12 +177,15 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	if e.wantsReply(t) {
 		conversation, self = e.conversation(ctx, t), e.selfBrief(ctx, t)
 	}
-	raw, err := e.callWorker(ctx, s, "task.plan", map[string]any{"guidance": guidance,
-		"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
-		"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
-		"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
-		"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t),
-		"may_answer": mayAnswer, "conversation": conversation, "self": self, "voice": t.Scope.Voice})
+	raw, err := json.RawMessage(`{"steps":[],"completion_criteria":[],"question":null}`), error(nil)
+	if t.Scope.Design == "" { // a redesign request needs no plan: the design is the product
+		raw, err = e.callWorker(ctx, s, "task.plan", map[string]any{"guidance": guidance,
+			"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
+			"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
+			"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
+			"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t),
+			"may_answer": mayAnswer, "may_design": mayAnswer, "screens": ScreenNames, "conversation": conversation, "self": self, "voice": t.Scope.Voice})
+	}
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -196,6 +201,13 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	}
 	if err := e.noteHeardAs(ctx, t, p); err != nil {
 		return err
+	}
+	if p.Design != nil && (!mayAnswer || !knownScreen(strings.TrimSpace(*p.Design))) {
+		p.Design = nil // only a conversational owner request may redesign a known screen
+	}
+	if t.Scope.Design != "" || p.Design != nil {
+		// A redesign needs no tool: the design itself is the product.
+		p.Steps, p.Question = nil, nil
 	}
 	inReply := false
 	if p.Question != nil && strings.TrimSpace(*p.Question) != "" && mayAnswer {
@@ -218,7 +230,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 		return e.askOwner(ctx, t, "", *p.Question)
 	}
 	var steps []task.Step
-	direct := len(p.Steps) == 0 && mayAnswer
+	direct := len(p.Steps) == 0 && (mayAnswer || t.Scope.Design != "")
 	if direct {
 		// No tool is needed: the reply is written from the model's own knowledge
 		// and labelled so. There is nothing to verify against, so no criteria.

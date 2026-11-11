@@ -140,6 +140,12 @@ paths:
     post: { operationId: createTrigger, responses: { '201': { description: Created } } }
   /notifications:
     get: { operationId: listNotifications, responses: { '200': { description: Owner notifications (findings) } } }
+  /ui/home:
+    get: { operationId: uiHome, description: "The active design of the home screen plus the Core's context of this moment (what is waiting, time of day, suggested scene) (ADR-0060).", responses: { '200': { description: Screen and context } } }
+  /ui/screens/{name}:
+    get: { operationId: uiScreen, description: "Active design, stored versions and the built-in default of a screen. A redesign is a task: POST /tasks with design=<name>.", responses: { '200': { description: Screen versions } } }
+  /ui/screens/{name}/{action}:
+    post: { operationId: uiScreenAction, description: "rollback (previous design) | reset (built-in default) | use (body version).", responses: { '200': { description: Active screen } } }
   /self-model:
     get: { operationId: getSelfModel, responses: { '200': { description: Measured capabilities } } }
   /scorecard:

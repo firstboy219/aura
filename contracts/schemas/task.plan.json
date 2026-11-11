@@ -135,6 +135,17 @@
               }
             }
           }
+        },
+        "may_design": {
+          "type": "boolean",
+          "description": "The planner may name an app screen to redesign instead of planning steps (ADR-0060)."
+        },
+        "screens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Screens AURA may redesign."
         }
       },
       "required": [
@@ -263,6 +274,13 @@
           ],
           "maxLength": 2000,
           "description": "What a spoken objective was understood to mean (ADR-0058)."
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The app screen the owner asked to redesign; the plan then has no steps (ADR-0060)."
         }
       },
       "required": [

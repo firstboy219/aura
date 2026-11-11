@@ -109,7 +109,7 @@ class LiveTalk(private val maxSilences: Int = 4, private val minConfidence: Floa
     companion object {
         const val UNCLEAR = "Maaf, kurang jelas. Mohon ulangi."
         const val NEEDS_APPROVAL = "Tindakan ini perlu persetujuan Tuan. Persetujuan tidak bisa diberikan lewat suara; " +
-            "silakan buka tab Persetujuan."
+            "silakan buka Kotak masuk."
         val STOP_WORDS = listOf("berhenti", "stop", "selesai", "cukup", "sudah cukup", "udah cukup", "udahan", "berhenti dulu",
             "cukup dulu", "stop dulu", "akhiri percakapan")
 

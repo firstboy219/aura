@@ -96,6 +96,8 @@ type Scope struct {
 	// Voice is set when the owner spoke the objective (ADR-0058): what the
 	// device's recognizer heard, best first. It is input, never authorization.
 	Voice *Voice `json:"voice,omitempty"`
+	// Design names the app screen this task redesigns (ADR-0060); empty for ordinary tasks.
+	Design string `json:"design,omitempty"`
 }
 
 // Voice is the recognizer's view of one spoken turn.

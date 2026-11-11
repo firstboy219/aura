@@ -63,3 +63,12 @@ Charter text and an approved Quran/hadith source and stay **pending** (never inv
 ---
 **Status 2026-11-09 (checkpoint v1.3.11):** P2 milestones M1–M8 and P3 milestones M1–M6 are implemented and tested; M9 (P2 eval) and
 P3-M7 (Console v2 panels) are partial — see `docs/CONFORMANCE_v1.3.11.md` for the exact gaps and for the Ledger milestone added by the v1.3.11 package.
+
+---
+**Living canvas (2026-11-11, ADR-0060, owner instruction):** view language v2 (hero, timeline, progress, compare,
+quote, form; `say`/`icon`/`span`/`emphasis`; scene), narrated replies, AURA-designed screens (`ui.design`,
+`ui_screens`, migration 0015, `/api/v1/ui/*` with versions/rollback/reset), Core-computed home context, gateway
+null-fill, Android client rebuilt on Compose with screenshot tests, web app renders the new blocks.
+Tests: `internal/view` (sanitiser, screens), `internal/engine/screens_test.go`, `internal/gateway/fillnulls_test.go`,
+Python `test_agent.py`, Android `ClientTest`/`CanvasTest`/`ScreensTest`. Not done: camera/OCR, phone control, music,
+maps, live translation, prayer times, commute, money, habits (roadmap only).

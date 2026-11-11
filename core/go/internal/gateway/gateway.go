@@ -256,7 +256,7 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 		if schema == nil {
 			return res, nil
 		}
-		structured, verr := validate(schema, at.Content)
+		structured, verr := validate(schema, req.ResponseSchema, at.Content)
 		if verr == nil {
 			res.Structured = structured
 			return res, nil
@@ -439,7 +439,7 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 
 // validate parses model content as a single JSON value (tolerating a fenced
 // code block) and validates it against the schema.
-func validate(s *jsonschema.Schema, content string) (json.RawMessage, error) {
+func validate(s *jsonschema.Schema, rawSchema json.RawMessage, content string) (json.RawMessage, error) {
 	c := strings.TrimSpace(content)
 	if strings.HasPrefix(c, "```") {
 		c = strings.TrimPrefix(c, "```json")
@@ -450,11 +450,64 @@ func validate(s *jsonschema.Schema, content string) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not valid JSON: %v", err)
 	}
+	var doc any
+	if json.Unmarshal(rawSchema, &doc) == nil {
+		fillNulls(doc, v)
+	}
 	if err := s.Validate(v); err != nil {
 		return nil, err
 	}
 	out, _ := json.Marshal(v)
 	return out, nil
+}
+
+// fillNulls sets a required property that the model left out to null when the
+// schema allows null there. Schemas list every field as required because strict
+// structured output demands it; a model that omits an optional field instead of
+// writing null means the same thing, and is not asked to repeat the whole answer.
+func fillNulls(schema, v any) {
+	sm, ok := schema.(map[string]any)
+	if !ok {
+		return
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		props, _ := sm["properties"].(map[string]any)
+		req, _ := sm["required"].([]any)
+		for _, r := range req {
+			name, _ := r.(string)
+			if _, present := val[name]; !present && allowsNull(props[name]) {
+				val[name] = nil
+			}
+		}
+		for name, ps := range props {
+			if child, present := val[name]; present {
+				fillNulls(ps, child)
+			}
+		}
+	case []any:
+		for _, item := range val {
+			fillNulls(sm["items"], item)
+		}
+	}
+}
+
+func allowsNull(schema any) bool {
+	sm, ok := schema.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch t := sm["type"].(type) {
+	case string:
+		return t == "null"
+	case []any:
+		for _, x := range t {
+			if x == "null" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func truncate(s string, n int) string {

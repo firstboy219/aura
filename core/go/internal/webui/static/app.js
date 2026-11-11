@@ -17,7 +17,7 @@ const I18N = {
     "tasks.public": "Konten publik (boleh memakai model gratis yang mungkin mencatat prompt)", "tasks.profile": "Profil login browser (opsional)",
     "tasks.create": "Buat tugas", "tasks.empty": "Belum ada tugas.",
     "ask.title": "Tanya AURA", "ask.placeholder": "Tulis permintaan Tuan…", "ask.send": "Kirim", "ask.options": "Opsi lanjutan", "ask.working": "AURA sedang mengerjakan…",
-    "reply.title": "Jawaban AURA", "reply.files": "File yang ditulis", "reply.details": "Rincian teknis",
+    "reply.title": "Jawaban AURA", "form.send": "Kirim ke AURA", "reply.files": "File yang ditulis", "reply.details": "Rincian teknis",
     "note.task_failed": "Tugas ini tidak selesai; isi balasan ini belum diverifikasi. Alasan:",
     "note.model_knowledge": "Dijawab dari pengetahuan model, tanpa alat — belum diperiksa terhadap sumber.",
     "note.core_summary": "Model penulis jawaban tidak tersedia; ini ringkasan apa adanya dari Core.",
@@ -61,7 +61,7 @@ const I18N = {
     "tasks.public": "Public content (free models that may log prompts are allowed)", "tasks.profile": "Browser login profile (optional)",
     "tasks.create": "Create task", "tasks.empty": "No tasks yet.",
     "ask.title": "Ask AURA", "ask.placeholder": "Write your request…", "ask.send": "Send", "ask.options": "Advanced options", "ask.working": "AURA is working…",
-    "reply.title": "AURA's reply", "reply.files": "Files written", "reply.details": "Technical details",
+    "reply.title": "AURA's reply", "form.send": "Send to AURA", "reply.files": "Files written", "reply.details": "Technical details",
     "note.task_failed": "This task was not completed; nothing in this reply is verified. Reason:",
     "note.model_knowledge": "Answered from the model's own knowledge, without tools — not checked against a source.",
     "note.core_summary": "No model could write the reply; this is a plain summary from the Core.",
@@ -278,6 +278,23 @@ function chartBlock(b) {
   if (pts.length > 14) wrap.append(el("p", { class: "muted", text: pts[0].label + " … " + pts[pts.length - 1].label }));
   return wrap;
 }
+// formBlock asks for the fields of a proposed request; submitting hands the
+// filled request to onAction like an action button — nothing is sent by itself.
+function formBlock(b, onAction) {
+  const inputs = (b.items || []).map((it) => {
+    const opts = String(it.value || "").split("|").map((o) => o.trim()).filter(Boolean);
+    const input = opts.length > 1
+      ? el("select", { required: true }, el("option", { value: "", text: "—" }), opts.map((o) => el("option", { value: o, text: o })))
+      : el("input", { type: "text", required: true, maxlength: 300, placeholder: it.note || "" });
+    return { name: it.label, input, row: el("label", {}, it.label, input, opts.length > 1 && it.note ? el("div", { class: "muted", text: it.note }) : null) };
+  });
+  return el("form", { class: "vform", on: { submit: (e) => {
+    e.preventDefault();
+    let req = b.text;
+    for (const f of inputs) req = req.split("{" + f.name + "}").join(f.input.value.trim());
+    onAction(req);
+  } } }, inputs.map((f) => f.row), el("button", { type: "submit", text: t("form.send") }));
+}
 function viewBlock(b, onAction) {
   const items = b.items || [];
   let body = null;
@@ -296,11 +313,24 @@ function viewBlock(b, onAction) {
     case "chart": body = chartBlock(b); break;
     case "links": body = el("ul", {}, items.filter((it) => /^https?:\/\//.test(it.url || "")).map((it) => el("li", {},
       el("a", { href: it.url, target: "_blank", rel: "noopener noreferrer", text: it.label || it.url })))); break;
+    case "hero": body = el("div", { class: "hero tone-" + (["info", "success", "warning", "danger"].includes(b.tone) ? b.tone : "info") },
+      el("div", { class: "big", text: b.title }), b.text ? el("p", { class: "pre", text: b.text }) : null); break;
+    case "quote": body = el("blockquote", { class: "pre", text: b.text }); break;
+    case "timeline": body = el("ol", { class: "timeline" }, items.map((it) => el("li", {},
+      el("span", { class: "muted", text: it.label }), " ", it.value, it.note ? el("div", { class: "muted", text: it.note }) : null))); break;
+    case "progress": body = el("div", {}, items.map((it) => { const n = Math.max(0, Math.min(100, Number(it.number) || 0)); return el("div", { class: "prog" },
+      el("div", { class: "row between" }, el("span", { text: it.label }), el("span", { class: "muted", text: Math.round(n) + "%" })),
+      el("progress", { max: 100, value: n }), it.note ? el("div", { class: "muted", text: it.note }) : null); })); break;
+    case "compare": body = el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, el("th", {}), (b.columns || []).map((c) => el("th", { class: c === b.text ? "pick" : "", text: c === b.text ? c + " ★" : c })))),
+      el("tbody", {}, (b.rows || []).map((r) => el("tr", {}, r.map((c, i) => el(i ? "td" : "th", { class: i && (b.columns || [])[i - 1] === b.text ? "pick" : "", text: c }))))))); break;
+    case "form": body = onAction ? formBlock(b, onAction) : null; break;
     case "actions": body = onAction ? el("div", { class: "row" }, items.map((it) => el("button", { type: "button", title: it.value,
       on: { click: () => onAction(it.value) }, text: it.label }))) : null; break;
   }
   if (!body) return null;
-  return el("section", { class: "vb" }, b.title ? el("h3", { text: b.title }) : null, body);
+  return el("section", { class: "vb" + (b.emphasis === "strong" ? " strong" : b.emphasis === "quiet" ? " quiet" : "") },
+    b.title && b.type !== "hero" ? el("h3", { text: b.title }) : null, body);
 }
 function replyCard(tk, onAction) {
   const r = tk.reply;

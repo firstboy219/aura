@@ -28,13 +28,18 @@ const (
 	MaxCell    = 300
 	MaxLabel   = 160
 	MaxAction  = 500
+	MaxSay     = 320
+	MaxFields  = 6
 )
 
 // Types are the block types every client implements.
-var Types = []string{"text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions"}
+var Types = []string{"text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions",
+	"hero", "timeline", "progress", "compare", "quote", "form"}
 
 var tones = map[string]bool{"info": true, "success": true, "warning": true, "danger": true}
 var charts = map[string]bool{"bar": true, "line": true, "pie": true}
+var spans = map[string]bool{"full": true, "half": true}
+var emphases = map[string]bool{"normal": true, "strong": true, "quiet": true}
 
 // Item is one entry of a metrics, kv, list, steps, chart, links or actions block.
 type Item struct {
@@ -56,6 +61,16 @@ type Block struct {
 	Columns []string   `json:"columns,omitempty"`
 	Rows    [][]string `json:"rows,omitempty"`
 	Items   []Item     `json:"items,omitempty"`
+	// Presentation (ADR-0060). Say is what AURA speaks while the block is on
+	// screen; Icon is one emoji; Span places two "half" blocks side by side;
+	// Emphasis makes a block prominent or subdued.
+	Say      string `json:"say,omitempty"`
+	Icon     string `json:"icon,omitempty"`
+	Span     string `json:"span,omitempty"`
+	Emphasis string `json:"emphasis,omitempty"`
+	// Source and Limit belong to a screen's widget block (screen.go).
+	Source string `json:"source,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 // raw mirrors the flat, all-nullable form models are asked to produce.
@@ -75,6 +90,12 @@ type rawBlock struct {
 	Columns []string   `json:"columns"`
 	Rows    [][]string `json:"rows"`
 	Items   []rawItem  `json:"items"`
+	Say     *string    `json:"say"`
+	Icon    *string    `json:"icon"`
+	Span    *string    `json:"span"`
+	Emph    *string    `json:"emphasis"`
+	Source  *string    `json:"source"`
+	Limit   *float64   `json:"limit"`
 }
 
 // Options control sanitising.
@@ -83,6 +104,10 @@ type Options struct {
 	// objective or in something the task read). Links without provenance are
 	// dropped: a model may not invent where the owner is sent. Nil drops all links.
 	KnownURL func(string) bool
+	// Widgets allows widget blocks (a screen's live-data blocks). A reply has none.
+	Widgets bool
+	// MaxBlocks overrides the block limit (0 = MaxBlocks).
+	MaxBlocks int
 }
 
 // Sanitize parses a model-proposed view and returns the blocks that are safe
@@ -99,13 +124,108 @@ func Sanitize(raw json.RawMessage, o Options) ([]Block, []string) {
 	var out []Block
 	var notes []string
 	drop := func(i int, why string) { notes = append(notes, "block "+strconv.Itoa(i+1)+": "+why) }
+	limit := MaxBlocks
+	if o.MaxBlocks > 0 {
+		limit = o.MaxBlocks
+	}
 	for i, rb := range in {
-		if len(out) >= MaxBlocks {
-			notes = append(notes, "more than "+strconv.Itoa(MaxBlocks)+" blocks; the rest were dropped")
+		if len(out) >= limit {
+			notes = append(notes, "more than "+strconv.Itoa(limit)+" blocks; the rest were dropped")
 			break
 		}
 		b := Block{Type: strings.ToLower(strings.TrimSpace(rb.Type)), Title: clean(deref(rb.Title), MaxTitle, false)}
+		b.Say = clean(deref(rb.Say), MaxSay, false)
+		b.Icon = icon(deref(rb.Icon))
+		if s := strings.ToLower(deref(rb.Span)); spans[s] && s != "full" {
+			b.Span = s
+		}
+		if s := strings.ToLower(deref(rb.Emph)); emphases[s] && s != "normal" {
+			b.Emphasis = s
+		}
 		switch b.Type {
+		case "widget":
+			if !o.Widgets {
+				drop(i, "widget outside a screen")
+				continue
+			}
+			b.Source = strings.ToLower(strings.TrimSpace(deref(rb.Source)))
+			if !widgetSources[b.Source] {
+				drop(i, "unknown widget source "+strconv.Quote(clean(b.Source, 30, false)))
+				continue
+			}
+			if rb.Limit != nil && *rb.Limit >= 1 && *rb.Limit <= 20 {
+				b.Limit = int(*rb.Limit)
+			}
+		case "hero":
+			b.Text = clean(deref(rb.Text), 400, true)
+			b.Tone = strings.ToLower(deref(rb.Tone))
+			if !tones[b.Tone] {
+				b.Tone = ""
+			}
+			if b.Title == "" {
+				b.Title, b.Text = clean(b.Text, MaxTitle, false), ""
+			}
+			if b.Title == "" {
+				drop(i, "empty hero")
+				continue
+			}
+		case "quote":
+			b.Text = clean(deref(rb.Text), MaxText, true)
+			if b.Text == "" {
+				drop(i, "empty quote")
+				continue
+			}
+		case "compare":
+			// columns are the options compared; each row is a criterion followed by one cell per option;
+			// text optionally names the recommended option.
+			for _, c := range rb.Columns {
+				if c = clean(c, MaxLabel, false); c != "" && len(b.Columns) < 4 {
+					b.Columns = append(b.Columns, c)
+				}
+			}
+			if len(b.Columns) < 2 {
+				drop(i, "compare needs 2-4 options")
+				continue
+			}
+			for _, r := range rb.Rows {
+				if len(b.Rows) >= 12 || len(r) == 0 {
+					continue
+				}
+				row := make([]string, len(b.Columns)+1)
+				for j := range row {
+					if j < len(r) {
+						row[j] = clean(r[j], MaxCell, false)
+					}
+				}
+				if row[0] != "" {
+					b.Rows = append(b.Rows, row)
+				}
+			}
+			if len(b.Rows) == 0 {
+				drop(i, "compare without criteria")
+				continue
+			}
+			pick := clean(deref(rb.Text), MaxLabel, false)
+			for _, c := range b.Columns {
+				if strings.EqualFold(c, pick) {
+					b.Text = c // only an option that exists can be recommended
+				}
+			}
+		case "form":
+			// text is the request sent when the owner submits, with {field} placeholders; each item is a field:
+			// label = field name, value = choices separated by "|" (empty = free text), note = hint.
+			b.Text = clean(deref(rb.Text), MaxAction, false)
+			for _, ri := range rb.Items {
+				it := Item{Label: clean(deref(ri.Label), 40, false), Value: clean(deref(ri.Value), MaxCell, false), Note: clean(deref(ri.Note), MaxLabel, false)}
+				if it.Label == "" || strings.ContainsAny(it.Label, "{}") || len(b.Items) >= MaxFields || !strings.Contains(b.Text, "{"+it.Label+"}") {
+					continue // a field the request does not use is not asked
+				}
+				b.Items = append(b.Items, it)
+			}
+			if b.Text == "" || len(b.Items) == 0 {
+				drop(i, "form without a request or fields")
+				continue
+			}
 		case "text", "code":
 			b.Text = clean(deref(rb.Text), MaxText, true)
 			if b.Text == "" {
@@ -149,7 +269,7 @@ func Sanitize(raw json.RawMessage, o Options) ([]Block, []string) {
 				drop(i, "table without rows")
 				continue
 			}
-		case "metrics", "kv", "list", "steps", "chart", "links", "actions":
+		case "metrics", "kv", "list", "steps", "chart", "links", "actions", "timeline", "progress":
 			if b.Type == "chart" {
 				b.Chart = strings.ToLower(deref(rb.Chart))
 				if !charts[b.Chart] {
@@ -185,10 +305,17 @@ func Sanitize(raw json.RawMessage, o Options) ([]Block, []string) {
 					if it.Label == "" || it.Value == "" {
 						continue
 					}
-				case "metrics", "kv":
+				case "metrics", "kv", "timeline":
 					if it.Label == "" || it.Value == "" {
 						continue
 					}
+				case "progress":
+					n, ok := Number(it.Value)
+					if !ok || it.Label == "" {
+						continue
+					}
+					n = max(0, min(100, n)) // a share of the whole, in percent
+					it.Number = &n
 				default: // list, steps
 					if it.Label == "" {
 						it.Label, it.Value = it.Value, ""
@@ -255,6 +382,20 @@ func Number(s string) (float64, bool) {
 	return n, true
 }
 
+// icon keeps a single short symbol (an emoji or a letter): no text hides in it.
+func icon(s string) string {
+	s = clean(s, 8, false)
+	if strings.ContainsAny(s, " <>&\"'") || len([]rune(s)) > 6 {
+		return ""
+	}
+	for _, r := range s {
+		if r < 128 && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return ""
+		}
+	}
+	return s
+}
+
 func safeURL(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	u, err := url.Parse(s)
@@ -304,9 +445,10 @@ func Schema() map[string]any {
 	item := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"label", "value", "note", "url"},
 		"properties": map[string]any{"label": ns, "value": ns, "note": ns, "url": ns}}
 	block := map[string]any{"type": "object", "additionalProperties": false,
-		"required": []string{"type", "title", "text", "tone", "chart", "columns", "rows", "items"},
+		"required": []string{"type", "title", "text", "tone", "chart", "columns", "rows", "items", "say", "icon", "span", "emphasis"},
 		"properties": map[string]any{
 			"type": map[string]any{"type": "string", "enum": Types}, "title": ns, "text": ns, "tone": ns, "chart": ns,
+			"say": ns, "icon": ns, "span": ns, "emphasis": ns,
 			"columns": map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}},
 			"rows":    map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
 			"items":   map[string]any{"type": []string{"array", "null"}, "items": item}}}

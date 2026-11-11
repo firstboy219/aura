@@ -68,6 +68,14 @@
           "type": "object",
           "description": "JSON Schema of one view block, owned by the Core."
         },
+        "scene_schema": {
+          "type": "object",
+          "description": "JSON Schema of the reply's scene (mood, accent, layout), owned by the Core (ADR-0060)."
+        },
+        "spoken": {
+          "type": "boolean",
+          "description": "The owner asked aloud and hears the reply: text is spoken, blocks carry narration in say."
+        },
         "view_types": {
           "type": "array",
           "items": {
@@ -93,6 +101,12 @@
           "items": {
             "type": "object"
           }
+        },
+        "scene": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       }
     }

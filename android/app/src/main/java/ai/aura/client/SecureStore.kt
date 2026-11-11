@@ -10,34 +10,45 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/** What the app keeps on the device. */
+interface Settings {
+    var server: String
+    var username: String
+    var micAllowed: Boolean
+    var speakResults: Boolean
+    var backgroundChecks: Boolean
+    var vocabulary: List<String>
+    var token: String
+}
+
 /** Settings; the member token is encrypted with a non-exportable Android Keystore key (AES-GCM). */
-class SecureStore(ctx: Context) {
+class SecureStore(ctx: Context) : Settings {
     private val prefs = ctx.getSharedPreferences("aura", Context.MODE_PRIVATE)
 
-    var server: String
+    override var server: String
         get() = prefs.getString("server", "https://aurax.cosger.online") ?: ""
         set(v) = prefs.edit().putString("server", v).apply()
-    var username: String
+    override var username: String
         get() = prefs.getString("username", "") ?: ""
         set(v) = prefs.edit().putString("username", v).apply()
-    var micAllowed: Boolean
+    override var micAllowed: Boolean
         get() = prefs.getBoolean("mic_allowed", false) // off until the owner turns it on
         set(v) = prefs.edit().putBoolean("mic_allowed", v).apply()
-    var speakResults: Boolean
+    override var speakResults: Boolean
         get() = prefs.getBoolean("speak", false)
         set(v) = prefs.edit().putBoolean("speak", v).apply()
-    var backgroundChecks: Boolean
+    override var backgroundChecks: Boolean
         get() = prefs.getBoolean("bg", false)
         set(v) = prefs.edit().putBoolean("bg", v).apply()
     /** Words learned from AURA's corrections of what the recognizer heard (names, places, terms); newest first. */
-    var vocabulary: List<String>
+    override var vocabulary: List<String>
         get() = prefs.getString("vocabulary", "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
         set(v) = prefs.edit().putString("vocabulary", v.take(100).joinToString("\n")).apply()
     var seenNotices: Set<String>
         get() = prefs.getStringSet("seen", emptySet()) ?: emptySet()
         set(v) = prefs.edit().putStringSet("seen", v.toList().takeLast(200).toSet()).apply()
 
-    var token: String
+    override var token: String
         get() {
             val enc = prefs.getString("token", null) ?: return ""
             return try {

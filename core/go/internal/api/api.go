@@ -132,6 +132,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/triggers", auth(s.listTriggers))
 	mux.Handle("POST /api/v1/triggers", auth(s.createTrigger))
 	mux.Handle("POST /api/v1/triggers/{id}/{action}", auth(s.triggerAction))
+	mux.Handle("GET /api/v1/ui/home", auth(s.uiHome))
+	mux.Handle("GET /api/v1/ui/screens/{name}", auth(s.uiScreen))
+	mux.Handle("POST /api/v1/ui/screens/{name}/{action}", auth(s.uiScreenAction))
 	mux.Handle("GET /api/v1/notifications", auth(s.notifications))
 	mux.Handle("POST /api/v1/notifications/{id}/read", auth(s.markRead))
 	mux.Handle("GET /api/v1/limitations", auth(s.listLimitations))
@@ -352,6 +355,7 @@ type createReq struct {
 	BrowserProf  string            `json:"browser_profile"`
 	Attachments  map[string]string `json:"attachments"`
 	Voice        *task.Voice       `json:"voice"`
+	Design       string            `json:"design"`
 	Budget       *struct {
 		MaxCostUSD     float64 `json:"max_cost_usd"`
 		MaxIterations  int     `json:"max_iterations"`
@@ -372,7 +376,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ci := engine.CreateInput{Objective: in.Objective, Tools: in.Tools, AllowDomains: in.AllowDomains, DataClass: in.DataClass, Tier: in.Tier, Recovery: in.Recovery, BrowserProfile: in.BrowserProf, Attachments: in.Attachments,
-		Reply: in.Reply, Voice: in.Voice, CreatedBy: PrincipalOf(r).ID, IdempotencyKey: r.Header.Get("Idempotency-Key")}
+		Reply: in.Reply, Voice: in.Voice, Design: in.Design, CreatedBy: PrincipalOf(r).ID, IdempotencyKey: r.Header.Get("Idempotency-Key")}
 	if in.Budget != nil {
 		ci.Budget = task.Budget{MaxCostUSD: in.Budget.MaxCostUSD, MaxIterations: in.Budget.MaxIterations, MaxWallSeconds: in.Budget.MaxWallSeconds}
 	}
