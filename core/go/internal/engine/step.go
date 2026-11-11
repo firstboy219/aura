@@ -776,6 +776,17 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	case "workspace.write":
 		in := writeIntent{Path: args["path"].(string), Content: args["content"].(string)}
 		in.SHA256 = tools.Hash([]byte(in.Content))
+		if tools.Rendered(in.Path) {
+			// The intent records the hash of the file as it will be on disk (ADR-0064); Content keeps the source
+			// text, which is also what verification reads.
+			b, err := tools.RenderDocument(in.Path, in.Content)
+			if err != nil {
+				err = fmt.Errorf("tool_failed: %v", err)
+				e.toolFailed(ctx, t, st, spec.ID, err)
+				return nil, err
+			}
+			in.SHA256 = tools.Hash(b)
+		}
 		err := e.st.Write(ctx, func(tx *sql.Tx) error {
 			ck, err := putCheckpoint(ctx, tx, t.ID, st.ID, "write_intent", in)
 			if err != nil {

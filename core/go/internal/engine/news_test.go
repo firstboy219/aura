@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -114,5 +117,28 @@ func TestInfoToolRunsWithPlannedInput(t *testing.T) {
 	done := h.wait(tk.ID, task.Succeeded, task.Failed)
 	if done.State != task.Succeeded || fi.tool != "info.weather" || fi.place != "Bogor" {
 		t.Fatalf("%s %s tool=%q place=%q %s", done.State, deref(done.Reason), fi.tool, fi.place, errorDetail(h.events(tk.ID)))
+	}
+}
+
+// A Word document written from Markdown passes the deterministic checks: the
+// recorded hash is that of the rendered file, and verification reads the text.
+func TestRenderedDocumentWriteVerifies(t *testing.T) {
+	h := newHarness(t, harnessOpts{respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+		if isSys(req, "planning module") {
+			return planReply(gatewaytest.Step(1, "write", "workspace.write", map[string]any{"path": "reports/rencana.docx"}))
+		}
+		if isSys(req, "replanning module") {
+			return gatewaytest.Reply{Content: `{"steps":[],"completion_criteria":[],"question":null}`} // fail visibly
+		}
+		return goodModel(r, req)
+	}})
+	tk := h.submitTools("Buat reports/rencana.docx", "workspace.write")
+	done := h.wait(tk.ID, task.Succeeded, task.Failed)
+	if done.State != task.Succeeded {
+		t.Fatalf("%s %s %s", done.State, deref(done.Reason), errorDetail(h.events(tk.ID)))
+	}
+	b, err := os.ReadFile(filepath.Join(h.cfg.Workspace.Root, tk.ID, "reports", "rencana.docx"))
+	if err != nil || !bytes.HasPrefix(b, []byte("PK")) {
+		t.Fatalf("not a docx: %v %q", err, b[:min(len(b), 8)])
 	}
 }
