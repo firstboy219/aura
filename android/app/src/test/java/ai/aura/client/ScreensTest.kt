@@ -74,6 +74,11 @@ class ScreensTest {
         setup()
     }
 
+    /** Draws a screen with its entrance animations finished, as the owner sees it a moment after it appears. */
+    @androidx.compose.runtime.Composable
+    private fun Still(s: AppState) =
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalInspectionMode provides true) { AuraScreen(s) }
+
     @Test fun login() = paparazzi.snapshot { AuraScreen(AppState(Mem(), null, SensorPolicy(), null)) }
 
     @Test fun home() = paparazzi.snapshot { AuraScreen(state { }) }
@@ -88,15 +93,63 @@ class ScreensTest {
 
     @Test fun settings() = paparazzi.snapshot { AuraScreen(state { tab = "more"; page = "settings" }) }
 
+    @Test fun board() = paparazzi.snapshot { AuraScreen(state { page = "board" }) }
+
     @Test fun explaining() = paparazzi.snapshot {
         AuraScreen(state {
-            talkOpen = true; presenting = true; heard = "Analisa penjualan kuartal ini"; caption = "Oktober adalah bulan terkuat."
+            presenting = true; heard = "Analisa penjualan kuartal ini"; caption = "Oktober adalah bulan terkuat."
             stage = view; stageScene = Api.Scene("celebrate", "emerald", "story"); stageReveal = 3; stageFocus = 2
         })
     }
 
     @Test fun listening() = paparazzi.snapshot {
         AuraScreen(state { talkOpen = true; talkState = LiveTalk.State.LISTENING; heard = "berapa omzet bulan" })
+    }
+
+    @Test fun workspaceNews() = paparazzi.snapshot {
+        Still(state {
+            heard = "Cek berita hari ini"; caption = "Ada tiga kabar utama pagi ini."
+            stage = listOf(block("links", "Berita hari ini", items = listOf(
+                Api.Item("Rupiah menguat setelah keputusan suku bunga", "", "Bank sentral menahan suku bunga acuan.", "https://www.contoh-berita.id/ekonomi/rupiah", null),
+                Api.Item("Harga minyak turun dua persen", "", "", "https://kabar.example/energi/minyak", null),
+                Api.Item("Bursa Asia dibuka bervariasi", "", "Investor menunggu data inflasi.", "https://pasar.example/asia", null))))
+            stageReveal = 1; stageFocus = 0
+        })
+    }
+
+    @Test fun workspaceFigures() = paparazzi.snapshot {
+        Still(state {
+            heard = "Analisa apa yang terjadi"; caption = "Tiga hal ini saling berkaitan."
+            stage = listOf(block("figures", "Yang berperan", items = listOf(
+                Api.Item("Donald Trump", "Mengumumkan tarif impor baru", "Indeks saham turun", "https://en.wikipedia.org/wiki/Donald_Trump", null),
+                Api.Item("Nvidia", "Diterpa kabar soal pimpinannya", "Saham chip tertekan", "", null),
+                Api.Item("Xi Jinping", "Mengajak beberapa negara bekerja sama", "Blok dagang baru menguat", "", null))))
+            stageReveal = 1; stageFocus = 0
+        })
+    }
+
+    @Test fun workspaceNotes() = paparazzi.snapshot {
+        Still(state {
+            heard = "Catat: beli cat dasar 20 liter"; caption = "Sudah saya catat."
+            stage = listOf(block("note", items = listOf(item("Beli cat dasar 20 liter"))))
+            notes = listOf(Api.NoteItem("n3", "Beli cat dasar 20 liter", false, "t5"), Api.NoteItem("n2", "Telepon pemasok hari Kamis", false, ""),
+                Api.NoteItem("n1", "Kirim penawaran ke toko Jaya", true, ""))
+            stageReveal = 1
+        })
+    }
+
+    @Test fun workspacePlayer() = paparazzi.snapshot {
+        Still(state {
+            heard = "Putarkan lagu"; caption = "Saya putar dari koleksi di ponsel."
+            stage = listOf(block("player", text = "lagu santai"))
+            queue = listOf(Tunes.Song(1, "Bengawan Solo", "Gesang", "content://media/1", 215000), Tunes.Song(2, "Sore Tugu Pancoran", "Iwan Fals", "content://media/2", 262000),
+                Tunes.Song(3, "Kala Cinta Menggoda", "Chrisye", "content://media/3", 248000))
+            playingAt = 0; stageReveal = 1
+        })
+    }
+
+    @Test fun workspacePlayerNeedsPermission() = paparazzi.snapshot {
+        Still(state { stage = listOf(block("player")); musicState = "permission"; stageReveal = 1 })
     }
 
     @Test fun taskDetail() = paparazzi.snapshot {

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -247,7 +248,11 @@ func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, bloc
 		for _, b := range blocks {
 			types = append(types, b.Type)
 		}
-		_, err := task.AppendEvent(ctx, tx, t.ID, nil, "OWNER_REPLY", "core", map[string]any{"basis": basis, "chars": len(text), "view": types, "notes": notes})
+		kept, err := saveNotes(ctx, tx, t.ID, blocks)
+		if err != nil {
+			return err
+		}
+		_, err = task.AppendEvent(ctx, tx, t.ID, nil, "OWNER_REPLY", "core", map[string]any{"basis": basis, "chars": len(text), "view": types, "notes": notes, "notes_kept": kept})
 		return err
 	})
 }
@@ -468,6 +473,12 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	}
 	blocks, removed := view.Sanitize(r.View, view.Options{KnownURL: func(u string) bool { return e.hasProvenance(t, u) }})
 	var notes []ReplyNote
+	if failure != nil {
+		// A failed task keeps nothing and plays nothing.
+		blocks = slices.DeleteFunc(blocks, func(b view.Block) bool { return b.Type == "note" || b.Type == "player" })
+	} else {
+		e.illustrate(ctx, t, blocks)
+	}
 	if failure != nil {
 		notes = append(notes, ReplyNote{Code: "task_failed", Detail: failure.Code})
 	} else if basis == BasisModel {

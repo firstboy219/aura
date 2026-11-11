@@ -146,6 +146,14 @@ paths:
     get: { operationId: uiScreen, description: "Active design, stored versions and the built-in default of a screen. A redesign is a task: POST /tasks with design=<name>.", responses: { '200': { description: Screen versions } } }
   /ui/screens/{name}/{action}:
     post: { operationId: uiScreenAction, description: "rollback (previous design) | reset (built-in default) | use (body version).", responses: { '200': { description: Active screen } } }
+  /notes:
+    get: { operationId: listNotes, description: "The owner's notes, newest first (ADR-0061). A reply's note block is saved here by the Core.", responses: { '200': { description: Notes } } }
+    post: { operationId: addNote, description: "Body text.", responses: { '201': { description: Note } } }
+  /notes/{id}:
+    patch: { operationId: updateNote, description: "Body text and/or done.", responses: { '200': { description: Note } } }
+    delete: { operationId: deleteNote, responses: { '200': { description: Deleted } } }
+  /media/{id}:
+    get: { operationId: getMedia, description: "A picture the Core stored for a figure of a reply (JPEG, PNG or WebP; ADR-0061).", responses: { '200': { description: Image bytes } } }
   /self-model:
     get: { operationId: getSelfModel, responses: { '200': { description: Measured capabilities } } }
   /scorecard:

@@ -3,6 +3,7 @@ package ai.aura.client
 import ai.aura.client.ui.AuraApp
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 
 /**
  * AURA's Android client (ADR-0052, ADR-0060). The activity owns only what Android requires — permissions, the
@@ -21,8 +24,10 @@ class MainActivity : ComponentActivity(), Host {
     private lateinit var store: SecureStore
     private lateinit var voice: Voice
     private lateinit var state: AppState
+    private lateinit var music: Music
     private var front = false
     private var pendingMic: (() -> Unit)? = null
+    private var pendingAudio: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
@@ -30,6 +35,7 @@ class MainActivity : ComponentActivity(), Host {
         store = SecureStore(this)
         voice = Voice(this, policy)
         voice.vocabulary = store.vocabulary
+        music = Music(this)
         state = AppState(store, voice, policy, this)
         setContent { AuraApp(state) }
     }
@@ -49,6 +55,7 @@ class MainActivity : ComponentActivity(), Host {
 
     override fun onDestroy() {
         voice.shutdown()
+        music.stop()
         super.onDestroy()
     }
 
@@ -60,6 +67,31 @@ class MainActivity : ComponentActivity(), Host {
     }
 
     override fun foreground() = front
+
+    private fun audioPermission() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    override fun audioGranted() = checkSelfPermission(audioPermission()) == PackageManager.PERMISSION_GRANTED
+
+    override fun requestAudio(then: () -> Unit) {
+        pendingAudio = then
+        requestPermissions(arrayOf(audioPermission()), REQ_AUDIO)
+    }
+
+    override fun songs(): List<Tunes.Song> = music.library()
+    override fun playSong(uri: String, done: () -> Unit, failed: (String) -> Unit) = music.play(uri, done, failed)
+    override fun pauseSong() = music.pause()
+    override fun resumeSong() = music.resume()
+    override fun stopSong() = music.stop()
+
+    /** A picture the Core stored, scaled down while decoding so a large one cannot exhaust memory. */
+    override fun decode(bytes: ByteArray): ImageBitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 640) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+    }
 
     override fun keepScreenOn(on: Boolean) {
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -78,6 +110,12 @@ class MainActivity : ComponentActivity(), Host {
     @Deprecated("Deprecated in Java")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_AUDIO) {
+            val then = pendingAudio
+            pendingAudio = null
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) then?.invoke() else state.musicDenied()
+            return
+        }
         if (requestCode != REQ_MIC) return
         val then = pendingMic
         pendingMic = null
@@ -88,5 +126,6 @@ class MainActivity : ComponentActivity(), Host {
     private companion object {
         const val REQ_MIC = 7
         const val REQ_NOTIFY = 8
+        const val REQ_AUDIO = 9
     }
 }

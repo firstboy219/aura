@@ -53,7 +53,8 @@ const MinFreeBytes = 1 << 30
 type Options struct {
 	Provider gateway.Provider
 	Guard    *tools.Guard
-	Searcher tools.Searcher // tests; nil = from config
+	Searcher tools.Searcher      // tests; nil = from config
+	Pictures tools.PictureFinder // tests; nil = Wikipedia unless Searcher is set
 	// ExtraProviders replace or add providers by id (tests).
 	ExtraProviders map[string]gateway.Provider
 	Log            *slog.Logger
@@ -194,6 +195,10 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	if guard == nil {
 		guard = tools.NewGuard()
 	}
+	pics := o.Pictures
+	if pics == nil && o.Searcher == nil {
+		pics = tools.NewWikiPictures(tools.NewGuard(), "en")
+	}
 	srch := o.Searcher
 	if srch == nil {
 		switch cfg.Tools.WebSearch.Provider {
@@ -268,7 +273,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, Pictures: pics, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)

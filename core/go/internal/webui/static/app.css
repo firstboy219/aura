@@ -54,3 +54,7 @@ details > summary { cursor:pointer; color:var(--muted); margin:.8rem 0 .4rem; }
 .prog { margin:.5rem 0; } .between { justify-content:space-between; } .prog progress { width:100%; height:.5rem; accent-color:var(--accent); }
 .pick { color:var(--accent); font-weight:600; }
 .vform label { display:block; margin:.4rem 0; }
+.figures { display:grid; grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr)); gap:.6rem; }
+.figure { display:flex; gap:.7rem; align-items:center; border:1px solid var(--line); border-radius:8px; padding:.5rem; background:#0c0f14; }
+.figure img, .figure .noimg { width:4rem; height:4rem; border-radius:50%; object-fit:cover; flex:none; } .figure .noimg { display:grid; place-items:center; background:var(--line); font-size:1.5rem; }
+.notes { list-style:none; padding-left:0 !important; }

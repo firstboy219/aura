@@ -106,3 +106,32 @@ func TestScreenSchemaIsValidJSONAndDoesNotChangeTheViewSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWorkspaceBlocks(t *testing.T) {
+	raw := `[
+	 {"type":"figures","items":[{"label":"Donald Trump","value":"tarif baru","note":"saham turun","url":"https://evil.example/a.png"},{"label":null,"value":"x","note":null,"url":null}]},
+	 {"type":"figures","items":[]},
+	 {"type":"note","items":[{"label":"beli susu","value":null,"note":null,"url":null}]},
+	 {"type":"note","text":"satu catatan"},
+	 {"type":"note"},
+	 {"type":"player","text":"jazz santai","items":[{"label":"Bengawan Solo","value":"Gesang","note":null,"url":null}]}
+	]`
+	bs, notes := Sanitize(json.RawMessage(raw), Options{})
+	if len(bs) != 5 || len(notes) != 1 {
+		t.Fatalf("blocks %d notes %v", len(bs), notes)
+	}
+	if f := bs[0].Items; len(f) != 1 || f[0].URL != "" || f[0].Image != "" || f[0].Note != "saham turun" {
+		t.Fatalf("a figure never carries a model's URL or image: %+v", f)
+	}
+	if bs[1].Items[0].Label != "beli susu" || bs[2].Items[0].Label != "satu catatan" || len(bs[3].Items) != 0 {
+		t.Fatalf("notes: %+v", bs[1:4])
+	}
+	if p := bs[4]; p.Text != "jazz santai" || p.Items[0].Value != "Gesang" {
+		t.Fatalf("player: %+v", p)
+	}
+	// a model cannot set an image id
+	bs, _ = Sanitize(json.RawMessage(`[{"type":"figures","items":[{"label":"A","image":"deadbeef"}]}]`), Options{})
+	if bs[0].Items[0].Image != "" {
+		t.Fatal("image set by a model")
+	}
+}

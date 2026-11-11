@@ -1,6 +1,7 @@
 package ai.aura.client.ui
 
 import ai.aura.client.Api
+import ai.aura.client.AppState
 import ai.aura.client.HomeLogic
 import ai.aura.client.Narration
 import ai.aura.client.ReplyView
@@ -54,7 +55,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -68,11 +68,15 @@ import androidx.compose.ui.unit.sp
  * a request that the owner sends. An unknown block type is skipped.
  */
 
-/** Blocks in rows, appearing one after another: [reveal] is how many are on screen, [focus] the one being explained. */
+/**
+ * Blocks in rows, appearing one after another: [reveal] is how many are on screen, [focus] the one being explained.
+ * With [s] the figures show their pictures; [live] marks the workspace, where notes and the player are working panels
+ * and not only a record of what was said.
+ */
 @Composable
 fun Blocks(
     blocks: List<Api.Block>, modifier: Modifier = Modifier, layout: String = "stack", reveal: Int = blocks.size, focus: Int = -1,
-    onAction: (String) -> Unit, widget: (@Composable (Api.Block) -> Unit)? = null,
+    onAction: (String) -> Unit, widget: (@Composable (Api.Block) -> Unit)? = null, s: AppState? = null, live: Boolean = false,
 ) {
     val placed = if (layout == "grid") blocks.map { if (it.span.isEmpty() && compact(it)) it.copy(span = "half") else it } else blocks
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (layout == "story") 18.dp else 12.dp)) {
@@ -83,10 +87,10 @@ fun Blocks(
                     expandVertically(tween(380, easing = FastOutSlowInEasing)) + scaleIn(tween(420), initialScale = 0.96f),
             ) {
                 if (row.size == 1) {
-                    BlockCard(placed[row[0]], row[0] == focus, Modifier.fillMaxWidth(), onAction, widget)
+                    BlockCard(placed[row[0]], row[0] == focus, Modifier.fillMaxWidth(), onAction, widget, s, live)
                 } else {
                     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        for (i in row) BlockCard(placed[i], i == focus, Modifier.weight(1f).fillMaxHeight(), onAction, widget)
+                        for (i in row) BlockCard(placed[i], i == focus, Modifier.weight(1f).fillMaxHeight(), onAction, widget, s, live)
                     }
                 }
             }
@@ -102,7 +106,10 @@ private fun compact(b: Api.Block) = when (b.type) {
 }
 
 @Composable
-private fun BlockCard(b: Api.Block, focused: Boolean, modifier: Modifier, onAction: (String) -> Unit, widget: (@Composable (Api.Block) -> Unit)?) {
+private fun BlockCard(
+    b: Api.Block, focused: Boolean, modifier: Modifier, onAction: (String) -> Unit, widget: (@Composable (Api.Block) -> Unit)?,
+    s: AppState?, live: Boolean,
+) {
     if (b.type == "widget") {
         if (widget != null) Box(modifier) { widget(b) }
         return
@@ -114,23 +121,25 @@ private fun BlockCard(b: Api.Block, focused: Boolean, modifier: Modifier, onActi
         else -> null
     }
     GlassCard(modifier, emphasis = if (b.type == "hero" && b.emphasis.isEmpty()) "strong" else b.emphasis, glow = focused, tint = tint) {
-        if (b.type != "hero" && b.type != "quote" && (b.title.isNotEmpty() || b.icon.isNotEmpty())) {
+        val title = b.title.ifEmpty { when (b.type) { "note" -> "Catatan"; "player" -> "Musik"; else -> "" } }
+        val icon = b.icon.ifEmpty { when (b.type) { "note" -> "📝"; "player" -> "🎵"; "links" -> "📰"; else -> "" } }
+        if (b.type != "hero" && b.type != "quote" && (title.isNotEmpty() || icon.isNotEmpty())) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (b.icon.isNotEmpty()) Text(b.icon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
-                Text(b.title, style = MaterialTheme.typography.titleSmall, color = Ink.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (icon.isNotEmpty()) Text(icon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall, color = Ink.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(10.dp))
         }
-        BlockBody(b, onAction)
+        BlockBody(b, onAction, s, live)
     }
 }
 
 private val KNOWN = setOf("text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions",
-    "hero", "timeline", "progress", "compare", "quote", "form")
+    "hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BlockBody(b: Api.Block, onAction: (String) -> Unit) {
+private fun BlockBody(b: Api.Block, onAction: (String) -> Unit, s: AppState?, live: Boolean) {
     val look = LocalLook.current
     val type = MaterialTheme.typography
     when (b.type) {
@@ -234,23 +243,10 @@ private fun BlockBody(b: Api.Block, onAction: (String) -> Unit) {
             if (b.text.isNotEmpty()) Text("★ Rekomendasi: ${b.text}", style = type.labelLarge, color = look.palette.c, modifier = Modifier.padding(top = 10.dp))
         }
         "chart" -> Chart(b)
-        "links" -> {
-            val open = LocalUriHandler.current
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (it in b.items) {
-                    val ok = it.url.startsWith("https://") || it.url.startsWith("http://")
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Ink.Glass)
-                        .then(if (ok) Modifier.clickable { runCatching { open.openUri(it.url) } } else Modifier).padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(it.label.ifEmpty { it.url }, style = type.bodyMedium, color = Ink.Text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(it.url, style = type.labelSmall, color = Ink.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        if (ok) Text("↗", color = look.palette.a, fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        }
+        "links" -> Headlines(b, live)
+        "figures" -> Figures(b, s, live)
+        "note" -> NotePanel(b, s, live)
+        "player" -> PlayerPanel(b, s, live)
         "actions" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for (it in b.items) Pill(it.label.ifEmpty { it.value }) { onAction(it.value.ifEmpty { it.label }) }
         }

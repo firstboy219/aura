@@ -37,6 +37,9 @@ object Narration {
         return if (end > MAX_SPOKEN / 2) cut.take(end + 1) else cut
     }
 
+    /** How long a caption stays when it is shown instead of spoken: about the time it takes to read it. */
+    fun readMillis(say: String): Long = (900L + 45L * say.length).coerceAtMost(6500L)
+
     /** The fields a form block asks for: the {{names}} in its template, in order, without repeats. */
     fun formFields(template: String): List<String> =
         FIELD.findAll(template).map { it.groupValues[1] }.distinct().toList()

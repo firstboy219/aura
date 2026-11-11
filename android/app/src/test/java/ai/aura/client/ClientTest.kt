@@ -138,4 +138,42 @@ class ClientTest {
         assertEquals(0.5, j.getJSONArray("alternatives").getJSONObject(0).getDouble("confidence"), 1e-6)
         assertTrue(!j.getJSONArray("alternatives").getJSONObject(1).has("confidence"))
     }
+
+    @Test
+    fun parsesWorkspaceBlocksAndNotes() {
+        val pic = "ab".repeat(32)
+        val v = Api.parseBlocks(org.json.JSONArray("""[{"type":"figures","items":[{"label":"Nvidia","value":"x","note":"y","url":"https://en.wikipedia.org/wiki/Nvidia","image":"$pic"},{"label":"Tanpa gambar"}]},
+            {"type":"player","text":"lagu santai","items":[{"label":"Bengawan Solo","value":"Gesang"}]},{"type":"note","items":[{"label":"beli cat"}]}]"""))
+        assertEquals(pic, v[0].items[0].image)
+        assertEquals("", v[0].items[1].image)
+        assertEquals("lagu santai", v[1].text)
+        assertEquals("beli cat", v[2].items[0].label)
+        val ns = Api.parseNotes(JSONObject("""{"notes":[{"id":"n1","text":"beli cat","done":false,"task_id":"T1"},{"id":"n2","text":"telepon","done":true}]}"""))
+        assertEquals(2, ns.size)
+        assertTrue(!ns[0].done && ns[1].done && ns[0].text == "beli cat")
+    }
+
+    @Test
+    fun songsAreChosenFromThePhoneLibraryOnly() {
+        val lib = listOf(Tunes.Song(1, "Bengawan Solo", "Gesang", "content://media/1"), Tunes.Song(2, "Sore Tugu Pancoran", "Iwan Fals", "content://media/2"),
+            Tunes.Song(3, "Bento", "Iwan Fals", "content://media/3"))
+        // A request that names nothing in particular gets the library.
+        assertEquals(Tunes.Pick(lib, true), Tunes.pick(lib, "putarkan lagu", emptyList()))
+        // An artist narrows it; a named title comes first.
+        assertEquals(listOf(2L, 3L), Tunes.pick(lib, "lagu Iwan Fals", emptyList()).songs.map { it.id })
+        assertEquals(3L, Tunes.pick(lib, "", listOf("Bento" to "Iwan Fals")).songs.first().id)
+        // Nothing fits: the library is offered, and it is said that nothing matched, so nothing plays on its own.
+        val none = Tunes.pick(lib, "lagu Coldplay", listOf("Yellow" to "Coldplay"))
+        assertTrue(!none.matched && none.songs == lib)
+        assertTrue(!Tunes.pick(emptyList(), "putar lagu", emptyList()).matched)
+        assertEquals("3:35", Tunes.length(215000))
+        assertEquals("", Tunes.length(0))
+    }
+
+    @Test
+    fun silentCaptionsStayLongEnoughToReadButNotForever() {
+        assertTrue(Narration.readMillis("") in 500L..1500L)
+        assertTrue(Narration.readMillis("a".repeat(40)) > Narration.readMillis("a".repeat(10)))
+        assertEquals(6500L, Narration.readMillis("a".repeat(5000)))
+    }
 }

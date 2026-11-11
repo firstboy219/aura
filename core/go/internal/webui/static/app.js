@@ -325,6 +325,11 @@ function viewBlock(b, onAction) {
       el("thead", {}, el("tr", {}, el("th", {}), (b.columns || []).map((c) => el("th", { class: c === b.text ? "pick" : "", text: c === b.text ? c + " ★" : c })))),
       el("tbody", {}, (b.rows || []).map((r) => el("tr", {}, r.map((c, i) => el(i ? "td" : "th", { class: i && (b.columns || [])[i - 1] === b.text ? "pick" : "", text: c }))))))); break;
     case "form": body = onAction ? formBlock(b, onAction) : null; break;
+    case "figures": body = el("div", { class: "figures" }, items.map((it) => el("div", { class: "figure" },
+      it.image && /^[0-9a-f]{64}$/.test(it.image) ? el("img", { src: "/api/v1/media/" + it.image, alt: it.label, loading: "lazy" }) : el("div", { class: "noimg", text: it.label.slice(0, 1) }),
+      el("div", {}, el("strong", { text: it.label }), it.value ? el("div", { text: it.value }) : null, it.note ? el("div", { class: "muted", text: "→ " + it.note }) : null)))); break;
+    case "note": body = el("ul", { class: "notes" }, items.map((it) => el("li", { text: "✓ " + it.label }))); break;
+    case "player": body = el("div", { class: "muted" }, "♪ " + (b.text || ""), items.length ? el("ol", {}, items.map((it) => el("li", { text: it.label + (it.value ? " — " + it.value : "") }))) : null); break;
     case "actions": body = onAction ? el("div", { class: "row" }, items.map((it) => el("button", { type: "button", title: it.value,
       on: { click: () => onAction(it.value) }, text: it.label }))) : null; break;
   }

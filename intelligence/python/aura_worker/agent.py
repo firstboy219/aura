@@ -256,7 +256,9 @@ ANSWER_RULE_ALLOWED = ('After the plan runs, a separate module writes the reply 
                        'yourself, an explanation, advice, brainstorming, translation, simple arithmetic, or a follow-up to '
                        'the conversation), return "steps": [] and "completion_criteria": [] with "question": null: the '
                        'owner is then answered directly from your own knowledge. Use tools whenever the answer depends on '
-                       'current facts, prices, news, a web page, a file, or precise calculation over data.')
+                       'current facts, prices, news, a web page, a file, or precise calculation over data. Keeping a note for the '
+                       'owner ("catat ...", "tolong catat ...") and playing music ("putar lagu ...") also need NO steps and no '
+                       'file: return "steps": [] and the reply module does it.')
 ANSWER_RULE_DENIED = "Every plan needs at least one step."
 DESIGN_RULE = ('You can also redesign the owner\'s app. If the owner asks to change how a screen of the app looks or what it '
                'shows (for example "ubah tampilan beranda", "tampilkan persetujuan paling atas", "buat beranda lebih ringkas", '
@@ -1008,6 +1010,17 @@ what "text" already says in full: text is the headline, blocks carry the substan
 - form: ask the owner for details in one go (text = the request to send, with {{field}} placeholders; items: label =
   the field name used in a placeholder, value = choices separated by "|" or null for free text, note = a hint).
   Use it when your answer depends on choices only the owner can make.
+- figures: WHO or WHAT the explanation is about, shown as pictures: use it when you explain news, an analysis or a
+  chain of causes that involves named people, companies, countries or products (items: label = the well-known name
+  exactly as an encyclopedia would title it, e.g. "Donald Trump", "Nvidia", "Xi Jinping"; value = what they did or
+  what happened, in a few words; note = the consequence, e.g. "harga saham turun 3%"). 2-6 items, most important
+  first. The app looks up each picture itself; you never write image links.
+- note: when the owner asks you to note, write down or remember a to-do ("catat", "tolong catat", "tulis di
+  catatan", "note this"): items = one item per note (label = the note, in the owner's words, without "catat"). The
+  app opens the owner's notes and writes them in. With items = null it just opens the notes ("lihat catatan saya").
+- player: when the owner asks to play music ("putar lagu", "putarkan musik"): text = what to look for (a title,
+  artist, album or mood word; null for anything), items = specific songs if the owner named any (label = title,
+  value = artist). The owner's phone then plays matching songs from ITS OWN music library and shows the queue.
 Every block may also set: icon (ONE emoji that fits), span ("half" puts two consecutive short blocks side by side),
 emphasis ("strong" for the block that matters most, "quiet" for background detail), and say.
 "say" is what you would SAY ALOUD while pointing at that block: one short spoken sentence that explains what the
@@ -1038,7 +1051,11 @@ REPLY_BASIS = {
                         "message continues this conversation. NOTHING was done for this request: nothing was saved, "
                         "noted, scheduled, sent or set up. Never say or imply otherwise, and never promise to do it later "
                         "(\"saya akan mengingatkan\", \"sudah saya catat\", \"I'll remind you\"). If the owner asked "
-                        "for a reminder, a message or another action, say plainly that it has not been set up yet."),
+                        "for a reminder, a message or another action, say plainly that it has not been set up yet. "
+                        "Two exceptions, done by the app when you add the block: a \"note\" block saves its items to the "
+                        "owner's notes (then you may say it is noted), and a \"player\" block opens the music player on "
+                        "the owner's phone (say you are opening the player; you cannot know which songs the phone has, "
+                        "so never claim a particular song is playing)."),
 }
 
 REPLY_SPOKEN = """The owner asked this ALOUD and is listening: "text" will be spoken. Write it the way a person talks: short

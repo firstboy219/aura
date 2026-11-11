@@ -81,3 +81,12 @@ func TestExtractLinks(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestPictureTypeAcceptsOnlyRasterImages(t *testing.T) {
+	for in, want := range map[string]string{"\x89PNG\r\n\x1a\n....": "image/png", "\xff\xd8\xff\xe0....": "image/jpeg", "RIFF\x00\x00\x00\x00WEBPVP8 ": "image/webp",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>": "", "<html><body>x</body></html>": "", "GIF89a....": ""} {
+		if got, _ := PictureType([]byte(in)); got != want {
+			t.Errorf("%q: got %q want %q", in[:6], got, want)
+		}
+	}
+}

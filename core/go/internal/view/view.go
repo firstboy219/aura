@@ -30,11 +30,15 @@ const (
 	MaxAction  = 500
 	MaxSay     = 320
 	MaxFields  = 6
+	MaxFigures = 6
+	MaxNotes   = 10
+	MaxNote    = 500
+	MaxQueue   = 12
 )
 
 // Types are the block types every client implements.
 var Types = []string{"text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions",
-	"hero", "timeline", "progress", "compare", "quote", "form"}
+	"hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player"}
 
 var tones = map[string]bool{"info": true, "success": true, "warning": true, "danger": true}
 var charts = map[string]bool{"bar": true, "line": true, "pie": true}
@@ -49,6 +53,9 @@ type Item struct {
 	URL   string `json:"url,omitempty"`
 	// Number is the numeric value of a chart point, parsed by the Core.
 	Number *float64 `json:"number,omitempty"`
+	// Image is the id of a picture the Core found for a figure (ADR-0061);
+	// a model never sets it. The client reads it from GET /media/{id}.
+	Image string `json:"image,omitempty"`
 }
 
 // Block is one sanitised view block.
@@ -225,6 +232,40 @@ func Sanitize(raw json.RawMessage, o Options) ([]Block, []string) {
 			if b.Text == "" || len(b.Items) == 0 {
 				drop(i, "form without a request or fields")
 				continue
+			}
+		case "figures":
+			// the people, companies or things an explanation is about: label = the name (the Core looks for
+			// its picture), value = what it did or what happened to it, note = the consequence.
+			for _, ri := range rb.Items {
+				it := Item{Label: clean(deref(ri.Label), 80, false), Value: clean(deref(ri.Value), MaxCell, false), Note: clean(deref(ri.Note), MaxCell, false)}
+				if it.Label != "" && len(b.Items) < MaxFigures {
+					b.Items = append(b.Items, it)
+				}
+			}
+			if len(b.Items) == 0 {
+				drop(i, "figures without names")
+				continue
+			}
+		case "note":
+			// notes the owner asked to keep: each item's label is one note. The Core saves them (ADR-0061).
+			// Without items the block only opens the owner's notes.
+			for _, ri := range rb.Items {
+				if n := clean(deref(ri.Label), MaxNote, false); n != "" && len(b.Items) < MaxNotes {
+					b.Items = append(b.Items, Item{Label: n})
+				}
+			}
+			if n := clean(deref(rb.Text), MaxNote, false); n != "" && len(b.Items) == 0 {
+				b.Items = append(b.Items, Item{Label: n})
+			}
+		case "player":
+			// music on the owner's device: text = what to look for, items = the songs wanted (label = title,
+			// value = artist). The device plays only what its own library has.
+			b.Text = clean(deref(rb.Text), MaxLabel, false)
+			for _, ri := range rb.Items {
+				it := Item{Label: clean(deref(ri.Label), MaxLabel, false), Value: clean(deref(ri.Value), MaxLabel, false)}
+				if it.Label != "" && len(b.Items) < MaxQueue {
+					b.Items = append(b.Items, it)
+				}
 			}
 		case "text", "code":
 			b.Text = clean(deref(rb.Text), MaxText, true)

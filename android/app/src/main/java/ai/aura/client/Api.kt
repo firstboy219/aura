@@ -29,7 +29,8 @@ class Api(private val base: String, private val token: String) {
     /** The look a reply or screen asks for (ADR-0060); an empty field leaves the choice to the app. */
     data class Scene(val mood: String = "", val accent: String = "", val layout: String = "")
     data class Note(val code: String, val detail: String)
-    data class Item(val label: String, val value: String, val note: String, val url: String, val number: Double?)
+    /** [image] is the id of a picture the Core found and stored for a figure (ADR-0061); the app loads it from /media. */
+    data class Item(val label: String, val value: String, val note: String, val url: String, val number: Double?, val image: String = "")
     data class Block(
         val type: String, val title: String, val text: String, val tone: String, val chart: String,
         val columns: List<String>, val rows: List<List<String>>, val items: List<Item>,
@@ -63,6 +64,8 @@ class Api(private val base: String, private val token: String) {
     )
     data class Notice(val id: String, val title: String, val taskId: String?, val read: Boolean)
     data class Event(val seq: Int, val type: String, val data: String)
+    /** One note of the owner, kept by the Core (ADR-0061). */
+    data class NoteItem(val id: String, val text: String, val done: Boolean, val taskId: String)
 
     fun tasks(limit: Int = 30): List<Task> = parseTasks(call("GET", "/tasks?limit=$limit"))
     fun task(id: String): Task = parseTask(call("GET", "/tasks/${enc(id)}"))
@@ -99,6 +102,38 @@ class Api(private val base: String, private val token: String) {
         Limitation(it.optString("id"), it.optString("title"), it.optString("status"), it.optString("category"))
     }
     fun self(): Self = parseSelf(call("GET", "/self"))
+
+    // The workspace (ADR-0061): the owner's notes and the pictures of a reply's figures.
+    fun notes(): List<NoteItem> = parseNotes(call("GET", "/notes?limit=100"))
+    fun addNote(text: String) { call("POST", "/notes", JSONObject().put("text", text)) }
+    fun tickNote(id: String, done: Boolean) { call("PATCH", "/notes/${enc(id)}", JSONObject().put("done", done)) }
+    fun deleteNote(id: String) { call("DELETE", "/notes/${enc(id)}") }
+
+    /** The bytes of a stored picture. The id is a content hash, so nothing else can be asked for through it. */
+    fun media(id: String): ByteArray {
+        require(MEDIA_ID.matches(id)) { "invalid picture id" }
+        val c = URL(checkBase(base) + "/api/v1/media/" + id).openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 15000
+            c.readTimeout = 30000
+            c.instanceFollowRedirects = false
+            c.setRequestProperty("Authorization", "Bearer $token")
+            if (c.responseCode != 200) throw ApiError(c.responseCode, "http_${c.responseCode}", "HTTP ${c.responseCode}")
+            val out = java.io.ByteArrayOutputStream()
+            c.inputStream.use { input ->
+                val buf = ByteArray(16384)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > MAX_MEDIA) throw IOException("picture too large")
+                }
+            }
+            return out.toByteArray()
+        } finally {
+            c.disconnect()
+        }
+    }
 
     /**
      * Follows the Core's event stream until [alive] is false or the connection ends. Events carry metadata only
@@ -162,6 +197,13 @@ class Api(private val base: String, private val token: String) {
     }
 
     companion object {
+        val MEDIA_ID = Regex("^[0-9a-f]{64}$")
+        const val MAX_MEDIA = 1 shl 20
+
+        fun parseNotes(o: JSONObject): List<NoteItem> = objects(o.optJSONArray("notes")) {
+            NoteItem(it.optString("id"), it.optString("text"), it.optBoolean("done"), it.optString("task_id"))
+        }
+
         /** Signs in with an app account; the server issues this device's own token (ADR-0053). */
         fun login(base: String, username: String, password: String, device: String): String {
             val body = JSONObject().put("username", username).put("password", password).put("device", device)
@@ -199,7 +241,7 @@ class Api(private val base: String, private val token: String) {
                 if (rows == null) emptyList() else (0 until rows.length()).map { strings(rows.optJSONArray(it)) },
                 objects(b.optJSONArray("items")) { i ->
                     Item(i.optString("label"), i.optString("value"), i.optString("note"), i.optString("url"),
-                        if (i.has("number") && !i.isNull("number")) i.optDouble("number") else null)
+                        if (i.has("number") && !i.isNull("number")) i.optDouble("number") else null, i.optString("image"))
                 },
                 b.optString("say"), b.optString("icon"), b.optString("span"), b.optString("emphasis"),
                 b.optString("source"), b.optInt("limit", 0))

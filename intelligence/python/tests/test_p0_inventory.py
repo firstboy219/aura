@@ -44,6 +44,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "app_accounts",  # migration 0013, ADR-0053
         "task_replies",  # migration 0014, ADR-0055
         "ui_screens",  # migration 0015, ADR-0060
+        "notes", "media", "media_lookups",  # migration 0016, ADR-0061
     }
 
 

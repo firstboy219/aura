@@ -3,13 +3,11 @@ package ai.aura.client.ui
 import ai.aura.client.Api
 import ai.aura.client.AppState
 import ai.aura.client.HomeLogic
-import ai.aura.client.LiveTalk
 import ai.aura.client.ReplyView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,7 +51,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
@@ -98,7 +95,8 @@ import org.json.JSONObject
  */
 @Composable
 fun AuraApp(s: AppState) {
-    BackHandler(enabled = s.signedIn && (s.talkOpen || s.openTask != null || s.page != null || s.tab != "home")) { s.back() }
+    BackHandler(enabled = s.signedIn && (s.talkOpen || s.openTask != null || s.page != null || s.tab != "home" || s.typing ||
+        s.stage.isNotEmpty() || s.heard.isNotEmpty() || s.caption.isNotEmpty())) { s.back() }
     AuraScreen(s)
 }
 
@@ -127,7 +125,8 @@ private fun BoxScope.Shell(s: AppState) {
                 label = "page",
             ) { where ->
                 when (where) {
-                    "home" -> HomeScreen(s)
+                    "home" -> WorkspaceScreen(s)
+                    "board" -> BoardPage(s)
                     "chat" -> ChatScreen(s)
                     "inbox" -> InboxScreen(s)
                     "more" -> MoreScreen(s)
@@ -145,10 +144,10 @@ private fun BoxScope.Shell(s: AppState) {
                 }
             }
         }
-        BottomBar(s)
+        // The workspace has its own panel to talk to AURA; the other pages keep the bar.
+        if (!s.onWorkspace) BottomBar(s)
     }
     if (s.openTask != null) TaskDetail(s)
-    if (s.talkOpen) TalkScreen(s)
 }
 
 @Composable
@@ -285,22 +284,14 @@ private fun LoginScreen(s: AppState) {
     }
 }
 
-// ------------------------------------------------------------------ home: the screen AURA designed
+// ------------------------------------------------------------------ the board: the screen AURA designed
 
 @Composable
-private fun HomeScreen(s: AppState) {
-    val h = s.home
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        if (h == null) {
-            Column(Modifier.fillMaxWidth().padding(top = 120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Orb(OrbState.THINKING, size = 96.dp)
-                Spacer(Modifier.height(16.dp))
-                Text(if (s.offline) "Belum bisa menghubungi AURA" else "Menyiapkan beranda…", style = MaterialTheme.typography.bodyLarge, color = Ink.Muted)
-            }
-        } else {
-            Blocks(h.screen.blocks, layout = LocalLook.current.layout, onAction = { s.propose(it) }, widget = { Widget(s, it) })
-        }
-        Spacer(Modifier.height(20.dp))
+private fun BoardPage(s: AppState) {
+    Page {
+        Heading("Papan", "Ringkasan yang AURA rancang untuk Tuan") { s.page = null }
+        BoardBody(s)
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -388,72 +379,9 @@ private fun Problem(t: Api.Task) {
 @Composable
 private fun ReplyBody(s: AppState, r: Api.Reply) {
     if (r.text.isNotEmpty()) SelectionContainer { Text(r.text, style = MaterialTheme.typography.bodyLarge, color = Ink.Text) }
-    if (r.view.isNotEmpty()) Blocks(r.view, layout = r.scene.layout.ifEmpty { "stack" }, onAction = { s.propose(it) })
+    if (r.view.isNotEmpty()) Blocks(r.view, layout = r.scene.layout.ifEmpty { "stack" }, onAction = { s.propose(it) }, s = s)
     for (n in r.notes) Text("ⓘ " + ReplyView.noteText(n), style = MaterialTheme.typography.bodySmall, color = Ink.Faint, fontStyle = FontStyle.Italic)
     for (f in r.files) Text("📎 $f", style = MaterialTheme.typography.bodySmall, color = Ink.Muted)
-}
-
-// ------------------------------------------------------------------ live conversation and narrated explanation
-
-/**
- * AURA talks and shows at the same time: each block appears when AURA starts speaking about it and the one being
- * explained is outlined. The owner can interrupt at any moment. Nothing is approved here — voice never authorizes.
- */
-@Composable
-private fun TalkScreen(s: AppState) {
-    val orb = when {
-        s.presenting || s.talkState == LiveTalk.State.SPEAKING -> OrbState.SPEAKING
-        s.talkState == LiveTalk.State.LISTENING -> OrbState.LISTENING
-        s.talkState == LiveTalk.State.THINKING -> OrbState.THINKING
-        else -> OrbState.IDLE
-    }
-    val status = when (orb) {
-        OrbState.SPEAKING -> "Menjelaskan…"
-        OrbState.LISTENING -> "Mendengarkan…"
-        OrbState.THINKING -> s.activity.values.lastOrNull() ?: "Berpikir…"
-        OrbState.IDLE -> "Ketuk orb untuk bicara"
-    }
-    val orbSize by animateDpAsState(if (s.stage.isEmpty()) 190.dp else 92.dp, tween(600), label = "orb")
-    val scroll = rememberScrollState()
-    LaunchedEffect(s.stageReveal, s.stage.size) {
-        if (s.stageReveal > 0) { delay(460); scroll.animateScrollTo(scroll.maxValue, tween(500)) }
-    }
-    AuroraBackground(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } }) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (s.presenting) "AURA menjelaskan" else "Percakapan langsung", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Ink.Muted)
-                Icon(Icons.Filled.Close, "Tutup", tint = Ink.Text, modifier = Modifier.clip(CircleShape).clickable { s.closeTalk() }.padding(8.dp))
-            }
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(if (s.stage.isEmpty()) 48.dp else 8.dp))
-                Orb(orb, Modifier.clip(CircleShape).clickable { if (orb == OrbState.IDLE) s.startTalk() else s.interrupt() }, size = orbSize)
-                Spacer(Modifier.height(10.dp))
-                Text(status, style = MaterialTheme.typography.labelLarge, color = LocalLook.current.palette.c)
-                if (s.heard.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
-                    Text("“${s.heard}”", style = MaterialTheme.typography.titleMedium, color = Ink.Muted, textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                }
-                if (s.heardAs.isNotEmpty()) Text("Saya pahami: ${s.heardAs}", style = MaterialTheme.typography.bodySmall, color = Ink.Faint, textAlign = TextAlign.Center)
-                if (s.caption.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    AnimatedContent(s.caption, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) }, label = "caption") { said ->
-                        Text(said, Modifier.fillMaxWidth(), style = if (s.stage.isEmpty()) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
-                            color = Ink.Text, textAlign = TextAlign.Center)
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
-                Blocks(s.stage, layout = s.stageScene.layout.ifEmpty { "story" }, reveal = s.stageReveal, focus = s.stageFocus, onAction = { s.propose(it) })
-                Spacer(Modifier.height(24.dp))
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically) {
-                if (orb == OrbState.SPEAKING) Pill("Sela", "✋") { s.interrupt() }
-                if (orb == OrbState.IDLE) Pill("Bicara", "🎙", filled = true) { s.startTalk() }
-                if (s.talkState != LiveTalk.State.OFF) Pill("Akhiri", "⏹") { s.stopTalk() }
-                Pill("Tutup") { s.closeTalk() }
-            }
-        }
-    }
 }
 
 // ------------------------------------------------------------------ inbox: approvals, questions, news
@@ -538,12 +466,13 @@ private fun MoreScreen(s: AppState) {
             }
         }
         val menu = listOf(
-            listOf("look", "🎨", "Tampilan", "Minta AURA merancang ulang beranda"), listOf("memory", "💾", "Ingatan", "Yang AURA ingat tentang Tuan"),
+            listOf("board", "🧩", "Papan", "Ringkasan yang AURA rancang"), listOf("look", "🎨", "Tampilan", "Minta AURA merancang ulang papan"),
+            listOf("note", "📝", "Catatan", "Daftar catatan Tuan"), listOf("player", "🎵", "Musik", "Putar lagu di ponsel ini"), listOf("memory", "💾", "Ingatan", "Yang AURA ingat tentang Tuan"),
             listOf("skills", "🧠", "Keahlian", "Cara kerja yang sudah dipelajari"), listOf("schedules", "⏰", "Jadwal", "Tugas rutin dan pengingat"),
             listOf("limits", "🧭", "Keterbatasan", "Yang belum AURA bisa"), listOf("settings", "⚙️", "Pengaturan", "Sensor, privasi, akun"),
         )
         for (pair in menu.chunked(2)) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            for (m in pair) GlassCard(Modifier.weight(1f), onClick = { s.openPage(m[0]) }) {
+            for (m in pair) GlassCard(Modifier.weight(1f), onClick = { if (m[0] == "note" || m[0] == "player") s.openTool(m[0]) else s.openPage(m[0]) }) {
                 Text(m[1], fontSize = 24.sp)
                 Spacer(Modifier.height(8.dp))
                 Text(m[2], style = MaterialTheme.typography.titleMedium, color = Ink.Text)
@@ -586,9 +515,9 @@ private fun SelfPage(s: AppState) {
 private fun LookPage(s: AppState) {
     var wish by remember { mutableStateOf("") }
     Page {
-        Heading("Tampilan", "Beranda ini dirancang AURA sesuai permintaan Tuan") { s.page = null }
+        Heading("Tampilan", "Papan dirancang AURA sesuai permintaan Tuan") { s.page = null }
         GlassCard(Modifier.fillMaxWidth(), emphasis = "strong") {
-            Text("Katakan seperti apa beranda yang Tuan mau. AURA menyusun rancangannya sebagai data yang diperiksa server — bukan kode — jadi aman dan selalu bisa dikembalikan.",
+            Text("Katakan seperti apa papan yang Tuan mau. AURA menyusun rancangannya sebagai data yang diperiksa server — bukan kode — jadi aman dan selalu bisa dikembalikan.",
                 style = MaterialTheme.typography.bodyMedium, color = Ink.Text)
             Spacer(Modifier.height(10.dp))
             Field(wish, { wish = it }, "Contoh: fokus ke yang butuh keputusan saya", single = false)
@@ -639,7 +568,8 @@ private fun SettingsPage(s: AppState) {
             Text("Suara dikenali oleh pengenal suara perangkat (offline bila tersedia) dan hanya teksnya yang dikirim ke AURA; " +
                 "percakapan langsung berhenti saat aplikasi ditutup, saat hening, atau saat Tuan berkata \"berhenti\"; " +
                 "persetujuan tindakan tidak pernah diterima lewat suara; rekaman suara tidak disimpan. " +
-                "Kamera dan layar tidak dipakai di versi ini. Kata sandi tidak disimpan; ponsel hanya menyimpan token perangkat " +
+                "Kamera dan layar tidak dipakai di versi ini. Musik diputar dari koleksi di ponsel; daftar lagu tidak dikirim ke AURA. " +
+                "Catatan disimpan di server AURA milik Tuan. Kata sandi tidak disimpan; ponsel hanya menyimpan token perangkat " +
                 "terenkripsi (Android Keystore), yang dicabut saat keluar. Tampilan yang dirancang AURA adalah data, bukan kode.",
                 style = MaterialTheme.typography.bodySmall, color = Ink.Muted)
         }
@@ -721,7 +651,7 @@ private fun BottomBar(s: AppState) {
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Tab(s, "home", "Beranda", Icons.Filled.Home, 0, Modifier.weight(1f))
+            Tab(s, "home", "Ruang kerja", Icons.Filled.Home, 0, Modifier.weight(1f))
             Tab(s, "chat", "Percakapan", Icons.AutoMirrored.Filled.List, 0, Modifier.weight(1f))
             Spacer(Modifier.weight(1f))
             Tab(s, "inbox", "Kotak masuk", Icons.Filled.Email, waiting, Modifier.weight(1f))

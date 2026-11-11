@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +24,15 @@ interface Host {
     fun backgroundChecks(on: Boolean)
     fun device(): String
     fun version(): String
+    // The phone's own music library and player (ADR-0061).
+    fun audioGranted(): Boolean
+    fun requestAudio(then: () -> Unit)
+    fun songs(): List<Tunes.Song>
+    fun playSong(uri: String, done: () -> Unit, failed: (String) -> Unit)
+    fun pauseSong()
+    fun resumeSong()
+    fun stopSong()
+    fun decode(bytes: ByteArray): ImageBitmap?
 }
 
 /**
@@ -36,7 +46,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     // ---- where the owner is
     var signedIn by mutableStateOf(token.isNotEmpty())
     var tab by mutableStateOf("home")
-    /** A page opened from "Lainnya": memory, skills, schedules, self, limits, look, settings. */
+    /** A page opened from "Lainnya": board, memory, skills, schedules, self, limits, look, settings. */
     var page by mutableStateOf<String?>(null)
     var talkOpen by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
@@ -82,6 +92,24 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     var stageReveal by mutableStateOf(0)
     var stageFocus by mutableStateOf(-1)
 
+    // ---- the workspace (ADR-0061): home is an empty canvas where AURA puts what it is talking about
+    /** The typed request the workspace is waiting on. */
+    var stageTask by mutableStateOf<String?>(null)
+    /** The text box of the workspace is open. */
+    var typing by mutableStateOf(false)
+    var notes by mutableStateOf<List<Api.NoteItem>>(emptyList())
+    /** Pictures of a reply's figures, by id, once loaded. */
+    val pictures = mutableStateMapOf<String, ImageBitmap>()
+    private val picturesAsked = mutableSetOf<String>()
+    var queue by mutableStateOf<List<Tunes.Song>>(emptyList())
+    var playingAt by mutableStateOf(-1)
+    var paused by mutableStateOf(false)
+    /** Why the player has nothing to play: "" | "permission" | "empty" | "nomatch". */
+    var musicState by mutableStateOf("")
+    private var cuePending = false
+    private var narrating = false
+    private var playGen = 0
+
     private val live = LiveTalk()
     private var beats: List<Narration.Beat>? = null
     private var interrupted = false
@@ -102,8 +130,8 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         get() {
             val moment = home?.context?.scene ?: Api.Scene()
             return when {
-                talkOpen -> HomeLogic.look(stageScene, moment)
-                tab == "home" && page == null -> HomeLogic.look(home?.screen?.scene ?: Api.Scene(), moment)
+                talkOpen || (tab == "home" && page == null) -> HomeLogic.look(stageScene, moment)
+                page == "board" -> HomeLogic.look(home?.screen?.scene ?: Api.Scene(), moment)
                 else -> HomeLogic.look(Api.Scene(), moment)
             }
         }
@@ -164,6 +192,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         host?.backgroundChecks(false)
         home = null; tasks = emptyList(); approvals = emptyList(); notices = emptyList(); activity.clear(); questions.clear()
         page = null; talkOpen = false; openTask = null
+        stopMusic(); clearStage(); notes = emptyList(); pictures.clear(); picturesAsked.clear(); queue = emptyList(); typing = false
     }
 
     // ---------------------------------------------------------------- staying current
@@ -249,6 +278,8 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
             openTask != null -> closeTask()
             page != null -> page = null
             tab != "home" -> tab = "home"
+            typing -> typing = false
+            stage.isNotEmpty() || heard.isNotEmpty() || caption.isNotEmpty() -> clearStage()
             else -> return false
         }
         return true
@@ -260,8 +291,11 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
      */
     fun propose(text: String) {
         if (talkOpen) closeTalk()
-        draft = text; tab = "chat"; page = null
+        draft = text
+        if (onWorkspace) typing = true else { tab = "chat"; page = null }
     }
+
+    val onWorkspace: Boolean get() = tab == "home" && page == null
 
     fun openPage(p: String) {
         page = p
@@ -293,11 +327,18 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         val objective = text.trim()
         if (objective.isEmpty()) return
         val pub = public
+        // Asked on the workspace, answered on the workspace; asked in the conversation, answered there.
+        val here = onWorkspace && design == null
         draft = ""
+        if (here) {
+            if (talkState != LiveTalk.State.OFF) stopTalk()
+            voice?.hush()
+            clearStage(); heard = objective; typing = false
+        }
         bg(work = { api().createTask(objective, TOOLS, emptyList(), pub, design = design) }) { t ->
             tasks = listOf(t) + tasks.filter { it.id != t.id }
             activity[t.id] = "Menerima permintaan…"
-            tab = "chat"; page = null
+            if (here) stageTask = t.id else { tab = "chat"; page = null }
             follow(t.id)
         }
     }
@@ -320,7 +361,8 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
                 if (!HomeLogic.working(t.state)) {
                     activity.remove(id)
                     refresh()
-                    if (store.speakResults && !talkOpen) t.reply?.text?.let { voice?.speak(Narration.spoken(it)) }
+                    if (stageTask == id) show(t)
+                    else if (store.speakResults && !talkOpen) t.reply?.text?.let { voice?.speak(Narration.spoken(it)) }
                     return@launch
                 }
             }
@@ -399,7 +441,9 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     fun startTalk() {
         if (!micReady { startTalk() }) return
         stopPresenting()
-        heard = ""; heardAs = ""; caption = ""; stage = emptyList(); stageScene = Api.Scene(); stageReveal = 0; stageFocus = -1
+        if (playingAt >= 0 && !paused) togglePlay() // the microphone should hear the owner, not the song
+        clearStage()
+        tab = "home"; page = null; openTask = null; typing = false
         talkOpen = true
         host?.keepScreenOn(true)
         act(live.start())
@@ -438,7 +482,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
                     { message = it; voice?.stop() })
             }
             is LiveTalk.Do.Submit -> {
-                caption = ""; stage = emptyList(); stageReveal = 0; stageScene = Api.Scene()
+                caption = ""; stage = emptyList(); stageReveal = 0; stageScene = Api.Scene(); cuePending = false
                 // Every spoken request carries what the recognizer heard, so AURA can repair misheard words.
                 val spoken = d.alternatives.ifEmpty { listOf(LiveTalk.Alt(d.text, null)) }
                 val pub = public
@@ -449,7 +493,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
                 val plan = beats ?: listOf(Narration.Beat(Narration.spoken(d.text), stage.size, -1))
                 beats = null
                 interrupted = false
-                play(plan, 0) { act(live.spoken()) }
+                play(plan) { act(live.spoken()) }
             }
             is LiveTalk.Do.End -> {
                 caption = d.say
@@ -460,18 +504,35 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         }
     }
 
-    /** Speaks the beats in order; each one brings its blocks on screen before it is spoken. */
-    private fun play(plan: List<Narration.Beat>, i: Int, done: () -> Unit) {
+    /**
+     * Goes through the beats in order; each one brings its blocks on screen before it is spoken. Without [aloud] the
+     * words are shown as captions for about as long as reading them takes.
+     */
+    private fun play(plan: List<Narration.Beat>, aloud: Boolean = true, done: () -> Unit) {
+        playGen++
+        narrating = true
+        step(plan, 0, aloud, playGen, done)
+    }
+
+    private fun step(plan: List<Narration.Beat>, i: Int, aloud: Boolean, gen: Int, done: () -> Unit) {
+        if (gen != playGen) return // something newer is on the workspace
         val v = voice
-        if (v == null || interrupted || i >= plan.size) {
+        if ((aloud && v == null) || interrupted || i >= plan.size) {
+            narrating = false
             stageReveal = stage.size; stageFocus = -1
             done()
+            // A song the reply queued starts when AURA has finished speaking, and the microphone is turned off for it.
+            if (cuePending && !interrupted && queue.isNotEmpty()) { voice?.stop(); playAt(0) }
+            cuePending = false
             return
         }
         val b = plan[i]
         stageReveal = maxOf(stageReveal, b.reveal); stageFocus = b.focus; caption = b.say
-        if (b.say.isEmpty()) { play(plan, i + 1, done); return }
-        v.speak(b.say) { play(plan, i + 1, done) }
+        when {
+            b.say.isEmpty() -> step(plan, i + 1, aloud, gen, done)
+            aloud -> v?.speak(b.say) { step(plan, i + 1, aloud, gen, done) }
+            else -> scope.launch { delay(Narration.readMillis(b.say)); step(plan, i + 1, aloud, gen, done) }
+        }
     }
 
     private fun turn(send: () -> String) {
@@ -501,7 +562,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
                     val d = live.replied(id, t.state, t.reply?.text, q?.let { HomeLogic.question(it) })
                     val reply = t.reply
                     if (d is LiveTalk.Do.Speak && reply != null && d.text == reply.text) {
-                        stage = reply.view; stageScene = reply.scene; stageReveal = 0; stageFocus = -1
+                        place(reply)
                         beats = Narration.beats(reply)
                     }
                     act(d)
@@ -524,16 +585,154 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         }
     }
 
-    /** AURA presents a finished reply: it speaks while the screen shows, block by block, what it is talking about. */
+    /** AURA presents a finished reply: it speaks while the workspace shows, block by block, what it is talking about. */
     fun present(t: Api.Task) {
         val reply = t.reply ?: return
         stopTalk()
-        heard = t.objective; heardAs = ""; stage = reply.view; stageScene = reply.scene; stageReveal = 0; stageFocus = -1
+        clearStage()
+        heard = t.objective
+        place(reply)
+        tab = "home"; page = null; openTask = null
         talkOpen = true
         presenting = true
         interrupted = false
         host?.keepScreenOn(true)
-        play(Narration.beats(reply), 0) { presenting = false; host?.keepScreenOn(false) }
+        play(Narration.beats(reply)) { presenting = false; host?.keepScreenOn(false) }
+    }
+
+    /** The answer to a request typed on the workspace: shown there, spoken when the owner chose spoken results. */
+    private fun show(t: Api.Task) {
+        stageTask = null
+        val reply = t.reply
+        if (reply == null) {
+            caption = when (t.state) {
+                "WAITING_INPUT" -> "Saya perlu jawaban Tuan dulu — ada di Kotak masuk."
+                "WAITING_APPROVAL" -> "Langkah ini menunggu persetujuan Tuan — ada di Kotak masuk."
+                else -> HomeLogic.explain(t.reasonCode) ?: HomeLogic.stateLabel(t.state)
+            }
+            return
+        }
+        place(reply)
+        interrupted = false
+        val aloud = store.speakResults && voice != null && onWorkspace && host?.foreground() == true
+        presenting = aloud
+        play(Narration.beats(reply), aloud) { presenting = false }
+    }
+
+    /** Puts a reply on the workspace and prepares what its panels need: the notes, the songs. */
+    private fun place(reply: Api.Reply) {
+        stage = reply.view; stageScene = reply.scene; stageReveal = 0; stageFocus = -1
+        if (reply.view.any { it.type == "note" }) loadNotes()
+        reply.view.firstOrNull { it.type == "player" }?.let { cue(it, auto = true) }
+    }
+
+    /** Empties the workspace. Music keeps playing; the stop button ends that. */
+    fun clearStage() {
+        playGen++
+        narrating = false; cuePending = false; presenting = false
+        heard = ""; heardAs = ""; caption = ""; stage = emptyList(); stageScene = Api.Scene(); stageReveal = 0; stageFocus = -1
+        stageTask = null
+    }
+
+    /** Opens one of the workspace's own panels without asking AURA: "note" or "player". */
+    fun openTool(type: String) {
+        if (talkOpen) closeTalk()
+        clearStage()
+        tab = "home"; page = null; openTask = null
+        val b = Api.Block(type, "", "", "", "", emptyList(), emptyList(), emptyList())
+        stage = listOf(b); stageReveal = 1
+        if (type == "note") loadNotes()
+        if (type == "player" && queue.isEmpty()) cue(b, auto = false)
+    }
+
+    /** One button that silences everything: the microphone, AURA's voice and the music. */
+    fun stopAll() {
+        closeTalk()
+        voice?.hush()
+        playGen++; narrating = false; cuePending = false; presenting = false
+        stageReveal = stage.size; stageFocus = -1
+        stopMusic()
+    }
+
+    val active: Boolean get() = talkState != LiveTalk.State.OFF || presenting || narrating || (playingAt >= 0 && !paused)
+
+    // ---------------------------------------------------------------- notes (ADR-0061)
+    fun loadNotes() {
+        if (host == null) return // a preview draws what it was given
+        bg(quiet = true, work = { api().notes() }) { notes = it }
+    }
+
+    fun addNote(text: String) {
+        if (text.isBlank()) return
+        bg(work = { val a = api(); a.addNote(text.trim()); a.notes() }) { notes = it }
+    }
+
+    fun tickNote(n: Api.NoteItem) {
+        notes = notes.map { if (it.id == n.id) it.copy(done = !n.done) else it }
+        bg(work = { val a = api(); a.tickNote(n.id, !n.done); a.notes() }) { notes = it }
+    }
+
+    fun deleteNote(n: Api.NoteItem) {
+        notes = notes.filter { it.id != n.id }
+        bg(work = { val a = api(); a.deleteNote(n.id); a.notes() }) { notes = it }
+    }
+
+    // ---------------------------------------------------------------- pictures of a reply's figures
+    /** Loads a picture the Core stored, once. The screen reads [pictures]. */
+    fun needPicture(id: String) {
+        val h = host ?: return
+        if (!Api.MEDIA_ID.matches(id) || !picturesAsked.add(id)) return
+        bg(quiet = true, work = { h.decode(api().media(id)) }) { it?.let { pic -> pictures[id] = pic } }
+    }
+
+    // ---------------------------------------------------------------- music from the phone's own library (ADR-0061)
+    /** Builds the queue a player block asks for. With [auto] the first song starts once AURA has finished speaking. */
+    fun cue(b: Api.Block, auto: Boolean) {
+        val h = host ?: return
+        if (!h.audioGranted()) {
+            musicState = "permission"
+            if (auto) h.requestAudio { cue(b, auto) }
+            return
+        }
+        bg(work = { h.songs() }) { library ->
+            val pick = Tunes.pick(library, b.text, b.items.map { it.label to it.value })
+            stopMusic()
+            queue = pick.songs
+            musicState = when { library.isEmpty() -> "empty"; !pick.matched -> "nomatch"; else -> "" }
+            if (auto && pick.matched && queue.isNotEmpty()) { if (narrating) cuePending = true else playAt(0) }
+        }
+    }
+
+    fun allowMusic() {
+        val b = stage.firstOrNull { it.type == "player" } ?: return
+        host?.requestAudio { cue(b, auto = false) }
+    }
+
+    fun musicDenied() { musicState = "permission"; message = "Tanpa izin itu AURA tidak bisa melihat lagu di ponsel" }
+
+    fun playAt(i: Int) {
+        val h = host ?: return
+        val song = queue.getOrNull(i) ?: run { stopMusic(); return }
+        if (talkState != LiveTalk.State.OFF) stopTalk()
+        playingAt = i; paused = false
+        h.playSong(song.uri, { if (playingAt == i) playAt(i + 1) }) { why -> message = why; if (playingAt == i) { playingAt = -1; paused = false } }
+    }
+
+    fun togglePlay() {
+        val h = host ?: return
+        when {
+            playingAt < 0 -> playAt(0)
+            paused -> { paused = false; h.resumeSong() }
+            else -> { paused = true; h.pauseSong() }
+        }
+    }
+
+    fun nextSong() { if (queue.isNotEmpty()) playAt(if (playingAt + 1 < queue.size) playingAt + 1 else 0) }
+    fun prevSong() { if (queue.isNotEmpty()) playAt(if (playingAt > 0) playingAt - 1 else 0) }
+
+    fun stopMusic() {
+        host?.stopSong()
+        playingAt = -1; paused = false
     }
 
     private fun stopPresenting() {

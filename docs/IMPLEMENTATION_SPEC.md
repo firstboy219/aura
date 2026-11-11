@@ -72,3 +72,11 @@ null-fill, Android client rebuilt on Compose with screenshot tests, web app rend
 Tests: `internal/view` (sanitiser, screens), `internal/engine/screens_test.go`, `internal/gateway/fillnulls_test.go`,
 Python `test_agent.py`, Android `ClientTest`/`CanvasTest`/`ScreensTest`. Not done: camera/OCR, phone control, music,
 maps, live translation, prayer times, commute, money, habits (roadmap only).
+
+---
+**Workspace (2026-11-11, ADR-0061, owner instruction):** Android home is an empty workspace with a communication
+panel; replies appear there block by block with narration. New blocks `figures` (Core-found Wikipedia pictures,
+`media`), `note` (Core-kept notes, `/api/v1/notes`), `player` (plays the phone's own library); `links` as headline
+cards; migration 0016; `GET /api/v1/media/{id}`. Tests: `internal/engine/workspace_test.go`, `internal/view`,
+`internal/tools` (picture finder), Android `ClientTest` (parsing, `Tunes.pick`, captions) and `ScreensTest`
+(workspace snapshots). Not done: camera/vision (button dimmed, says so), online streaming, background playback.
