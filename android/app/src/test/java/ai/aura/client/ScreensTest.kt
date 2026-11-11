@@ -161,6 +161,18 @@ class ScreensTest {
         Still(state { stage = listOf(block("player")); musicState = "permission"; stageReveal = 1 })
     }
 
+    @Test fun serverLog() = paparazzi.snapshot {
+        AuraScreen(state {
+            tab = "more"; page = "server"
+            shellLog = listOf(
+                Api.ShellRun("c1", "T1", "pip install --user yfinance && python3 analisa.py", "safe", listOf("installs packages", "runs a script"), "ran", 0, 8400,
+                    "Rata-rata harga: 4.120", "", listOf("files.pythonhosted.org", "pypi.org", "query1.finance.yahoo.com"), 1794400000000, ""),
+                Api.ShellRun("c2", "T2", "curl -X POST https://api.example.com/laporan -d @laporan.json", "review", listOf("sends data to a remote server (upload/POST)"),
+                    "awaiting_approval", null, null, "", "", emptyList(), 1794400100000, ""),
+                Api.ShellRun("c3", "T3", "rm -rf /", "blocked", listOf("wipes the file system root"), "refused", null, null, "", "", emptyList(), 1794400200000, ""))
+        })
+    }
+
     @Test fun taskDetail() = paparazzi.snapshot {
         AuraScreen(state { openTask = tasks[1]; openEvents = listOf(Api.Event(1, "TASK_CREATED", "{}"), Api.Event(2, "TOOL_STARTED", """{"tool_id":"web.search"}""")) })
     }

@@ -23,11 +23,14 @@ services:
       - /opt/aura/secrets:/run/aura-secrets:ro   # read by Core only; never in the worker environment
       - aura-worker-sock:/run/aura-worker        # the only path to the isolated worker (ADR-0035)
       - aura-browser-sock:/run/aura-browser      # the browser host's command socket (ADR-0039)
+      - aura-shell-sock:/run/aura-shell          # the shell host's command socket (ADR-0065)
     depends_on:
       aura-worker: { condition: service_healthy }
       aura-browser: { condition: service_started }
+      aura-shell: { condition: service_started }
     # aura-browser-net: the browser reaches the Core's egress proxy (:7480, not published) and nothing else.
-    networks: [aura-net, aura-browser-net]
+    # aura-shell-net: the shell sandbox reaches the same egress proxy (ADR-0065).
+    networks: [aura-net, aura-browser-net, aura-shell-net]
     cpus: 1.0
     mem_limit: 1g
     pids_limit: 256
@@ -124,7 +127,43 @@ services:
     depends_on:
       aura-core: { condition: service_healthy }
 
+  # AURA's server commands (ADR-0065): a Debian sandbox with no secrets, no AURA data and no Docker socket. Its only
+  # network is internal; the internet is reached through the Core's egress proxy with per-command credentials (public
+  # hosts only). Every command is decided and logged by the Core's watcher before it arrives here.
+  aura-shell:
+    build:
+      context: ..
+      dockerfile: deploy/shell.Dockerfile
+    image: aura-shell:local
+    container_name: aura-shell
+    command: ["--socket", "/run/aura-shell/shell.sock", "--allow-uid", "10001"]
+    user: "10004:10004"
+    restart: unless-stopped
+    networks: [aura-shell-net]
+    volumes:
+      - aura-shell-sock:/run/aura-shell
+      - aura-shell-work:/work
+    cpus: 1.0
+    mem_limit: 2g
+    pids_limit: 512
+    read_only: true
+    tmpfs: ["/tmp:size=512m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,stat,sys; sys.exit(0 if stat.S_ISSOCK(os.stat('/run/aura-shell/shell.sock').st_mode) else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 networks:
+  aura-shell-net:
+    name: aura-shell-net
+    internal: true   # no gateway: the sandbox reaches the internet only through the Core's egress proxy
+    ipam:
+      config: [{ subnet: 172.31.251.0/24 }]   # pinned so the Core API can refuse it (server.deny_cidrs)
   aura-browser-net:
     name: aura-browser-net
     internal: true   # no gateway: the browser cannot reach anything but containers on this network
@@ -140,3 +179,7 @@ volumes:
     name: aura-worker-sock
   aura-browser-sock:
     name: aura-browser-sock
+  aura-shell-sock:
+    name: aura-shell-sock
+  aura-shell-work:
+    name: aura-shell-work

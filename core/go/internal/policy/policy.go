@@ -19,6 +19,8 @@ import (
 
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/store"
+
+	"aura.local/core/internal/shellwatch"
 )
 
 type Tier string
@@ -39,6 +41,19 @@ type ToolSpec struct {
 	Tier func(args map[string]any) Tier
 }
 
+// shellTier maps the shell watcher's verdict on a command to a tier: safe runs
+// (A0), review waits for the owner (A2), blocked never runs (A3).
+func shellTier(args map[string]any) Tier {
+	cmd, _ := args["command"].(string)
+	switch shellwatch.Assess(cmd).Level {
+	case shellwatch.Safe:
+		return A0
+	case shellwatch.Review:
+		return A2
+	}
+	return A3
+}
+
 // ProtectedPrefix is a workspace prefix no tool may write (A3).
 const ProtectedPrefix = ".aura/"
 
@@ -47,15 +62,17 @@ const PublishedPrefix = "published/"
 
 // Manifest is the Phase 1 trusted tool manifest (E.2 item 7).
 var Manifest = map[string]ToolSpec{
-	"web.fetch":      {ID: "web.fetch", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"web.search":     {ID: "web.search", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"data.read":      {ID: "data.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.weather":   {ID: "info.weather", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.prayer":    {ID: "info.prayer", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.quran":     {ID: "info.quran", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.place":     {ID: "info.place", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.route":     {ID: "info.route", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
-	"info.prices":    {ID: "info.prices", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"web.fetch":    {ID: "web.fetch", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"web.search":   {ID: "web.search", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"data.read":    {ID: "data.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.weather": {ID: "info.weather", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.prayer":  {ID: "info.prayer", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.quran":   {ID: "info.quran", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.place":   {ID: "info.place", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.route":   {ID: "info.route", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"info.prices":  {ID: "info.prices", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	// shell.run: a server command in the aura-shell sandbox (ADR-0065); the watcher's verdict is the tier.
+	"shell.run":      {ID: "shell.run", Version: "1", SideEffect: "write_external", Tier: shellTier},
 	"news.headlines": {ID: "news.headlines", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"calc":           {ID: "calc", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.event":     {ID: "wait.event", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},

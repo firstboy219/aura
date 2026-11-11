@@ -103,6 +103,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     var typing by mutableStateOf(false)
     var notes by mutableStateOf<List<Api.NoteItem>>(emptyList())
     var reminders by mutableStateOf<List<Api.ReminderItem>>(emptyList())
+    var shellLog by mutableStateOf<List<Api.ShellRun>>(emptyList())
     /** Pictures of a reply's figures, by id, once loaded. */
     val pictures = mutableStateMapOf<String, ImageBitmap>()
     private val picturesAsked = mutableSetOf<String>()
@@ -314,6 +315,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
             }
             "limits" -> bg(work = { api().limitations() }) { limitations = it }
             "self" -> bg(work = { api().self() }) { self = it }
+            "server" -> bg(work = { api().shellLog() }) { shellLog = it }
             "look" -> loadVersions()
         }
     }

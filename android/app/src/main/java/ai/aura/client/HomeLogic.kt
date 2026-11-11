@@ -122,6 +122,17 @@ object HomeLogic {
         else -> "Alasan: $code"
     }
 
+    /** The outcome of a server command in words (ADR-0065). */
+    fun serverStatus(status: String, exit: Int?, durationMs: Long?): String = when (status) {
+        "ran" -> (if (exit == 0) "selesai" else "keluar $exit") + (durationMs?.let { " · %.1f d".format(it / 1000.0) } ?: "")
+        "timeout" -> "dihentikan (waktu habis)"
+        "awaiting_approval" -> "menunggu persetujuan"
+        "refused" -> "tidak dijalankan"
+        "running" -> "berjalan…"
+        "error" -> "galat"
+        else -> status
+    }
+
     /**
      * When a reminder rings, in words (ADR-0063): "daily 06:00" → "Setiap hari 06:00"; "2026-11-12T07:00" → "Hari ini
      * 07:00", "Besok 07:00" or "Kam, 13 Nov 07:00". Times are the workspace's local time as the Core keeps them.

@@ -137,6 +137,7 @@ private fun BoxScope.Shell(s: AppState) {
                     "skills" -> ListPage(s, "Keahlian", "Cara kerja yang sudah AURA pelajari dan boleh dipakai ulang.",
                         s.skills.map { Triple(if (it.status == "active") Ink.Success else Ink.Faint, it.name, (listOf(it.status) + it.triggers.take(4)).joinToString(" · ")) })
                     "schedules" -> SchedulesPage(s)
+                    "server" -> ServerLogPage(s)
                     "limits" -> ListPage(s, "Yang belum saya bisa", "Keterbatasan yang AURA catat sendiri, dengan statusnya. Ini daftar jujur, bukan janji.",
                         s.limitations.map { Triple(if (it.status == "resolved") Ink.Success else Ink.Warning, it.title, it.category + " · " + it.status) })
                     "self" -> SelfPage(s)
@@ -469,7 +470,7 @@ private fun MoreScreen(s: AppState) {
             listOf("board", "🧩", "Papan", "Ringkasan yang AURA rancang"), listOf("look", "🎨", "Tampilan", "Minta AURA merancang ulang papan"),
             listOf("note", "📝", "Catatan", "Daftar catatan Tuan"), listOf("player", "🎵", "Musik", "Putar lagu di ponsel ini"), listOf("memory", "💾", "Ingatan", "Yang AURA ingat tentang Tuan"),
             listOf("skills", "🧠", "Keahlian", "Cara kerja yang sudah dipelajari"), listOf("schedules", "⏰", "Jadwal", "Tugas rutin dan pengingat"),
-            listOf("limits", "🧭", "Keterbatasan", "Yang belum AURA bisa"), listOf("settings", "⚙️", "Pengaturan", "Sensor, privasi, akun"),
+            listOf("limits", "🧭", "Keterbatasan", "Yang belum AURA bisa"), listOf("server", "🖥️", "Perintah server", "Log pengawas: semua perintah AURA"), listOf("settings", "⚙️", "Pengaturan", "Sensor, privasi, akun"),
         )
         for (pair in menu.chunked(2)) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             for (m in pair) GlassCard(Modifier.weight(1f), onClick = { if (m[0] == "note" || m[0] == "player") s.openTool(m[0]) else s.openPage(m[0]) }) {
@@ -488,6 +489,39 @@ private fun ListPage(s: AppState, title: String, about: String, rows: List<Tripl
         Heading(title, about) { s.page = null }
         if (rows.isEmpty()) Text("Belum ada.", style = MaterialTheme.typography.bodyMedium, color = Ink.Faint)
         else GlassCard(Modifier.fillMaxWidth()) { for ((dot, head, sub) in rows) Entry(dot, head, sub) }
+    }
+}
+
+/**
+ * Every server command AURA ran or wanted to run (ADR-0065): what the watcher decided and why, what happened, and
+ * which internet hosts it reached. The log is written by the Core; this page only reads it.
+ */
+@Composable
+private fun ServerLogPage(s: AppState) {
+    var open by remember { mutableStateOf<String?>(null) }
+    Page {
+        Heading("Perintah server", "AURA menjalankan perintah di kotak pasirnya sendiri. Pengawas menilai tiap perintah sebelum jalan.") { s.page = null }
+        Text("Aman = jalan otomatis · Perlu izin = menunggu persetujuan Tuan · Ditolak = tidak pernah dijalankan",
+            style = MaterialTheme.typography.bodySmall, color = Ink.Faint)
+        if (s.shellLog.isEmpty()) Text("Belum ada perintah.", style = MaterialTheme.typography.bodyMedium, color = Ink.Faint)
+        for (r in s.shellLog) GlassCard(Modifier.fillMaxWidth(), tint = when (r.verdict) { "blocked" -> Ink.Danger; "review" -> Ink.Warning; else -> null },
+            onClick = { open = if (open == r.id) null else r.id }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(when (r.verdict) { "blocked" -> "⛔ Ditolak"; "review" -> "✋ Perlu izin"; else -> "✅ Aman" }, style = MaterialTheme.typography.labelLarge,
+                    color = Ink.Text, modifier = Modifier.weight(1f))
+                Text(HomeLogic.serverStatus(r.status, r.exitCode, r.durationMs), style = MaterialTheme.typography.labelMedium, color = Ink.Muted)
+            }
+            Text("$ " + r.command, style = MaterialTheme.typography.bodySmall, color = Ink.Text, fontFamily = FontFamily.Monospace,
+                maxLines = if (open == r.id) 40 else 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+            if (r.reasons.isNotEmpty()) Text(r.reasons.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = LocalLook.current.palette.c)
+            if (r.hosts.isNotEmpty()) Text("🌐 " + r.hosts.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = Ink.Faint)
+            if (open == r.id) {
+                if (r.stdout.isNotEmpty()) SelectionContainer { Text(r.stdout.take(4000), style = MaterialTheme.typography.bodySmall, color = Ink.Muted, fontFamily = FontFamily.Monospace) }
+                if (r.stderr.isNotEmpty()) SelectionContainer { Text(r.stderr.take(2000), style = MaterialTheme.typography.bodySmall, color = Ink.Warning, fontFamily = FontFamily.Monospace) }
+                if (r.error.isNotEmpty()) Text(r.error, style = MaterialTheme.typography.bodySmall, color = Ink.Danger)
+                Text(HomeLogic.ago(java.time.Instant.ofEpochMilli(r.createdAt).toString()), style = MaterialTheme.typography.labelSmall, color = Ink.Faint)
+            }
+        }
     }
 }
 

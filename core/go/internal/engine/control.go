@@ -98,6 +98,9 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 	}
 	if len(in.Tools) == 0 {
 		in.Tools = append([]string{"web.fetch", "web.search", "news.headlines", "workspace.read", "workspace.write", "data.read", "calc"}, tools.InfoTools...)
+		if e.shell != nil {
+			in.Tools = append(in.Tools, "shell.run") // server commands, under the watcher (ADR-0065)
+		}
 	}
 	seen := map[string]bool{}
 	var granted []string
@@ -498,6 +501,7 @@ func (e *Engine) Stop(ctx context.Context, by string) (int, error) {
 		s.Kill()
 	}
 	e.CloseAllBrowserSessions()
+	e.KillShell(context.WithoutCancel(ctx))
 	n := 0
 	err := e.st.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, "select id from tasks where state in ('CREATED','PLANNING','RUNNING')")

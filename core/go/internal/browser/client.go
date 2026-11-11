@@ -25,11 +25,13 @@ func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 // Client talks to the browser host.
 type Client struct {
-	socket string
-	mu     sync.Mutex
-	conn   net.Conn
-	rd     *bufio.Reader
-	seq    atomic.Int64
+	// MaxWait bounds one call when the context allows longer (default 60 s; shell commands set their own).
+	MaxWait time.Duration
+	socket  string
+	mu      sync.Mutex
+	conn    net.Conn
+	rd      *bufio.Reader
+	seq     atomic.Int64
 }
 
 func New(socket string) *Client { return &Client{socket: socket} }
@@ -44,6 +46,13 @@ func (c *Client) dial() error {
 	}
 	c.conn, c.rd = conn, bufio.NewReaderSize(conn, 1<<20)
 	return nil
+}
+
+// Close ends the connection; the next call dials again.
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reset()
 }
 
 func (c *Client) reset() {
@@ -62,8 +71,12 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		return err
 	}
 	deadline, ok := ctx.Deadline()
-	if !ok || time.Until(deadline) > 60*time.Second {
-		deadline = time.Now().Add(60 * time.Second)
+	maxWait := c.MaxWait
+	if maxWait <= 0 {
+		maxWait = 60 * time.Second
+	}
+	if !ok || time.Until(deadline) > maxWait {
+		deadline = time.Now().Add(maxWait)
 	}
 	c.conn.SetDeadline(deadline)
 	id := fmt.Sprint(c.seq.Add(1))

@@ -48,6 +48,7 @@ type Engine struct {
 	srch        tools.Searcher // nil: web.search unavailable
 	news        NewsSource
 	info        InfoSource
+	shell       *shellState         // nil: shell.run unavailable (ADR-0065)
 	pics        tools.PictureFinder // nil: figures are shown without pictures
 	mcp         map[string]*mcp.Client
 	docs        map[string]string // owner-written descriptions of MCP tools

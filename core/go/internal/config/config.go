@@ -204,6 +204,11 @@ type Config struct {
 		// them; the model only picks the fields. Every login needs an approval.
 		Logins []LoginProfile `yaml:"logins" json:"logins"`
 	} `yaml:"browser" json:"browser"`
+	// Shell configures AURA's server commands (ADR-0065): the shell host's socket in the aura-shell sandbox.
+	Shell struct {
+		Socket         string `yaml:"socket" json:"socket"`                   // "" disables shell.run
+		TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeout_seconds"` // default per command (max 600)
+	} `yaml:"shell" json:"shell"`
 	// L2 configures AURA-built tools in the WASM sandbox (ADR-0038).
 	L2 struct {
 		PythonWASM string `yaml:"python_wasm" json:"python_wasm"` // pinned CPython WASI module; "" disables L2

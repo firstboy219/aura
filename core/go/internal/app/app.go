@@ -295,9 +295,15 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 		obs.RegisterSecret(tok)
 		a.Engine.SetGitHubConnector(&engine.GitHubConnector{Token: tok, Repos: gh.Repos})
 	}
-	if cfg.Browser.Socket != "" {
+	if cfg.Browser.Socket != "" || cfg.Shell.Socket != "" {
 		a.Egress = egress.New(tools.NewGuard(), log)
 		a.Egress.OnDeny = a.Engine.RecordEgressDenial
+	}
+	if cfg.Shell.Socket != "" {
+		// The sandbox reaches the Core's egress proxy by the Core's container name on the shell network.
+		a.Engine.SetShell(cfg.Shell.Socket, a.Egress, "aura-core"+cfg.Browser.ProxyListen, cfg.Shell.TimeoutSeconds)
+	}
+	if cfg.Browser.Socket != "" {
 		bc := browser.New(cfg.Browser.Socket)
 		a.Engine.SetBrowser(bc, a.Egress)
 		if o.Searcher == nil && cfg.Tools.WebSearch.Provider == "chromium" {

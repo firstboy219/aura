@@ -64,6 +64,12 @@ class Api(private val base: String, private val token: String) {
     )
     /** [reminder] is "reminder-id@due-ms" when the notice is a reminder firing (ADR-0063), else empty. */
     data class Notice(val id: String, val title: String, val taskId: String?, val read: Boolean, val reminder: String = "")
+    /** One server command AURA ran or wanted to run, with the watcher's verdict (ADR-0065). */
+    data class ShellRun(
+        val id: String, val taskId: String, val command: String, val verdict: String, val reasons: List<String>, val status: String,
+        val exitCode: Int?, val durationMs: Long?, val stdout: String, val stderr: String, val hosts: List<String>, val createdAt: Long,
+        val error: String,
+    )
     /** A reminder kept by the Core: once ([daily] empty) or every day at [daily]. */
     data class ReminderItem(val id: String, val text: String, val nextAt: Long, val enabled: Boolean, val daily: String)
     data class Event(val seq: Int, val type: String, val data: String)
@@ -111,6 +117,7 @@ class Api(private val base: String, private val token: String) {
     fun addNote(text: String) { call("POST", "/notes", JSONObject().put("text", text)) }
     fun tickNote(id: String, done: Boolean) { call("PATCH", "/notes/${enc(id)}", JSONObject().put("done", done)) }
     fun deleteNote(id: String) { call("DELETE", "/notes/${enc(id)}") }
+    fun shellLog(limit: Int = 100): List<ShellRun> = parseShellLog(call("GET", "/shell/log?limit=$limit"))
     fun reminders(): List<ReminderItem> = parseReminders(call("GET", "/reminders"))
     fun deleteReminder(id: String) { call("DELETE", "/reminders/${enc(id)}") }
 
@@ -327,6 +334,16 @@ class Api(private val base: String, private val token: String) {
                     x.getString("action_hash"), x.optString("why"), x.optString("task_objective"), x.optString("estimated_cost"),
                     x.optString("expires_at"))
             }
+        }
+
+        fun parseShellLog(o: JSONObject): List<ShellRun> = objects(o.optJSONArray("commands")) {
+            val reasons = it.optJSONArray("reasons")
+            val hosts = it.optJSONObject("hosts")
+            ShellRun(it.getString("id"), it.optString("task_id"), it.optString("command"), it.optString("verdict"),
+                (0 until (reasons?.length() ?: 0)).map { i -> reasons!!.getString(i) }, it.optString("status"),
+                if (it.isNull("exit_code")) null else it.optInt("exit_code"), if (it.isNull("duration_ms")) null else it.optLong("duration_ms"),
+                it.optString("stdout"), it.optString("stderr"), hosts?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList(),
+                it.optLong("created_at"), it.optString("error"))
         }
 
         fun parseReminders(o: JSONObject): List<ReminderItem> = objects(o.optJSONArray("reminders")) {

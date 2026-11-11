@@ -396,6 +396,9 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 		tier = policy.A2
 	}
 	if err := policy.CheckTier(tier); err != nil {
+		if spec.ID == "shell.run" {
+			e.logShellDecision(ctx, s.t, s.step, args, "refused", "") // the watcher's refusal is part of the shell log
+		}
 		return nil, e.deny(ctx, s, req.Method, err.Error(), map[string]any{"tool_id": c.ToolID, "tier": tier})
 	}
 	if tier == policy.A2 && s.t.AgentRole == "lab" {
@@ -421,6 +424,9 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 			return nil, rpc.Errf(rpc.CodeInternal, "internal", "approval request failed")
 		}
 		s.approvalID = ap.ID
+		if spec.ID == "shell.run" {
+			e.logShellDecision(ctx, s.t, s.step, args, "awaiting_approval", ap.ID)
+		}
 		return map[string]any{"status": "waiting_approval", "approval_id": ap.ID}, nil
 	}
 	if spec.ID == "agent.delegate" {
@@ -651,6 +657,9 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 		}
 		return map[string]any{"path": p, "content": a.Content}, p, ""
 	}
+	if c.ToolID == "shell.run" {
+		return e.validateShellArgs(s, c)
+	}
 	if strings.HasPrefix(c.ToolID, "mcp.") {
 		return validateMCPArgs(s, c)
 	}
@@ -714,6 +723,8 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":
 		return nil, errWaitTool // handled in serveTool before execution
+	case "shell.run":
+		return e.executeShell(ctx, t, st, args)
 	case "web.search", "news.headlines", "data.read", "calc", "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices":
 		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":

@@ -129,6 +129,33 @@ func (w *Workspace) Read(taskID, rel string) (*ReadResult, error) {
 	return &ReadResult{Path: rel, Bytes: len(b), SHA256: Hash(b), Content: string(b)}, nil
 }
 
+// ReadBytes returns a workspace file's bytes (any type, at most max bytes).
+func (w *Workspace) ReadBytes(taskID, rel string, max int64) ([]byte, error) {
+	rel, err := CleanPath(rel)
+	if err != nil {
+		return nil, err
+	}
+	r, err := w.open(taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	if err := noSymlinks(r, rel); err != nil {
+		return nil, err
+	}
+	fi, err := r.Lstat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: not a regular file", ErrBadPath)
+	}
+	if fi.Size() > max {
+		return nil, ErrFileTooLarge
+	}
+	return r.ReadFile(rel)
+}
+
 // maxDocumentBytes bounds a document read for its text (ADR-0064).
 const maxDocumentBytes = 25 << 20
 

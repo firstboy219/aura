@@ -63,6 +63,17 @@ func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": id})
 }
 
+// shellLog lists AURA's server commands with the watcher's verdicts (ADR-0065).
+func (s *Server) shellLog(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, err := s.Engine.ShellLog(r.Context(), r.URL.Query().Get("task_id"), limit)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"commands": rows})
+}
+
 func (s *Server) listReminders(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.Engine.Reminders(r.Context())
 	if err != nil {

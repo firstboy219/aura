@@ -19,12 +19,15 @@ case "${1:-}" in
   build)   run "cd core/go && go vet ./... && go build -trimpath -ldflags '-X main.Version=$VERSION' -o /tmp/aura ./cmd/aura && /tmp/aura version" ;;
   test-go) run "$PYENV && cd core/go && go test ${shift_args:-./...}" ;;
   test-py) run "$PYENV && cd intelligence/python && pytest -q" ;;
+  # The shell host's tests run inside its own image (ADR-0065).
+  test-shell) docker build -q -f deploy/shell.Dockerfile -t aura-shell:local . >/dev/null && \
+              docker run --rm --entrypoint python3 aura-shell:local -m pytest -q -p no:cacheprovider /opt/aura-shell/tests ;;
   test)    run "$PYENV && (cd core/go && go test ./...) && (cd intelligence/python && pytest -q)" ;;
-  lint)    run "$PYENV && cd core/go && test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }; cd /src/intelligence/python && ruff check ." ;;
+  lint)    run "$PYENV && cd core/go && test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }; cd /src/intelligence/python && ruff check . && ruff check /src/shell" ;;
   fmt)     run "$PYENV && cd core/go && gofmt -w . && cd /src/intelligence/python && ruff check --fix . ; chown -R $(id -u):$(id -g) /src" ;;
   lock)    run "cd intelligence/python && uv lock" ;;
   audit)   run "cd core/go && go mod download && python3 -I /src/deploy/checks/license_audit.py" ;;
   image)   docker build -f deploy/Dockerfile --build-arg VERSION="$VERSION" -t aura-core:local . ;;
   clean)   docker volume rm -f aura-gomod aura-uvcache ;;
-  *) echo "usage: ./dev <build|test|test-go|test-py|lint|fmt|lock|audit|image|clean>" >&2; exit 2 ;;
+  *) echo "usage: ./dev <build|test|test-go|test-py|test-shell|lint|fmt|lock|audit|image|clean>" >&2; exit 2 ;;
 esac

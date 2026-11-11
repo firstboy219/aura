@@ -133,3 +133,21 @@ func TestPlainHTTPThroughProxy(t *testing.T) {
 		t.Fatalf("private target: %d", code)
 	}
 }
+
+func TestAnyPublicSessionStillLimitsPorts(t *testing.T) {
+	s := &Session{ID: "x", AnyPublic: true}
+	if why := check(s, "pypi.org", "443"); why != "" {
+		t.Fatalf("public host refused: %s", why)
+	}
+	if why := check(s, "pypi.org", "22"); why == "" {
+		t.Fatal("port 22 allowed")
+	}
+	if why := check(&Session{ID: "y"}, "pypi.org", "443"); why == "" {
+		t.Fatal("a normal session reached a host outside its allowlist")
+	}
+	s.reached("pypi.org")
+	s.reached("pypi.org")
+	if s.Hosts()["pypi.org"] != 2 {
+		t.Fatalf("%v", s.Hosts())
+	}
+}

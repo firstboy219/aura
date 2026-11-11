@@ -202,4 +202,16 @@ class ClientTest {
         assertEquals("Jum, 13 Nov 07:30", HomeLogic.whenText("2026-11-13T07:30", today))
         assertEquals("nanti", HomeLogic.whenText("nanti", today))
     }
+
+    @Test
+    fun serverCommandLog() {
+        val rs = Api.parseShellLog(JSONObject("""{"commands":[{"id":"c1","task_id":"T1","command":"python3 a.py","verdict":"safe","reasons":["runs a script"],
+            "status":"ran","exit_code":0,"duration_ms":1500,"stdout":"ok","stderr":"","hosts":{"pypi.org":2,"files.pythonhosted.org":1},"created_at":1,"error":""},
+            {"id":"c2","task_id":"T1","command":"curl -X POST x","verdict":"review","reasons":[],"status":"awaiting_approval","exit_code":null,"duration_ms":null,"hosts":null}]}"""))
+        assertEquals(listOf("files.pythonhosted.org", "pypi.org"), rs[0].hosts)
+        assertNull(rs[1].exitCode)
+        assertEquals("selesai · 1.5 d", HomeLogic.serverStatus("ran", 0, 1500).replace(',', '.'))
+        assertEquals("keluar 2", HomeLogic.serverStatus("ran", 2, null))
+        assertEquals("menunggu persetujuan", HomeLogic.serverStatus("awaiting_approval", null, null))
+    }
 }

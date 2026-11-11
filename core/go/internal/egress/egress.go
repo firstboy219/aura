@@ -32,8 +32,35 @@ type Session struct {
 	Token       string
 	TaskID      string
 	AllowDomain []string
-	Allowed     atomic.Int64
-	Denied      atomic.Int64
+	// AnyPublic lets the session reach any public host (shell commands, ADR-0065); the SSRF guard still refuses
+	// private, loopback, link-local and metadata addresses.
+	AnyPublic bool
+	Allowed   atomic.Int64
+	Denied    atomic.Int64
+	hostsMu   sync.Mutex
+	hosts     map[string]int
+}
+
+// Hosts lists the hosts the session reached, with how often (at most 100 hosts).
+func (s *Session) Hosts() map[string]int {
+	s.hostsMu.Lock()
+	defer s.hostsMu.Unlock()
+	out := make(map[string]int, len(s.hosts))
+	for h, n := range s.hosts {
+		out[h] = n
+	}
+	return out
+}
+
+func (s *Session) reached(host string) {
+	s.hostsMu.Lock()
+	defer s.hostsMu.Unlock()
+	if s.hosts == nil {
+		s.hosts = map[string]int{}
+	}
+	if _, ok := s.hosts[host]; ok || len(s.hosts) < 100 {
+		s.hosts[host]++
+	}
 }
 
 // Denial is reported to the owner of a session (trace).
@@ -126,7 +153,7 @@ func check(s *Session, host, port string) string {
 	if port != "443" && port != "80" {
 		return "port " + port + " not allowed"
 	}
-	if !tools.DomainAllowed(h, s.AllowDomain) {
+	if !s.AnyPublic && !tools.DomainAllowed(h, s.AllowDomain) {
 		return "domain " + h + " not in the task allowlist"
 	}
 	return ""
@@ -168,6 +195,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	s.Allowed.Add(1)
+	s.reached(strings.ToLower(host))
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
@@ -213,6 +241,7 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request, s *Session) {
 		return
 	}
 	s.Allowed.Add(1)
+	s.reached(strings.ToLower(host))
 	down.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 	go func() {
 		if buf.Reader.Buffered() > 0 {
