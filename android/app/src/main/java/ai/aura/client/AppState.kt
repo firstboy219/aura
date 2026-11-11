@@ -33,6 +33,10 @@ interface Host {
     fun resumeSong()
     fun stopSong()
     fun decode(bytes: ByteArray): ImageBitmap?
+    /** Opens a document AURA wrote in an app of the phone; false when no app can open it (ADR-0064). */
+    fun openFile(name: String, bytes: ByteArray): Boolean
+    /** Sets the phone's reminder alarms to [list] (ADR-0063). */
+    fun setReminders(list: List<Api.ReminderItem>)
 }
 
 /**
@@ -98,6 +102,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     /** The text box of the workspace is open. */
     var typing by mutableStateOf(false)
     var notes by mutableStateOf<List<Api.NoteItem>>(emptyList())
+    var reminders by mutableStateOf<List<Api.ReminderItem>>(emptyList())
     /** Pictures of a reply's figures, by id, once loaded. */
     val pictures = mutableStateMapOf<String, ImageBitmap>()
     private val picturesAsked = mutableSetOf<String>()
@@ -242,7 +247,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     }
 
     private class Snapshot(val home: Api.Home?, val tasks: List<Api.Task>, val approvals: List<Api.Approval>, val notices: List<Api.Notice>,
-                           val questions: Map<String, String>)
+                           val questions: Map<String, String>, val reminders: List<Api.ReminderItem>?)
 
     fun refresh() {
         if (!signedIn) return
@@ -252,8 +257,9 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
             val qs = ts.filter { it.state == "WAITING_INPUT" }.take(5).associate { t ->
                 t.id to (runCatching { a.events(t.id).lastOrNull { it.type == "INPUT_REQUESTED" }?.data }.getOrNull()?.let { HomeLogic.question(it) } ?: "")
             }
-            Snapshot(runCatching { a.home() }.getOrNull(), ts, a.approvals(), a.notifications(false), qs)
+            Snapshot(runCatching { a.home() }.getOrNull(), ts, a.approvals(), a.notifications(false), qs, runCatching { a.reminders() }.getOrNull())
         }) { s ->
+            s.reminders?.let { reminders = it; host?.setReminders(it) }
             s.home?.let { home = it }
             tasks = s.tasks
             approvals = s.approvals
@@ -302,7 +308,10 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
         when (p) {
             "memory" -> bg(work = { api().memories() }) { memories = it }
             "skills" -> bg(work = { api().skills() }) { skills = it }
-            "schedules" -> bg(work = { api().triggers() }) { triggers = it }
+            "schedules" -> {
+                bg(work = { api().triggers() }) { triggers = it }
+                bg(work = { api().reminders() }) { reminders = it; host?.setReminders(it) }
+            }
             "limits" -> bg(work = { api().limitations() }) { limitations = it }
             "self" -> bg(work = { api().self() }) { self = it }
             "look" -> loadVersions()
@@ -623,6 +632,7 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     private fun place(reply: Api.Reply) {
         stage = reply.view; stageScene = reply.scene; stageReveal = 0; stageFocus = -1
         if (reply.view.any { it.type == "note" }) loadNotes()
+        if (reply.view.any { it.type == "schedule" }) bg(quiet = true, work = { api().reminders() }) { reminders = it; host?.setReminders(it) }
         reply.view.firstOrNull { it.type == "player" }?.let { cue(it, auto = true) }
     }
 
@@ -655,6 +665,19 @@ class AppState(val store: Settings, private val voice: Voice?, private val polic
     }
 
     val active: Boolean get() = talkState != LiveTalk.State.OFF || presenting || narrating || (playingAt >= 0 && !paused)
+
+    // ---------------------------------------------------------------- files (ADR-0064)
+    fun openFile(taskId: String, path: String) {
+        message = "Membuka ${path.substringAfterLast('/')}…"
+        bg(work = { api().file(taskId, path) }) { b ->
+            if (host?.openFile(path.substringAfterLast('/'), b) != true) message = "Tidak ada aplikasi di ponsel ini yang bisa membuka file itu"
+        }
+    }
+
+    // ---------------------------------------------------------------- reminders (ADR-0063)
+    fun deleteReminder(r: Api.ReminderItem) = bg(work = { api().deleteReminder(r.id); api().reminders() }) {
+        reminders = it; host?.setReminders(it); message = "Pengingat dihapus"
+    }
 
     // ---------------------------------------------------------------- notes (ADR-0061)
     fun loadNotes() {

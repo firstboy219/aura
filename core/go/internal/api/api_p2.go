@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -45,11 +46,33 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		s.mapErr(w, r, err)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline")
+	if ct, ok := documentTypes[strings.ToLower(path.Ext(r.PathValue("path")))]; ok {
+		// Documents and pictures are downloaded as files, never shown on the app's origin (ADR-0064).
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.Map(safeName, path.Base(r.PathValue("path")))+`"`)
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", "inline")
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Workspace files can come from the web (downloads): never active content on the app's origin.
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	w.Write([]byte(content))
+}
+
+var documentTypes = map[string]string{
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".pdf":  "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+}
+
+// safeName keeps a download file name to letters, digits and . _ -.
+func safeName(r rune) rune {
+	if r == '.' || r == '_' || r == '-' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+		return r
+	}
+	return '_'
 }
 
 // stream is Server-Sent Events of task events in ULID order (ADR-0022),

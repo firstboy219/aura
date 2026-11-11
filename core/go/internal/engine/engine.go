@@ -47,6 +47,7 @@ type Engine struct {
 	ws          *tools.Workspace
 	srch        tools.Searcher // nil: web.search unavailable
 	news        NewsSource
+	info        InfoSource
 	pics        tools.PictureFinder // nil: figures are shown without pictures
 	mcp         map[string]*mcp.Client
 	docs        map[string]string // owner-written descriptions of MCP tools
@@ -91,6 +92,7 @@ type Deps struct {
 	Searcher  tools.Searcher
 	Pictures  tools.PictureFinder
 	News      NewsSource             // nil: news.headlines unavailable
+	Info      InfoSource             // nil: info.* unavailable
 	MCP       map[string]*mcp.Client // by server name
 	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
 	Version   string
@@ -114,7 +116,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	e := &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, pics: d.Pictures, news: d.News, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), replies: d.Replies, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
+		ws: d.Workspace, srch: d.Searcher, pics: d.Pictures, news: d.News, info: d.Info, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), replies: d.Replies, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
 		driving: map[string]*drivingTask{}, taskSup: map[string]*worker.Supervisor{}}
 	e.sups = append([]*worker.Supervisor{d.Worker}, d.MoreWorkers...)
 	e.pool = make(chan *worker.Supervisor, len(e.sups))
@@ -200,6 +202,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 		e.Supervise(ctx)
 		e.RunTriggers(ctx)
+		e.RunReminders(ctx)
 		e.improveTick(ctx)
 	}
 }
@@ -527,7 +530,7 @@ func (e *Engine) callWorker(ctx context.Context, s *session, method string, para
 // outputRe finds workspace files named in an objective (e.g. reports/summary.md).
 // A path inside a URL never matches: it must start after whitespace, a quote
 // or "(". Keep in sync with OUTPUT_RE in the Python worker.
-var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:md|txt|json|csv|html|yaml|yml))\b`)
+var outputRe = regexp.MustCompile(`(?:^|[\s"'(])((?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:md|txt|json|csv|html|yaml|yml|docx|xlsx|pdf))\b`)
 
 // ExpectedOutputs lists the workspace files an objective explicitly asks for.
 // A task that does not produce them is not complete, whatever its plan said.

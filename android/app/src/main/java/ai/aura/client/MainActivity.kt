@@ -83,6 +83,29 @@ class MainActivity : ComponentActivity(), Host {
     override fun resumeSong() = music.resume()
     override fun stopSong() = music.stop()
 
+    override fun setReminders(list: List<Api.ReminderItem>) = Alarms.schedule(this, list)
+
+    override fun openFile(name: String, bytes: ByteArray): Boolean {
+        val safe = name.map { if (it.isLetterOrDigit() || it in "._-") it else '_' }.joinToString("").ifEmpty { "file" }
+        val dir = java.io.File(cacheDir, "shared").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() } // only the document being opened is shared
+        val f = java.io.File(dir, safe).apply { writeBytes(bytes) }
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
+        val type = when (safe.substringAfterLast('.').lowercase()) {
+            "pdf" -> "application/pdf"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "csv" -> "text/csv"
+            else -> "text/plain"
+        }
+        val view = android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, type)
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return try { startActivity(android.content.Intent.createChooser(view, safe)); true } catch (_: android.content.ActivityNotFoundException) { false }
+    }
+
     /** A picture the Core stored, scaled down while decoding so a large one cannot exhaust memory. */
     override fun decode(bytes: ByteArray): ImageBitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

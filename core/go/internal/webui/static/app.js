@@ -330,6 +330,7 @@ function viewBlock(b, onAction) {
       el("div", {}, el("strong", { text: it.label }), it.value ? el("div", { text: it.value }) : null, it.note ? el("div", { class: "muted", text: "→ " + it.note }) : null)))); break;
     case "note": body = el("ul", { class: "notes" }, items.map((it) => el("li", { text: "✓ " + it.label }))); break;
     case "player": body = el("div", { class: "muted" }, "♪ " + (b.text || ""), items.length ? el("ol", {}, items.map((it) => el("li", { text: it.label + (it.value ? " — " + it.value : "") }))) : null); break;
+    case "schedule": body = el("ul", { class: "notes" }, items.map((it) => el("li", { text: (String(it.value).startsWith("daily") ? "🔁 " : "⏰ ") + it.label + " — " + String(it.value).replace("daily ", "setiap hari ").replace("T", " ") }))); break;
     case "actions": body = onAction ? el("div", { class: "row" }, items.map((it) => el("button", { type: "button", title: it.value,
       on: { click: () => onAction(it.value) }, text: it.label }))) : null; break;
   }

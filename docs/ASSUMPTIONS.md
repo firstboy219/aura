@@ -97,3 +97,12 @@ Each entry: assumption, alternatives, rationale, risk. Status: `open` (default i
 - Reversibility: moderate (`reply.disabled: true` turns the feature off; the table stays).
 - Needs owner approval: Y (contract and data model change; instructed, review pending)
 - Status: approved (owner, 2026-11-11: "setuju assumption0029")
+
+### ASSUMPTION-0030: The owner's home city is Jakarta
+- Context: weather, prayer times and routes need a place when the owner names none (JARVIS learns it from the phone's location; AURA has no location yet).
+- Decision: `home_city: Jakarta` in the deployed config, from the owner's commute via Manggarai recorded in earlier work.
+- Alternatives considered: ask on every request; read the phone's location (wave 5, needs a permission).
+- Risk if wrong: weather and prayer times for the wrong city until the owner says another one or changes the config.
+- Reversibility: easy (one config line; any request may name its own place)
+- Needs owner approval: N
+- Status: proposed

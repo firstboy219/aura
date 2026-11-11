@@ -56,6 +56,7 @@ type Options struct {
 	Searcher tools.Searcher      // tests; nil = from config
 	Pictures tools.PictureFinder // tests; nil = Wikipedia unless Searcher is set
 	News     engine.NewsSource   // tests; nil = the default news feeds unless Searcher is set
+	Info     engine.InfoSource   // tests; nil = the public info services unless Searcher is set
 	// ExtraProviders replace or add providers by id (tests).
 	ExtraProviders map[string]gateway.Provider
 	Log            *slog.Logger
@@ -204,6 +205,10 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	if news == nil && o.Searcher == nil {
 		news = tools.NewNews(tools.NewGuard(), nil)
 	}
+	var info engine.InfoSource = o.Info
+	if info == nil && o.Searcher == nil {
+		info = tools.NewInfo(tools.NewGuard(), cfg.Location(), cfg.HomeCity)
+	}
 	srch := o.Searcher
 	if srch == nil {
 		switch cfg.Tools.WebSearch.Provider {
@@ -278,7 +283,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, Pictures: pics, News: news, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, Pictures: pics, News: news, Info: info, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)
@@ -299,7 +304,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			if len(names) == 0 {
 				names = browser.Engines()
 			}
-			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names, cfg.Tools.WebSearch.Region,
+			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names,
 				tools.NewWikipedia(tools.NewGuard(), cfg.Tools.WebSearch.WikipediaLang)))
 		}
 	}

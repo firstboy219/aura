@@ -47,6 +47,14 @@ class SecureStore(ctx: Context) : Settings {
     var seenNotices: Set<String>
         get() = prefs.getStringSet("seen", emptySet()) ?: emptySet()
         set(v) = prefs.edit().putStringSet("seen", v.toList().takeLast(200).toSet()).apply()
+    /** Reminder alarms set on this phone (keys "id@time"), so they can be replaced (ADR-0063). */
+    var alarms: Set<String>
+        get() = prefs.getStringSet("alarms", emptySet()) ?: emptySet()
+        set(v) = prefs.edit().putStringSet("alarms", v).apply()
+    /** Reminders the phone already showed by itself; the same reminder from the server is then not shown again. */
+    var firedReminders: Set<String>
+        get() = prefs.getStringSet("fired", emptySet()) ?: emptySet()
+        set(v) = prefs.edit().putStringSet("fired", v.toList().takeLast(100).toSet()).apply()
 
     override var token: String
         get() {

@@ -110,7 +110,7 @@ func newTestSearcher(t *testing.T, f *fakeHost, fb tools.Searcher) (*Searcher, *
 	sock := filepath.Join(t.TempDir(), "b.sock")
 	f.serve(t, sock)
 	p := egress.New(tools.NewGuard(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return NewSearcher(New(sock), p, []string{"bing", "duckduckgo"}, "ID", fb), p
+	return NewSearcher(New(sock), p, []string{"bing", "duckduckgo"}, fb), p
 }
 
 func TestChromiumSearchReadsResultsAndClosesItsSession(t *testing.T) {
@@ -132,7 +132,7 @@ func TestChromiumSearchReadsResultsAndClosesItsSession(t *testing.T) {
 	if len(res) != 2 || res[0].Title != "Berita terkini" || res[0].URL != "https://www.kompas.com/a" || res[1].URL != "https://news.detik.com/b" {
 		t.Fatalf("results: %+v", res)
 	}
-	if f.urls[0] != "https://www.bing.com/search?cc=ID&q=berita+hari+ini" {
+	if f.urls[0] != "https://www.bing.com/search?q=berita+hari+ini" {
 		t.Fatalf("engine URL: %s", f.urls[0])
 	}
 	want := []string{"session.open", "page.goto", "page.serp", "session.close"}

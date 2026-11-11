@@ -238,6 +238,8 @@ func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, bloc
 	nj, _ := json.Marshal(notes)
 	fj, _ := json.Marshal(files)
 	sj, _ := json.Marshal(scene)
+	var later []pendingSchedule
+	defer func() { e.createSchedules(ctx, t, later) }()
 	return e.st.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `insert into task_replies(task_id, text, view_json, basis, notes_json, files_json, created_at, scene_json) values(?,?,?,?,?,?,?,?)
 			on conflict(task_id) do update set text=excluded.text, view_json=excluded.view_json, basis=excluded.basis, notes_json=excluded.notes_json,
@@ -252,7 +254,13 @@ func (e *Engine) storeReply(ctx context.Context, t *task.Task, text string, bloc
 		if err != nil {
 			return err
 		}
-		_, err = task.AppendEvent(ctx, tx, t.ID, nil, "OWNER_REPLY", "core", map[string]any{"basis": basis, "chars": len(text), "view": types, "notes": notes, "notes_kept": kept})
+		reminders, sched, err := e.saveSchedules(ctx, tx, t, blocks)
+		if err != nil {
+			return err
+		}
+		later = sched
+		_, err = task.AppendEvent(ctx, tx, t.ID, nil, "OWNER_REPLY", "core", map[string]any{"basis": basis, "chars": len(text), "view": types, "notes": notes,
+			"notes_kept": kept, "reminders_kept": reminders, "schedules": len(sched)})
 		return err
 	})
 }
@@ -448,7 +456,7 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 		"evidence": evidence, "owner_context": octx, "conversation": e.conversation(ctx, t), "self": e.selfBrief(ctx, t),
 		"tier": tierFor(t), "view_schema": view.Schema(), "view_types": view.Types, "scene_schema": view.SceneSchema(),
 		// A spoken request is answered aloud: the text is what AURA says, the blocks what it shows meanwhile.
-		"spoken": t.Scope.Voice != nil}
+		"spoken": t.Scope.Voice != nil, "now": e.localNow()}
 	if failure != nil {
 		params["failure"] = failure
 	}
@@ -475,7 +483,7 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	var notes []ReplyNote
 	if failure != nil {
 		// A failed task keeps nothing and plays nothing.
-		blocks = slices.DeleteFunc(blocks, func(b view.Block) bool { return b.Type == "note" || b.Type == "player" })
+		blocks = slices.DeleteFunc(blocks, func(b view.Block) bool { return b.Type == "note" || b.Type == "player" || b.Type == "schedule" })
 	} else {
 		e.illustrate(ctx, t, blocks)
 	}

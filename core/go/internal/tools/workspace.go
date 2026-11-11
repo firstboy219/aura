@@ -129,6 +129,48 @@ func (w *Workspace) Read(taskID, rel string) (*ReadResult, error) {
 	return &ReadResult{Path: rel, Bytes: len(b), SHA256: Hash(b), Content: string(b)}, nil
 }
 
+// maxDocumentBytes bounds a document read for its text (ADR-0064).
+const maxDocumentBytes = 25 << 20
+
+// ReadDocument reads an Office document or PDF from the task workspace and
+// returns its text (ADR-0064); the bytes are hashed as stored.
+func (w *Workspace) ReadDocument(taskID, rel string) (*ReadResult, error) {
+	rel, err := CleanPath(rel)
+	if err != nil {
+		return nil, err
+	}
+	r, err := w.open(taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	if err := noSymlinks(r, rel); err != nil {
+		return nil, err
+	}
+	fi, err := r.Lstat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: not a regular file", ErrBadPath)
+	}
+	if fi.Size() > maxDocumentBytes {
+		return nil, ErrFileTooLarge
+	}
+	b, err := r.ReadFile(rel)
+	if err != nil {
+		return nil, err
+	}
+	text, err := ExtractText(rel, b)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(text) == "" {
+		text = "(no readable text: the document may be scanned images or use fonts whose text cannot be extracted)"
+	}
+	return &ReadResult{Path: rel, Bytes: len(b), SHA256: Hash(b), Content: text}, nil
+}
+
 // WriteResult is what workspace.write returns.
 type WriteResult struct {
 	Path    string `json:"path"`

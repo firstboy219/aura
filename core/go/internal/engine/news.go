@@ -12,6 +12,11 @@ import (
 	"aura.local/core/internal/tools"
 )
 
+// InfoSource answers the info.* tools from public services (ADR-0063).
+type InfoSource interface {
+	Run(ctx context.Context, tool string, args map[string]any) (string, error)
+}
+
 // NewsSource gathers headlines for news.headlines (ADR-0062).
 type NewsSource interface {
 	Headlines(ctx context.Context, topic, scope string) ([]tools.Headline, []string, error)

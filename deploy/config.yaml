@@ -1,6 +1,8 @@
 # AURA Core configuration for the aura-core container (ADR-0002).
 # Holds paths to secrets, never secret values. Copied to /opt/aura/config.yaml by deploy/setup-host.sh.
 config_version: 1
+# Owner's place for weather, prayer times and routes when a request names none (ADR-0063, ASSUMPTION-0030).
+home_city: Jakarta
 server:
   bind: "0.0.0.0:7400"            # inside the container; published on host 127.0.0.1:7400 only
   token_file: /var/lib/aura/api_token
@@ -66,7 +68,7 @@ tools:
   web.fetch: { allow_domains: [], max_bytes: 2000000, timeout_seconds: 20, follow_results: true }
   # Without follow_results, search results can only be fetched if their domain is in the task's allow_domains.
   # chromium (ADR-0062): Bing, then DuckDuckGo, read in the isolated browser; Wikipedia if both fail. No API key.
-  web.search: { provider: chromium, engines: [bing, duckduckgo], region: ID, wikipedia_lang: en, max_results: 8 }
+  web.search: { provider: chromium, engines: [bing, duckduckgo], wikipedia_lang: en, max_results: 8 }
 approvals:
   ttl_seconds: 1800
 # Browser automation v1 (ADR-0039): the isolated browser host and the Core's egress proxy (the browser's only way out).

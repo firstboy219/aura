@@ -121,8 +121,8 @@ private fun BlockCard(
         else -> null
     }
     GlassCard(modifier, emphasis = if (b.type == "hero" && b.emphasis.isEmpty()) "strong" else b.emphasis, glow = focused, tint = tint) {
-        val title = b.title.ifEmpty { when (b.type) { "note" -> "Catatan"; "player" -> "Musik"; else -> "" } }
-        val icon = b.icon.ifEmpty { when (b.type) { "note" -> "📝"; "player" -> "🎵"; "links" -> "📰"; else -> "" } }
+        val title = b.title.ifEmpty { when (b.type) { "note" -> "Catatan"; "player" -> "Musik"; "schedule" -> "Pengingat"; else -> "" } }
+        val icon = b.icon.ifEmpty { when (b.type) { "note" -> "📝"; "player" -> "🎵"; "links" -> "📰"; "schedule" -> "⏰"; else -> "" } }
         if (b.type != "hero" && b.type != "quote" && (title.isNotEmpty() || icon.isNotEmpty())) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (icon.isNotEmpty()) Text(icon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
@@ -135,7 +135,7 @@ private fun BlockCard(
 }
 
 private val KNOWN = setOf("text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions",
-    "hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player")
+    "hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player", "schedule")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -247,6 +247,15 @@ private fun BlockBody(b: Api.Block, onAction: (String) -> Unit, s: AppState?, li
         "figures" -> Figures(b, s, live)
         "note" -> NotePanel(b, s, live)
         "player" -> PlayerPanel(b, s, live)
+        "schedule" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (it in b.items) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (it.value.startsWith("daily")) "🔁" else "⏰", fontSize = 18.sp, modifier = Modifier.padding(end = 10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(it.label, style = type.bodyLarge, color = Ink.Text)
+                    Text(HomeLogic.whenText(it.value) + if (it.note == "task") " · AURA mengerjakannya" else "", style = type.labelMedium, color = look.palette.c)
+                }
+            }
+        }
         "actions" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for (it in b.items) Pill(it.label.ifEmpty { it.value }) { onAction(it.value.ifEmpty { it.label }) }
         }

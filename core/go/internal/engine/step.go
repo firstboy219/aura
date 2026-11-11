@@ -660,7 +660,7 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	if strings.HasPrefix(c.ToolID, "browser.") {
 		return e.validateBrowserArgs(s, c)
 	}
-	if strings.HasPrefix(c.ToolID, "connector.") {
+	if strings.HasPrefix(c.ToolID, "connector.") || strings.HasPrefix(c.ToolID, "info.") {
 		return validateMCPArgs(s, c) // planned input, decided at planning time
 	}
 	return nil, "", "unknown_tool"
@@ -714,7 +714,7 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":
 		return nil, errWaitTool // handled in serveTool before execution
-	case "web.search", "news.headlines", "data.read", "calc":
+	case "web.search", "news.headlines", "data.read", "calc", "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices":
 		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":
 		e.st.Write(ctx, func(tx *sql.Tx) error {
@@ -746,7 +746,11 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 			hash = res.SHA256
 			links = res.Links
 		} else {
-			res, err := e.ws.Read(t.ID, args["path"].(string))
+			read := e.ws.Read
+			if tools.Extractable(args["path"].(string)) {
+				read = e.ws.ReadDocument // Office documents and PDFs are read as text (ADR-0064)
+			}
+			res, err := read(t.ID, args["path"].(string))
 			if err != nil {
 				e.toolFailed(ctx, t, st, spec.ID, err)
 				return nil, err
@@ -808,7 +812,16 @@ func (e *Engine) toolFailed(ctx context.Context, t *task.Task, st *task.Step, to
 // applyWrite performs a recorded write intent; an identical existing file is
 // skipped, so replay after a crash never writes twice.
 func (e *Engine) applyWrite(ctx context.Context, t *task.Task, st *task.Step, in writeIntent) (any, error) {
-	res, err := e.ws.Write(t.ID, in.Path, in.Content)
+	content := in.Content
+	if tools.Rendered(in.Path) {
+		// .docx/.pdf from Markdown, .xlsx from CSV (ADR-0064); deterministic, so a retried intent is skipped.
+		b, err := tools.RenderDocument(in.Path, in.Content)
+		if err != nil {
+			return nil, fmt.Errorf("tool_failed: %v", err)
+		}
+		content = string(b)
+	}
+	res, err := e.ws.Write(t.ID, in.Path, content)
 	if err != nil {
 		e.toolFailed(ctx, t, st, "workspace.write", err)
 		return nil, err
@@ -913,6 +926,21 @@ func (e *Engine) executeInfo(ctx context.Context, t *task.Task, st *task.Step, s
 			links = append(links, h.URL)
 		}
 		summary = map[string]any{"headlines": len(items), "sources_failed": failed}
+	case "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices":
+		if e.info == nil {
+			err := fmt.Errorf("tool_failed: %s is not configured", spec.ID)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		text, err := e.info.Run(ctx, spec.ID, args)
+		if err != nil {
+			err = fmt.Errorf("tool_failed: %v", err)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		rec = obsRecord{Source: spec.ID, Content: truncate("(public data service; untrusted)\n"+text, maxObservationChars)}
+		links = ObjectiveURLs(text) // map links in the answer may be shown as sources
+		summary = map[string]any{"bytes": len(text)}
 	case "data.read":
 		d, err := e.ws.ReadData(t.ID, args["path"].(string))
 		if err != nil {

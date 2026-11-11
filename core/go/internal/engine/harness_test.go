@@ -68,6 +68,7 @@ type harnessOpts struct {
 	workers   int  // >1: a pool of workers and concurrent task drives (ADR-0047)
 	replies   bool // owner replies on (ADR-0055); off by default so older tests keep their exact call counts
 	news      NewsSource
+	info      InfoSource
 	follow    bool // tools.web.fetch.follow_results (ADR-0062)
 }
 
@@ -125,7 +126,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Pictures: o.pictures, News: o.news, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), MoreWorkers: more, Replies: o.replies, Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Pictures: o.pictures, News: o.news, Info: o.info, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), MoreWorkers: more, Replies: o.replies, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	if !o.noStart {
 		h.start()

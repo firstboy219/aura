@@ -63,6 +63,25 @@ func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": id})
 }
 
+func (s *Server) listReminders(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.Engine.Reminders(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"reminders": rs})
+}
+
+func (s *Server) deleteReminder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.Engine.DeleteReminder(r.Context(), id); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	s.audit(r, "REMINDER_DELETED", map[string]any{"reminder_id": id})
+	writeJSON(w, 200, map[string]any{"deleted": id})
+}
+
 // media serves a stored picture. The type was decided from the bytes when it
 // was stored; it is never sniffed or run as a document.
 func (s *Server) media(w http.ResponseWriter, r *http.Request) {

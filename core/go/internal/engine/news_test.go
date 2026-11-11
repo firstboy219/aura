@@ -91,3 +91,28 @@ func TestRenderHeadlinesNamesSilentSources(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+type fakeInfo struct{ tool, place string }
+
+func (f *fakeInfo) Run(_ context.Context, tool string, args map[string]any) (string, error) {
+	f.tool = tool
+	f.place, _ = args["place"].(string)
+	return "Weather for Bogor: hujan, 24°C. Map: https://www.openstreetmap.org/?mlat=-6.6", nil
+}
+
+// An info tool runs with exactly the planned input; a different input at step time is refused.
+func TestInfoToolRunsWithPlannedInput(t *testing.T) {
+	fi := &fakeInfo{}
+	h := newHarness(t, harnessOpts{info: fi, respond: func(r config.ModelRoute, req gateway.Request) gatewaytest.Reply {
+		if isSys(req, "planning module") {
+			return planReply(gatewaytest.Step(1, "weather", "info.weather", map[string]any{"input": `{"place":"Bogor","days":2}`}),
+				gatewaytest.Step(2, "write", "workspace.write", map[string]any{"path": "reports/cuaca.md"}))
+		}
+		return goodModel(r, req)
+	}})
+	tk := h.submitTools("Cuaca Bogor dua hari ke depan, tulis reports/cuaca.md", "info.weather", "workspace.write")
+	done := h.wait(tk.ID, task.Succeeded, task.Failed)
+	if done.State != task.Succeeded || fi.tool != "info.weather" || fi.place != "Bogor" {
+		t.Fatalf("%s %s tool=%q place=%q %s", done.State, deref(done.Reason), fi.tool, fi.place, errorDetail(h.events(tk.ID)))
+	}
+}

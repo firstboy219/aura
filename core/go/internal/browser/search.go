@@ -24,32 +24,27 @@ type Searcher struct {
 	c        *Client
 	proxy    *egress.Proxy
 	engines  []string
-	region   string
 	fallback tools.Searcher // used when every engine fails or finds nothing; may be nil
 }
 
 type engineSpec struct {
-	url     func(q, region string) string
+	url     func(q string) string
 	domains []string
 	own     func(host string) bool // links back into the engine itself are not results
 }
 
 var engines = map[string]engineSpec{
 	"bing": {
-		url: func(q, region string) string {
-			v := url.Values{"q": {q}}
-			if region != "" {
-				v.Set("cc", region)
-			}
-			return "https://www.bing.com/search?" + v.Encode()
-		},
+		// No market or country parameter: on 2026-11-11 any of cc/mkt/setlang made Bing serve an empty result page
+		// to the headless browser.
+		url:     func(q string) string { return "https://www.bing.com/search?" + url.Values{"q": {q}}.Encode() },
 		domains: []string{"www.bing.com", "bing.com", "*.bing.com"},
 		own: func(h string) bool {
 			return h == "bing.com" || strings.HasSuffix(h, ".bing.com") || h == "go.microsoft.com"
 		},
 	},
 	"duckduckgo": {
-		url:     func(q, _ string) string { return "https://html.duckduckgo.com/html/?" + url.Values{"q": {q}}.Encode() },
+		url:     func(q string) string { return "https://html.duckduckgo.com/html/?" + url.Values{"q": {q}}.Encode() },
 		domains: []string{"html.duckduckgo.com"},
 		own:     func(h string) bool { return h == "duckduckgo.com" || strings.HasSuffix(h, ".duckduckgo.com") },
 	},
@@ -58,8 +53,8 @@ var engines = map[string]engineSpec{
 // Engines lists the search engines the Chromium searcher can read.
 func Engines() []string { return []string{"bing", "duckduckgo"} }
 
-func NewSearcher(c *Client, p *egress.Proxy, names []string, region string, fallback tools.Searcher) *Searcher {
-	return &Searcher{c: c, proxy: p, engines: names, region: region, fallback: fallback}
+func NewSearcher(c *Client, p *egress.Proxy, names []string, fallback tools.Searcher) *Searcher {
+	return &Searcher{c: c, proxy: p, engines: names, fallback: fallback}
 }
 
 func (s *Searcher) Name() string { return "chromium" }
@@ -114,7 +109,7 @@ func (s *Searcher) one(ctx context.Context, name, query string, n int) ([]tools.
 	}
 	defer s.c.Call(context.WithoutCancel(ctx), "session.close", map[string]any{"session_id": id}, nil)
 	var st PageState
-	if err := s.c.Call(ctx, "page.goto", map[string]any{"session_id": id, "url": spec.url(query, s.region)}, &st); err != nil {
+	if err := s.c.Call(ctx, "page.goto", map[string]any{"session_id": id, "url": spec.url(query)}, &st); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	var out serpResult

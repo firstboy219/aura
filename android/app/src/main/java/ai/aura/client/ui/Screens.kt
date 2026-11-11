@@ -136,8 +136,7 @@ private fun BoxScope.Shell(s: AppState) {
                         s.memories.map { Triple(LocalLook.current.palette.c, it.content, it.kind) })
                     "skills" -> ListPage(s, "Keahlian", "Cara kerja yang sudah AURA pelajari dan boleh dipakai ulang.",
                         s.skills.map { Triple(if (it.status == "active") Ink.Success else Ink.Faint, it.name, (listOf(it.status) + it.triggers.take(4)).joinToString(" · ")) })
-                    "schedules" -> ListPage(s, "Jadwal", "Tugas yang AURA jalankan sendiri pada waktunya. Minta lewat percakapan untuk menambah atau mengubah.",
-                        s.triggers.map { Triple(if (it.enabled) Ink.Success else Ink.Faint, it.name.ifEmpty { it.objective }, listOf(it.dailyAt.ifEmpty { it.kind }, it.objective).filter { x -> x.isNotEmpty() }.joinToString(" · ")) })
+                    "schedules" -> SchedulesPage(s)
                     "limits" -> ListPage(s, "Yang belum saya bisa", "Keterbatasan yang AURA catat sendiri, dengan statusnya. Ini daftar jujur, bukan janji.",
                         s.limitations.map { Triple(if (it.status == "resolved") Ink.Success else Ink.Warning, it.title, it.category + " · " + it.status) })
                     "self" -> SelfPage(s)
@@ -354,7 +353,7 @@ private fun TaskCard(s: AppState, t: Api.Task) {
             r == null -> Problem(t)
         }
         if (r != null && !HomeLogic.working(t.state)) {
-            ReplyBody(s, r)
+            ReplyBody(s, r, t.id)
             if (t.state != "COMPLETED" && !t.state.startsWith("WAITING")) Problem(t)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Pill("Jelaskan", "🔊") { s.present(t) }
@@ -377,11 +376,12 @@ private fun Problem(t: Api.Task) {
 
 /** AURA's answer: the words, then what it shows, then the honest notes about where the answer came from. */
 @Composable
-private fun ReplyBody(s: AppState, r: Api.Reply) {
+private fun ReplyBody(s: AppState, r: Api.Reply, taskId: String) {
     if (r.text.isNotEmpty()) SelectionContainer { Text(r.text, style = MaterialTheme.typography.bodyLarge, color = Ink.Text) }
     if (r.view.isNotEmpty()) Blocks(r.view, layout = r.scene.layout.ifEmpty { "stack" }, onAction = { s.propose(it) }, s = s)
     for (n in r.notes) Text("ⓘ " + ReplyView.noteText(n), style = MaterialTheme.typography.bodySmall, color = Ink.Faint, fontStyle = FontStyle.Italic)
-    for (f in r.files) Text("📎 $f", style = MaterialTheme.typography.bodySmall, color = Ink.Muted)
+    for (f in r.files) Text("📎 $f", Modifier.clip(RoundedCornerShape(8.dp)).clickable { s.openFile(taskId, f) }.padding(vertical = 4.dp),
+        style = MaterialTheme.typography.bodyMedium, color = LocalLook.current.palette.c)
 }
 
 // ------------------------------------------------------------------ inbox: approvals, questions, news
@@ -488,6 +488,33 @@ private fun ListPage(s: AppState, title: String, about: String, rows: List<Tripl
         Heading(title, about) { s.page = null }
         if (rows.isEmpty()) Text("Belum ada.", style = MaterialTheme.typography.bodyMedium, color = Ink.Faint)
         else GlassCard(Modifier.fillMaxWidth()) { for ((dot, head, sub) in rows) Entry(dot, head, sub) }
+    }
+}
+
+/** Reminders and schedules (ADR-0063). Ask AURA in conversation to add one ("ingatkan saya …", "setiap pagi …"). */
+@Composable
+private fun SchedulesPage(s: AppState) {
+    Page {
+        Heading("Jadwal", "Pengingat dan tugas yang AURA jalankan sendiri pada waktunya. Katakan \"ingatkan saya …\" untuk menambah.") { s.page = null }
+        val active = s.reminders.filter { it.enabled }
+        if (active.isEmpty() && s.triggers.isEmpty()) Text("Belum ada.", style = MaterialTheme.typography.bodyMedium, color = Ink.Faint)
+        if (active.isNotEmpty()) GlassCard(Modifier.fillMaxWidth()) {
+            Text("⏰ Pengingat", style = MaterialTheme.typography.titleSmall, color = Ink.Muted)
+            for (r in active) Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(r.text, style = MaterialTheme.typography.bodyLarge, color = Ink.Text)
+                    Text(if (r.daily.isNotEmpty()) "Setiap hari ${r.daily}" else HomeLogic.whenText(java.time.Instant.ofEpochMilli(r.nextAt)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().withSecond(0).withNano(0).toString()),
+                        style = MaterialTheme.typography.labelMedium, color = LocalLook.current.palette.c)
+                }
+                TextButton(onClick = { s.deleteReminder(r) }) { Text("Hapus", color = Ink.Faint) }
+            }
+        }
+        if (s.triggers.isNotEmpty()) GlassCard(Modifier.fillMaxWidth()) {
+            Text("🔁 Tugas terjadwal", style = MaterialTheme.typography.titleSmall, color = Ink.Muted)
+            for (it in s.triggers) Entry(if (it.enabled) Ink.Success else Ink.Faint, it.objective.ifEmpty { it.name },
+                listOf(if (it.dailyAt.isNotEmpty()) "Setiap hari ${it.dailyAt}" else it.kind, if (it.enabled) "" else "nonaktif").filter { x -> x.isNotEmpty() }.joinToString(" · "))
+        }
     }
 }
 
@@ -618,7 +645,7 @@ private fun TaskDetail(s: AppState) {
             }
             if (HomeLogic.working(t.state)) OutlinedButton(onClick = { s.cancel(t.id) }, shape = RoundedCornerShape(14.dp)) { Text("Batalkan tugas") }
             t.reply?.let { r ->
-                ReplyBody(s, r)
+                ReplyBody(s, r, t.id)
                 Pill("Jelaskan dengan suara", "🔊") { s.closeTask(); s.present(t) }
             }
             if (s.openEvents.isNotEmpty()) GlassCard(Modifier.fillMaxWidth(), emphasis = "quiet") {

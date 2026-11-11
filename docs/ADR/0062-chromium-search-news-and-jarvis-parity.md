@@ -20,7 +20,7 @@ runtime dependency on JARVIS (AGENTS rule 9).
    only plain absolute http(s) URLs without credentials survive. The session is closed after each search. If every
    engine refuses or finds nothing, Wikipedia answers. Measured on this host on 2026-11-11: Bing served results to
    Chromium; DuckDuckGo answered 403 (kept as second engine because it may recover). Config:
-   `tools.web.search: {provider: chromium, engines: [bing, duckduckgo], region: ID}`. Brave stays supported but is
+   `tools.web.search: {provider: chromium, engines: [bing, duckduckgo]}` (no country parameter: it made Bing serve empty pages). Brave stays supported but is
    no longer configured.
 2. **`news.headlines` tool** (A0, read). The Core reads RSS from a fixed list of outlets (ANTARA, CNBC Indonesia,
    CNN Indonesia, Tempo, Republika, BBC Indonesia, BBC World, Al Jazeera, CNBC) and Google News (Indonesian

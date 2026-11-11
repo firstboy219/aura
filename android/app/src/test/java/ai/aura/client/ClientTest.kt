@@ -176,4 +176,30 @@ class ClientTest {
         assertTrue(Narration.readMillis("a".repeat(40)) > Narration.readMillis("a".repeat(10)))
         assertEquals(6500L, Narration.readMillis("a".repeat(5000)))
     }
+
+    @Test
+    fun remindersRingOnThePhoneOnceAndAreNotShownTwice() {
+        val rs = Api.parseReminders(JSONObject("""{"reminders":[{"id":"r1","text":"minum obat","due_at":1000,"daily_at":null,"next_at":3600000,"enabled":true},
+            {"id":"r2","text":"olahraga","daily_at":"06:00","next_at":7200000,"enabled":true},{"id":"r3","text":"lama","next_at":10,"enabled":false},
+            {"id":"r4","text":"jauh","next_at":999999999999,"enabled":true}]}"""))
+        assertEquals("", rs[0].daily)
+        assertEquals("06:00", rs[1].daily)
+        val plan = Alarms.plan(rs, 0)
+        assertEquals(setOf("r1@3600000", "r2@7200000"), plan.keys) // disabled and far-away reminders get no alarm
+        assertEquals("minum obat", plan["r1@3600000"]!!.second)
+        val ns = Api.parseNotices(JSONObject("""{"notifications":[{"id":"n1","title":"⏰ minum obat","body":{"reminder_id":"r1","due_at":3600000}},
+            {"id":"n2","title":"Tugas selesai","body":{}}]}"""))
+        assertEquals("r1@3600000", ns[0].reminder) // the same key as the phone's alarm, so it is shown once
+        assertEquals("", ns[1].reminder)
+    }
+
+    @Test
+    fun reminderTimesInWords() {
+        val today = java.time.LocalDate.of(2026, 11, 11)
+        assertEquals("Setiap hari 06:00", HomeLogic.whenText("daily 06:00", today))
+        assertEquals("Hari ini 15:00", HomeLogic.whenText("2026-11-11T15:00", today))
+        assertEquals("Besok 07:00", HomeLogic.whenText("2026-11-12T07:00", today))
+        assertEquals("Jum, 13 Nov 07:30", HomeLogic.whenText("2026-11-13T07:30", today))
+        assertEquals("nanti", HomeLogic.whenText("nanti", today))
+    }
 }

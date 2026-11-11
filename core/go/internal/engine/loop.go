@@ -180,7 +180,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	raw, err := json.RawMessage(`{"steps":[],"completion_criteria":[],"question":null}`), error(nil)
 	if t.Scope.Design == "" { // a redesign request needs no plan: the design is the product
 		raw, err = e.callWorker(ctx, s, "task.plan", map[string]any{"guidance": guidance,
-			"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains,
+			"objective": t.Objective, "granted_tools": t.Scope.Tools, "allow_domains": t.Scope.AllowDomains, "now": e.localNow(),
 			"budget": t.Budget, "owner_context": octx, "may_ask": mayAsk, "tier": tierFor(t),
 			"attachments": t.Scope.Attachments, "tool_docs": e.toolDocs(t), "memory": e.memoryContext(ctx, t),
 			"skills": e.skillContext(ctx, t), "profile": e.profileContext(ctx, t),
@@ -504,7 +504,7 @@ func requiredArgs(ps *plannedStep) error {
 		if strings.HasPrefix(*ps.ToolID, "browser.") {
 			return nil
 		}
-		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") || strings.HasPrefix(*ps.ToolID, "connector.") {
+		if strings.HasPrefix(*ps.ToolID, "mcp.") || strings.HasPrefix(*ps.ToolID, "l2.") || strings.HasPrefix(*ps.ToolID, "connector.") || strings.HasPrefix(*ps.ToolID, "info.") {
 			var m map[string]any
 			if !has(ps.Input) || json.Unmarshal([]byte(*ps.Input), &m) != nil {
 				return errors.New("input must be a JSON object with the tool's arguments")

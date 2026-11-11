@@ -139,6 +139,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/notes", auth(s.addNote))
 	mux.Handle("PATCH /api/v1/notes/{id}", auth(s.updateNote))
 	mux.Handle("DELETE /api/v1/notes/{id}", auth(s.deleteNote))
+	mux.Handle("GET /api/v1/reminders", auth(s.listReminders))
+	mux.Handle("DELETE /api/v1/reminders/{id}", auth(s.deleteReminder))
 	mux.Handle("GET /api/v1/media/{id}", auth(s.media))
 	mux.Handle("GET /api/v1/notifications", auth(s.notifications))
 	mux.Handle("POST /api/v1/notifications/{id}/read", auth(s.markRead))

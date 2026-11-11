@@ -45,6 +45,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "task_replies",  # migration 0014, ADR-0055
         "ui_screens",  # migration 0015, ADR-0060
         "notes", "media", "media_lookups",  # migration 0016, ADR-0061
+        "reminders",  # migration 0017, ADR-0063
     }
 
 

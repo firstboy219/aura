@@ -62,7 +62,10 @@ class Api(private val base: String, private val token: String) {
         val id: String, val taskId: String, val toolId: String, val target: String, val actionHash: String,
         val why: String, val objective: String, val estimatedCost: String, val expiresAt: String,
     )
-    data class Notice(val id: String, val title: String, val taskId: String?, val read: Boolean)
+    /** [reminder] is "reminder-id@due-ms" when the notice is a reminder firing (ADR-0063), else empty. */
+    data class Notice(val id: String, val title: String, val taskId: String?, val read: Boolean, val reminder: String = "")
+    /** A reminder kept by the Core: once ([daily] empty) or every day at [daily]. */
+    data class ReminderItem(val id: String, val text: String, val nextAt: Long, val enabled: Boolean, val daily: String)
     data class Event(val seq: Int, val type: String, val data: String)
     /** One note of the owner, kept by the Core (ADR-0061). */
     data class NoteItem(val id: String, val text: String, val done: Boolean, val taskId: String)
@@ -108,11 +111,23 @@ class Api(private val base: String, private val token: String) {
     fun addNote(text: String) { call("POST", "/notes", JSONObject().put("text", text)) }
     fun tickNote(id: String, done: Boolean) { call("PATCH", "/notes/${enc(id)}", JSONObject().put("done", done)) }
     fun deleteNote(id: String) { call("DELETE", "/notes/${enc(id)}") }
+    fun reminders(): List<ReminderItem> = parseReminders(call("GET", "/reminders"))
+    fun deleteReminder(id: String) { call("DELETE", "/reminders/${enc(id)}") }
 
     /** The bytes of a stored picture. The id is a content hash, so nothing else can be asked for through it. */
     fun media(id: String): ByteArray {
         require(MEDIA_ID.matches(id)) { "invalid picture id" }
-        val c = URL(checkBase(base) + "/api/v1/media/" + id).openConnection() as HttpURLConnection
+        return bytes("/api/v1/media/$id", MAX_MEDIA, "picture")
+    }
+
+    /** A file the task wrote (a document to open on the phone, ADR-0064). */
+    fun file(taskId: String, path: String): ByteArray {
+        require(!path.startsWith("/") && ".." !in path.split("/")) { "invalid path" }
+        return bytes("/api/v1/tasks/${enc(taskId)}/files/" + path.split("/").joinToString("/") { enc(it) }, MAX_FILE, "file")
+    }
+
+    private fun bytes(p: String, max: Int, what: String): ByteArray {
+        val c = URL(checkBase(base) + p).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 15000
             c.readTimeout = 30000
@@ -126,7 +141,7 @@ class Api(private val base: String, private val token: String) {
                     val n = input.read(buf)
                     if (n < 0) break
                     out.write(buf, 0, n)
-                    if (out.size() > MAX_MEDIA) throw IOException("picture too large")
+                    if (out.size() > max) throw IOException("$what too large")
                 }
             }
             return out.toByteArray()
@@ -199,6 +214,7 @@ class Api(private val base: String, private val token: String) {
     companion object {
         val MEDIA_ID = Regex("^[0-9a-f]{64}$")
         const val MAX_MEDIA = 1 shl 20
+        const val MAX_FILE = 25 shl 20
 
         fun parseNotes(o: JSONObject): List<NoteItem> = objects(o.optJSONArray("notes")) {
             NoteItem(it.optString("id"), it.optString("text"), it.optBoolean("done"), it.optString("task_id"))
@@ -313,11 +329,18 @@ class Api(private val base: String, private val token: String) {
             }
         }
 
+        fun parseReminders(o: JSONObject): List<ReminderItem> = objects(o.optJSONArray("reminders")) {
+            ReminderItem(it.getString("id"), it.optString("text"), it.optLong("next_at"), it.optBoolean("enabled"), it.optString("daily_at").takeIf { d -> d != "null" }.orEmpty())
+        }
+
         fun parseNotices(o: JSONObject): List<Notice> {
             val a = o.optJSONArray("notifications") ?: return emptyList()
             return (0 until a.length()).map {
                 val x = a.getJSONObject(it)
-                Notice(x.getString("id"), x.optString("title"), str(x, "task_id"), !x.isNull("read_at"))
+                val body = x.optJSONObject("body")
+                val rem = body?.optString("reminder_id").orEmpty()
+                Notice(x.getString("id"), x.optString("title"), str(x, "task_id"), !x.isNull("read_at"),
+                    if (rem.isEmpty()) "" else rem + "@" + body!!.optLong("due_at"))
             }
         }
 

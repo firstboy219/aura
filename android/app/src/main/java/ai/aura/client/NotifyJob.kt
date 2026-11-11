@@ -47,7 +47,12 @@ class NotifyJob : JobService() {
             val api = Api(s.server, s.token)
             val seen = s.seenNotices.toMutableSet()
             val fresh = mutableListOf<String>()
-            api.notifications(true).filter { it.id !in seen }.forEach { fresh += it.title; seen += it.id }
+            runCatching { Alarms.schedule(ctx, api.reminders()) }
+            val fired = s.firedReminders
+            api.notifications(true).filter { it.id !in seen }.forEach {
+                seen += it.id
+                if (it.reminder.isEmpty() || it.reminder !in fired) fresh += it.title // a reminder the phone showed itself is not shown twice
+            }
             api.approvals().filter { "ap:" + it.id !in seen }.forEach { fresh += "Perlu persetujuan: ${it.toolId} ${it.target}"; seen += "ap:" + it.id }
             s.seenNotices = seen
             if (fresh.isEmpty()) return

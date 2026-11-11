@@ -64,6 +64,8 @@ type Config struct {
 	// Timezone is the workspace time zone (Blueprint OL-08): every "today",
 	// schedule and deadline uses it, never UTC by accident.
 	Timezone string `yaml:"timezone" json:"timezone"`
+	// HomeCity is the owner's place for weather, prayer times and routes when a request names none (ADR-0063).
+	HomeCity string `yaml:"home_city" json:"home_city"`
 	// PromptBudgetChars is the per-tier prompt budget (Blueprint OL-05): the
 	// worker trims untrusted observations to fit; calls still over it are flagged.
 	PromptBudgetChars map[string]int `yaml:"prompt_budget_chars" json:"prompt_budget_chars"`
@@ -137,7 +139,6 @@ type Config struct {
 			WikipediaLang string `yaml:"wikipedia_lang" json:"wikipedia_lang"`
 			// Chromium (ADR-0062): result pages of these engines, read in the isolated browser, in order.
 			Engines      []string `yaml:"engines" json:"engines"`
-			Region       string   `yaml:"region" json:"region"` // two-letter country code passed to the engine, e.g. ID
 			BraveKeyFile string   `yaml:"brave_key_file" json:"brave_key_file"`
 			MaxResults   int      `yaml:"max_results" json:"max_results"`
 		} `yaml:"web.search" json:"web.search"`
@@ -480,9 +481,6 @@ func (c *Config) Validate() error {
 			if e != "bing" && e != "duckduckgo" {
 				add("tools.web.search.engines: %q is not bing or duckduckgo", e)
 			}
-		}
-		if r := c.Tools.WebSearch.Region; r != "" && !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(r) {
-			add("tools.web.search.region must be a two-letter country code")
 		}
 	case "brave":
 		if c.Tools.WebSearch.BraveKeyFile == "" {

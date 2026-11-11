@@ -3,6 +3,8 @@ package ai.aura.client
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
  * The words and choices of the home screen that depend on the moment: greeting, headline, one-tap requests, what a
@@ -119,6 +121,25 @@ object HomeLogic {
         "SITE_BLOCKED" -> "Situs menolak akses otomatis."
         else -> "Alasan: $code"
     }
+
+    /**
+     * When a reminder rings, in words (ADR-0063): "daily 06:00" → "Setiap hari 06:00"; "2026-11-12T07:00" → "Hari ini
+     * 07:00", "Besok 07:00" or "Kam, 13 Nov 07:00". Times are the workspace's local time as the Core keeps them.
+     */
+    fun whenText(value: String, today: LocalDate = LocalDate.now()): String {
+        val v = value.trim()
+        if (v.startsWith("daily ")) return "Setiap hari " + v.removePrefix("daily ")
+        val t = runCatching { LocalDateTime.parse(v) }.getOrNull() ?: return v
+        val hm = "%02d:%02d".format(t.hour, t.minute)
+        return when (t.toLocalDate()) {
+            today -> "Hari ini $hm"
+            today.plusDays(1) -> "Besok $hm"
+            else -> "${DAYS[t.dayOfWeek.value - 1]}, ${t.dayOfMonth} ${MONTHS[t.monthValue - 1]} $hm"
+        }
+    }
+
+    private val DAYS = listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")
+    private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
 
     /** "baru saja", "5 mnt lalu", "3 jam lalu", "2 hari lalu" from an RFC 3339 time; empty when it cannot be read. */
     fun ago(iso: String, now: Instant = Instant.now()): String {

@@ -148,6 +148,15 @@ class ScreensTest {
         })
     }
 
+    @Test fun workspaceReminder() = paparazzi.snapshot {
+        Still(state {
+            heard = "Ingatkan saya minum obat jam 3 sore dan tiap pagi kirim ringkasan berita"; caption = "Baik, Tuan. Sudah saya atur."
+            stage = listOf(block("schedule", items = listOf(item("Minum obat", "2026-11-11T15:00", "remind"),
+                item("Cek berita hari ini dan ringkas untuk saya", "daily 05:45", "task"))))
+            stageReveal = 1
+        })
+    }
+
     @Test fun workspacePlayerNeedsPermission() = paparazzi.snapshot {
         Still(state { stage = listOf(block("player")); musicState = "permission"; stageReveal = 1 })
     }

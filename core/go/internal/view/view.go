@@ -12,6 +12,7 @@ package view
 import (
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -32,13 +33,18 @@ const (
 	MaxFields  = 6
 	MaxFigures = 6
 	MaxNotes   = 10
-	MaxNote    = 500
-	MaxQueue   = 12
+	// MaxSchedules bounds the reminders one reply may set.
+	MaxSchedules = 5
+	MaxNote      = 500
+	MaxQueue     = 12
 )
 
 // Types are the block types every client implements.
+// reSchedule is a schedule time: once ("2026-11-11T15:00") or daily ("daily 06:00").
+var reSchedule = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}|daily \d{2}:\d{2})$`)
+
 var Types = []string{"text", "callout", "metrics", "kv", "table", "list", "steps", "chart", "links", "code", "actions",
-	"hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player"}
+	"hero", "timeline", "progress", "compare", "quote", "form", "figures", "note", "player", "schedule"}
 
 var tones = map[string]bool{"info": true, "success": true, "warning": true, "danger": true}
 var charts = map[string]bool{"bar": true, "line": true, "pie": true}
@@ -266,6 +272,24 @@ func Sanitize(raw json.RawMessage, o Options) ([]Block, []string) {
 				if it.Label != "" && len(b.Items) < MaxQueue {
 					b.Items = append(b.Items, it)
 				}
+			}
+		case "schedule":
+			// reminders and daily schedules the owner asked for (ADR-0063): label = what, value = when
+			// ("YYYY-MM-DDTHH:MM" once or "daily HH:MM"), note = "remind" (a notification) or "task" (AURA does
+			// it daily). The Core keeps them; a time it cannot read is dropped here.
+			for _, ri := range rb.Items {
+				it := Item{Label: clean(deref(ri.Label), MaxNote, false), Value: strings.TrimSpace(clean(deref(ri.Value), 20, false)),
+					Note: strings.TrimSpace(clean(deref(ri.Note), 10, false))}
+				if it.Note != "task" {
+					it.Note = "remind"
+				}
+				if it.Label != "" && reSchedule.MatchString(it.Value) && len(b.Items) < MaxSchedules {
+					b.Items = append(b.Items, it)
+				}
+			}
+			if len(b.Items) == 0 {
+				drop(i, "schedule without a readable time")
+				continue
 			}
 		case "text", "code":
 			b.Text = clean(deref(rb.Text), MaxText, true)
