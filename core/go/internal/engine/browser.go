@@ -57,6 +57,10 @@ func (e *Engine) SetBrowser(c *browser.Client, p *egress.Proxy) {
 	e.CloseAllBrowserSessions() // sessions of a previous Core run are not resumable
 }
 
+// SetSearcher replaces the web.search provider (app wiring: the Chromium
+// searcher needs the browser, which is set up after the engine).
+func (e *Engine) SetSearcher(s tools.Searcher) { e.srch = s }
+
 func randomToken() string {
 	b := make([]byte, 24)
 	rand.Read(b)
@@ -501,4 +505,39 @@ func (e *Engine) BrowserCheck(ctx context.Context, rawURL string, domains []stri
 		"elements": len(in.Elements), "text_sample": truncate(in.Text, 300),
 		"session_open_ms": opened.Milliseconds(), "page_loaded_ms": loaded.Milliseconds(),
 		"egress_allowed": es.Allowed.Load(), "egress_denied": es.Denied.Load()}, nil
+}
+
+// renderPage reads one page in the isolated Chromium for background work (a
+// watch whose source needs JavaScript, ADR-0062): a fresh session that can
+// reach only allow, the page's visible text, and the session closed again.
+func (e *Engine) renderPage(ctx context.Context, raw string, allow []string) (string, error) {
+	if e.brs == nil {
+		return "", ErrBrowserUnavailable
+	}
+	u, err := url.Parse(raw)
+	if err != nil || tools.CheckURL(u, allow) != nil {
+		return "", fmt.Errorf("%w: url must be http(s) and inside allow_domains", ErrInvalid)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	id, tok := "w-"+randomToken()[:24], randomToken()
+	e.brs.proxy.Add(&egress.Session{ID: id, Token: tok, AllowDomain: append([]string{}, allow...)})
+	defer e.brs.proxy.Remove(id)
+	if err := e.brs.client.Call(ctx, "session.open", map[string]any{"session_id": id, "proxy_token": tok}, nil); err != nil {
+		return "", err
+	}
+	defer e.brs.client.Call(context.WithoutCancel(ctx), "session.close", map[string]any{"session_id": id}, nil)
+	var st browser.PageState
+	if err := e.brs.client.Call(ctx, "page.goto", map[string]any{"session_id": id, "url": raw}, &st); err != nil {
+		return "", err
+	}
+	if st.SiteBlocked || (st.Status != nil && *st.Status >= 400) {
+		return "", fmt.Errorf("tool_failed: %s refused the browser", u.Hostname())
+	}
+	e.brs.client.Call(ctx, "page.wait", map[string]any{"session_id": id, "ms": 1500}, nil)
+	var page browser.PageState
+	if err := e.brs.client.Call(ctx, "page.inspect", map[string]any{"session_id": id, "max_chars": 20000}, &page); err != nil {
+		return "", err
+	}
+	return page.Text, nil
 }

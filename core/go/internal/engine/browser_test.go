@@ -381,3 +381,35 @@ func TestOwnerProfileLogin(t *testing.T) {
 		t.Fatal("owner session not closed")
 	}
 }
+
+// A watch whose source needs JavaScript is read in Chromium (ADR-0062): a short session limited to the watch's
+// domains, closed afterwards; the page text is the watched content.
+func TestRenderPageForBackgroundWatch(t *testing.T) {
+	h, fh, px := browserHarness(t)
+	text, err := h.eng.renderPage(context.Background(), "http://fixture.test/results", []string{"fixture.test"})
+	if err != nil || text != "3 results for aura" {
+		t.Fatalf("%q %v", text, err)
+	}
+	fh.mu.Lock()
+	open := len(fh.sessions)
+	calls := strings.Join(fh.calls, ",")
+	fh.mu.Unlock()
+	if open != 0 || calls != "session.close_all,session.open,page.goto,page.wait,page.inspect,session.close" {
+		t.Fatalf("sessions left %d, calls %s", open, calls)
+	}
+	_ = px
+	if _, err := h.eng.renderPage(context.Background(), "http://elsewhere.test/", []string{"fixture.test"}); err == nil {
+		t.Fatal("a page outside the watch's domains was rendered")
+	}
+	if _, err := h.eng.CreateTrigger(context.Background(), &Trigger{Name: "promo", Kind: "watch", IntervalSeconds: ptr64(3600),
+		Spec: TriggerSpec{Sources: []string{"http://fixture.test/results"}, AllowDomains: []string{"fixture.test"}, Render: "javascript"}}); err == nil {
+		t.Fatal("unknown render accepted")
+	}
+	tr, err := h.eng.CreateTrigger(context.Background(), &Trigger{Name: "promo", Kind: "watch", IntervalSeconds: ptr64(3600),
+		Spec: TriggerSpec{Sources: []string{"http://fixture.test/results"}, AllowDomains: []string{"fixture.test"}, Render: "browser"}})
+	if err != nil || tr.Spec.Render != "browser" {
+		t.Fatalf("%v %+v", err, tr)
+	}
+}
+
+func ptr64(v int64) *int64 { return &v }

@@ -19,7 +19,7 @@ from typing import Any
 
 from aura_worker.rpc import Channel, RpcError
 
-TOOLS = ("web.fetch", "web.search", "workspace.read", "workspace.write", "data.read", "calc",
+TOOLS = ("web.fetch", "web.search", "news.headlines", "workspace.read", "workspace.write", "data.read", "calc",
          "wait.event", "wait.until", "agent.delegate",
          "browser.open", "browser.inspect", "browser.screenshot", "browser.scroll", "browser.wait", "browser.back",
          "browser.type", "browser.select", "browser.click",
@@ -164,6 +164,10 @@ TOOL_DOCS = {
                  "found by an earlier web.search step or linked from an earlier fetched page (chosen when the step runs). "
                  "Reachable domains: {domains}.",
     "web.search": 'web.search: search the web. Set "query". Results (titles, URLs, snippets) become observations.',
+    "news.headlines": 'news.headlines: today\'s news headlines from Indonesian and international news outlets (title, outlet, '
+                      'time, link). Set "query" to a topic (e.g. "harga emas", "Nvidia") or null for the general headlines '
+                      'of the day. Use it whenever the owner asks for news, what is happening, or current events; fetch an '
+                      'article afterwards only when the headlines are not enough.',
     "workspace.read": 'workspace.read: read a text file from the task workspace. Set "path".',
     "workspace.write": 'workspace.write: write one text file into the task workspace. Set "path" (relative, e.g. '
                        '"reports/summary.md"). The content is written later from the results of earlier steps.',
@@ -847,6 +851,8 @@ def step(ch: Channel, params: dict) -> dict:
         return _result(_invoke(ch, tool, {"path": s.get("path")}))
     if tool == "web.search":
         return _result(_invoke(ch, tool, {"query": s.get("query")}))
+    if tool == "news.headlines":
+        return _result(_invoke(ch, tool, {"topic": (s.get("query") or "").strip(), "scope": ""}))
     if tool == "calc":
         expression = s.get("expression")
         if not is_arithmetic(expression):  # missing, or not something calc can parse (one tool call per step)
@@ -1004,7 +1010,8 @@ what "text" already says in full: text is the headline, blocks carry the substan
 - progress: shares or completion in percent (items: label, value = 0-100, note).
 - chart: numeric series (chart: bar|line|pie; items: label, value as a plain number such as 1250000 or 12.5).
 - quote: a passage quoted from a source (text, title = who or where it is from).
-- links: sources (items: label, url) - only URLs that appear in the evidence.
+- links: sources (items: label, url, note) - only URLs that appear in the evidence. For news, one item per headline
+  (label = the headline, note = outlet and one line of what it means): the app shows them as headline cards.
 - code: code or a command (title, text).
 - actions: 1-4 suggested follow-up requests the owner can tap (items: label, value = the full request text to send).
 - form: ask the owner for details in one go (text = the request to send, with {{field}} placeholders; items: label =

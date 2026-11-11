@@ -67,6 +67,8 @@ type harnessOpts struct {
 	sandbox   bool // attach the WASM sandbox (skips the test if the Python module is absent)
 	workers   int  // >1: a pool of workers and concurrent task drives (ADR-0047)
 	replies   bool // owner replies on (ADR-0055); off by default so older tests keep their exact call counts
+	news      NewsSource
+	follow    bool // tools.web.fetch.follow_results (ADR-0062)
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -94,6 +96,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	cfg.Worker.ScratchRoot = filepath.Join(dir, "scratch")
 	cfg.Worker.CallTimeoutSeconds = 30
 	cfg.Models = testRoutes
+	cfg.Tools.WebFetch.FollowResults = o.follow
 	st, err := store.Open(context.Background(), cfg.Database.Path, cfg.Database.BackupDir)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +125,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	guard := tools.NewTestGuard(fixtureResolver{})
 	tools.SetTestPort(guard, port)
 	eng := New(Deps{Config: cfg, Store: st, Gateway: gw, Governor: gov, Worker: sup,
-		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Pictures: o.pictures, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), MoreWorkers: more, Replies: o.replies, Log: log})
+		Fetcher: tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, 5*time.Second), Workspace: ws, Searcher: o.searcher, Pictures: o.pictures, News: o.news, MCP: o.mcp, ToolDocs: o.toolDocs, Charter: o.charter, Sandbox: testSandbox(t, o.sandbox), MoreWorkers: more, Replies: o.replies, Log: log})
 	h := &harness{t: t, cfg: cfg, st: st, eng: eng, fake: fake, sup: sup, ws: ws, host: "fixture.test", dir: dir}
 	if !o.noStart {
 		h.start()

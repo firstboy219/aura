@@ -484,7 +484,7 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			return nil, "", "argument_without_provenance"
 		}
 		u, err := url.Parse(a.URL)
-		if err != nil || tools.CheckURL(u, g.Scopes.AllowDomains) != nil {
+		if err != nil || tools.CheckURL(u, e.fetchAllow(s.t, a.URL)) != nil {
 			return nil, "", "domain_not_allowed"
 		}
 		return map[string]any{"url": a.URL}, a.URL, ""
@@ -596,6 +596,22 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 			return nil, "", "invalid_wait_time"
 		}
 		return map[string]any{"until": a.Until, "until_ms": at.UnixMilli()}, a.Until, ""
+	case "news.headlines":
+		var a struct {
+			Topic string `json:"topic"`
+			Scope string `json:"scope"`
+		}
+		if strictDecode(c.Arguments, &a) != nil || len(a.Topic) > 200 || (a.Scope != "" && a.Scope != "id" && a.Scope != "world") {
+			return nil, "", "invalid_arguments"
+		}
+		planned := ""
+		if s.plan != nil && s.plan.Query != nil {
+			planned = strings.TrimSpace(*s.plan.Query)
+		}
+		if s.plan == nil || strings.TrimSpace(a.Topic) != planned {
+			return nil, "", "arguments_differ_from_plan"
+		}
+		return map[string]any{"topic": planned, "scope": a.Scope}, "news:" + planned, ""
 	case "calc":
 		var a struct {
 			Expression string `json:"expression"`
@@ -698,7 +714,7 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 	switch spec.ID {
 	case "wait.event", "wait.until", "agent.delegate":
 		return nil, errWaitTool // handled in serveTool before execution
-	case "web.search", "data.read", "calc":
+	case "web.search", "news.headlines", "data.read", "calc":
 		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":
 		e.st.Write(ctx, func(tx *sql.Tx) error {
@@ -711,7 +727,7 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 		var hash string
 		var links []string
 		if spec.ID == "web.fetch" {
-			res, err := e.fetch.Fetch(ctx, args["url"].(string), t.Scope.AllowDomains)
+			res, err := e.fetch.Fetch(ctx, args["url"].(string), e.fetchAllow(t, args["url"].(string)))
 			if err == nil && res.Status >= 400 {
 				// An error page is not the requested content: never summarize it as such.
 				err = fmt.Errorf("tool_failed: HTTP %d from %s", res.Status, res.FinalURL)
@@ -878,6 +894,25 @@ func (e *Engine) executeInfo(ctx context.Context, t *task.Task, st *task.Step, s
 		}
 		rec = obsRecord{Source: "search:" + q, Content: truncate(sb.String(), maxObservationChars)}
 		summary = map[string]any{"provider": e.srch.Name(), "results": len(results)}
+	case "news.headlines":
+		if e.news == nil {
+			err := errors.New("tool_failed: news.headlines is not configured")
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		topic, _ := args["topic"].(string)
+		scope, _ := args["scope"].(string)
+		items, failed, err := e.news.Headlines(ctx, topic, scope)
+		if err != nil {
+			err = fmt.Errorf("tool_failed: %v", err)
+			e.toolFailed(ctx, t, st, spec.ID, err)
+			return nil, err
+		}
+		rec = obsRecord{Source: "news:" + topic, Content: truncate(renderHeadlines(items, failed, topic, e.cfg.Location()), maxObservationChars)}
+		for _, h := range items {
+			links = append(links, h.URL)
+		}
+		summary = map[string]any{"headlines": len(items), "sources_failed": failed}
 	case "data.read":
 		d, err := e.ws.ReadData(t.ID, args["path"].(string))
 		if err != nil {

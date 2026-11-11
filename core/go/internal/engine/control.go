@@ -97,7 +97,7 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 		return nil, bad("objective must be 1..8000 characters")
 	}
 	if len(in.Tools) == 0 {
-		in.Tools = []string{"web.fetch", "web.search", "workspace.read", "workspace.write", "data.read", "calc"}
+		in.Tools = []string{"web.fetch", "web.search", "news.headlines", "workspace.read", "workspace.write", "data.read", "calc"}
 	}
 	seen := map[string]bool{}
 	var granted []string

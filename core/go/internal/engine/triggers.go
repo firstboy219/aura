@@ -30,6 +30,8 @@ type TriggerSpec struct {
 	Budget       task.Budget `json:"budget"`
 	Sources      []string    `json:"sources,omitempty"` // watch only
 	Purpose      string      `json:"purpose,omitempty"` // watch only
+	// Render "browser" reads watch sources in the isolated Chromium, for pages that need JavaScript (ADR-0062).
+	Render string `json:"render,omitempty"`
 }
 
 // Trigger is one schedule.
@@ -120,6 +122,15 @@ func (e *Engine) CreateTrigger(ctx context.Context, tr *Trigger) (*Trigger, erro
 			if err != nil || tools.CheckURL(u, tr.Spec.AllowDomains) != nil {
 				return nil, bad("source %q must be an http(s) URL in allow_domains", s)
 			}
+		}
+		switch tr.Spec.Render {
+		case "":
+		case "browser":
+			if e.brs == nil {
+				return nil, bad("render browser needs browser automation (browser.socket)")
+			}
+		default:
+			return nil, bad("render must be empty or browser")
 		}
 		tr.Spec.Tools, tr.Spec.DataClass = nil, "public" // read-only by construction; sources are public
 		if tr.Objective == "" {
@@ -274,20 +285,30 @@ type watchChange struct {
 func (e *Engine) runWatch(ctx context.Context, tr *Trigger) (string, error) {
 	var changes []watchChange
 	for _, src := range tr.Spec.Sources {
-		res, err := e.fetch.Fetch(ctx, src, tr.Spec.AllowDomains)
-		if err != nil || res.Status >= 400 {
-			continue
+		var text, sum string
+		if tr.Spec.Render == "browser" {
+			page, err := e.renderPage(ctx, src, tr.Spec.AllowDomains)
+			if err != nil {
+				continue
+			}
+			text = truncate(page, 20000)
+			sum = tools.Hash([]byte(text))
+		} else {
+			res, err := e.fetch.Fetch(ctx, src, tr.Spec.AllowDomains)
+			if err != nil || res.Status >= 400 {
+				continue
+			}
+			text, sum = truncate(res.Text, 20000), res.SHA256
 		}
-		text := truncate(res.Text, 20000)
 		var prevHash, prev string
 		e.st.R.QueryRowContext(ctx, "select content_sha256, content from watch_state where trigger_id=? and source=?", tr.ID, src).Scan(&prevHash, &prev)
 		e.st.Write(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, `insert into watch_state(trigger_id, source, content_sha256, content, checked_at) values(?,?,?,?,?)
 				on conflict(trigger_id, source) do update set content_sha256=excluded.content_sha256, content=excluded.content, checked_at=excluded.checked_at`,
-				tr.ID, src, res.SHA256, text, ids.NowMs())
+				tr.ID, src, sum, text, ids.NowMs())
 			return err
 		})
-		if prevHash != "" && prevHash != res.SHA256 {
+		if prevHash != "" && prevHash != sum {
 			changes = append(changes, watchChange{Source: src, Previous: truncate(prev, 6000), Current: truncate(text, 6000)})
 		}
 	}

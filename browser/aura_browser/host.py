@@ -4,7 +4,7 @@ Runs in the aura-browser container: an internal network with no route out, so ev
 proxy (per-session credentials, domain allowlist, SSRF guard). It serves a narrow command set to the Core only (peer uid
 check) over a Unix socket, one JSON object per line. There is no command that runs page JavaScript chosen by the model,
 opens devtools, uploads files or reads cookies: the only JavaScript executed is this host's own fixed element
-enumeration. Each session is its own BrowserContext (cookies and storage isolated) and is closed by the Core.
+enumeration, and search result pages are read with fixed selectors. Each session is its own BrowserContext (cookies and storage isolated) and is closed by the Core.
 """
 
 from __future__ import annotations
@@ -30,6 +30,14 @@ MAX_TEXT = 20000
 BLOCK_MARKERS = re.compile(
     r"captcha|are you a robot|verify you are human|attention required|access denied|unusual traffic|"
     r"cf-challenge|just a moment\.\.\.|please enable cookies|bot detection|request blocked", re.IGNORECASE)
+
+# Search result pages read by fixed selectors (web.search through Chromium, ADR-0062). Only these engines; the page's own
+# links and text are returned as data.
+SERP = {
+    "bing": {"item": "li.b_algo", "title": "h2 a", "snippet": ".b_caption p, p.b_lineclamp2, p.b_lineclamp3, p.b_lineclamp4, .b_snippet"},
+    "duckduckgo": {"item": ".result", "title": "a.result__a", "snippet": ".result__snippet"},
+}
+MAX_SERP = 20
 
 # Fixed, host-owned enumeration of one element (never model-provided).
 DESCRIBE_JS = """e => ({tag: e.tagName.toLowerCase(), role: e.getAttribute('role') || '',
@@ -207,6 +215,35 @@ class Host:
         s["refs"], s["gen"] = [], s["gen"] + 1
         return self._state(s, resp.status if resp else None)
 
+    def serp(self, p: dict) -> dict:
+        """The results of a search engine page already opened in this session, read with that engine's fixed selectors."""
+        s = self._s(p)
+        eng = SERP.get(str(p.get("engine", "")))
+        if eng is None:
+            raise HostError("bad_params", "unknown search engine")
+        page = s["page"]
+        try:
+            page.wait_for_selector(eng["item"], timeout=int(p.get("timeout_ms", 8000)))
+        except PlaywrightError:
+            pass
+        results = []
+        for it in page.locator(eng["item"]).all()[:MAX_SERP]:
+            try:
+                a = it.locator(eng["title"]).first
+                if a.count() == 0:
+                    continue
+                title = a.inner_text(timeout=2000).strip()
+                href = a.get_attribute("href", timeout=2000) or ""
+                sn = it.locator(eng["snippet"]).first
+                snippet = sn.inner_text(timeout=1000).strip() if sn.count() else ""
+            except PlaywrightError:
+                continue
+            if title and href:
+                results.append({"title": title[:300], "href": href[:2000], "snippet": snippet[:600]})
+        st = self._state(s)
+        st["results"] = results
+        return st
+
     def screenshot(self, p: dict) -> dict:
         s = self._s(p)
         png = s["page"].screenshot(full_page=False, type="png", timeout=10000)
@@ -301,7 +338,7 @@ class Host:
     METHODS = {"session.open": session_open, "session.close": session_close, "session.close_all": close_all,
                "page.goto": goto, "page.inspect": inspect, "page.describe": describe, "page.click": click,
                "page.type": type_text, "page.select": select, "page.scroll": scroll, "page.wait": wait, "page.back": back,
-               "page.screenshot": screenshot, "page.download": download, "page.upload": upload,
+               "page.screenshot": screenshot, "page.serp": serp, "page.download": download, "page.upload": upload,
                "session.export": export_state, "page.mouse_click": mouse_click, "page.key": key,
                "page.keyboard_type": keyboard_type, "host.health": health}
 

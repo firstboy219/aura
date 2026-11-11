@@ -128,12 +128,18 @@ type Config struct {
 			AllowDomains   []string `yaml:"allow_domains" json:"allow_domains"`
 			MaxBytes       int64    `yaml:"max_bytes" json:"max_bytes"`
 			TimeoutSeconds int      `yaml:"timeout_seconds" json:"timeout_seconds"`
+			// FollowResults lets a task read pages the Core found for it (search and news results, links of fetched
+			// pages) outside allow_domains (ADR-0062).
+			FollowResults bool `yaml:"follow_results" json:"follow_results"`
 		} `yaml:"web.fetch" json:"web.fetch"`
 		WebSearch struct {
-			Provider      string `yaml:"provider" json:"provider"` // wikipedia | brave | none
+			Provider      string `yaml:"provider" json:"provider"` // chromium | wikipedia | brave | none
 			WikipediaLang string `yaml:"wikipedia_lang" json:"wikipedia_lang"`
-			BraveKeyFile  string `yaml:"brave_key_file" json:"brave_key_file"`
-			MaxResults    int    `yaml:"max_results" json:"max_results"`
+			// Chromium (ADR-0062): result pages of these engines, read in the isolated browser, in order.
+			Engines      []string `yaml:"engines" json:"engines"`
+			Region       string   `yaml:"region" json:"region"` // two-letter country code passed to the engine, e.g. ID
+			BraveKeyFile string   `yaml:"brave_key_file" json:"brave_key_file"`
+			MaxResults   int      `yaml:"max_results" json:"max_results"`
 		} `yaml:"web.search" json:"web.search"`
 	} `yaml:"tools" json:"tools"`
 	Approvals struct {
@@ -466,12 +472,24 @@ func (c *Config) Validate() error {
 	}
 	switch c.Tools.WebSearch.Provider {
 	case "wikipedia", "none":
+	case "chromium":
+		if c.Browser.Socket == "" {
+			add("tools.web.search: provider chromium needs browser.socket")
+		}
+		for _, e := range c.Tools.WebSearch.Engines {
+			if e != "bing" && e != "duckduckgo" {
+				add("tools.web.search.engines: %q is not bing or duckduckgo", e)
+			}
+		}
+		if r := c.Tools.WebSearch.Region; r != "" && !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(r) {
+			add("tools.web.search.region must be a two-letter country code")
+		}
 	case "brave":
 		if c.Tools.WebSearch.BraveKeyFile == "" {
 			add("tools.web.search: provider brave needs brave_key_file")
 		}
 	default:
-		add("tools.web.search.provider must be wikipedia, brave or none")
+		add("tools.web.search.provider must be chromium, wikipedia, brave or none")
 	}
 	if c.Tools.WebSearch.MaxResults < 1 || c.Tools.WebSearch.MaxResults > 20 {
 		add("tools.web.search.max_results must be 1..20")

@@ -45,7 +45,8 @@ type Engine struct {
 	sup         *worker.Supervisor
 	fetch       *tools.Fetcher
 	ws          *tools.Workspace
-	srch        tools.Searcher      // nil: web.search unavailable
+	srch        tools.Searcher // nil: web.search unavailable
+	news        NewsSource
 	pics        tools.PictureFinder // nil: figures are shown without pictures
 	mcp         map[string]*mcp.Client
 	docs        map[string]string // owner-written descriptions of MCP tools
@@ -89,6 +90,7 @@ type Deps struct {
 	Workspace *tools.Workspace
 	Searcher  tools.Searcher
 	Pictures  tools.PictureFinder
+	News      NewsSource             // nil: news.headlines unavailable
 	MCP       map[string]*mcp.Client // by server name
 	ToolDocs  map[string]string      // tool id -> owner-written description (MCP tools)
 	Version   string
@@ -112,7 +114,7 @@ func New(d Deps) *Engine {
 		d.Log = slog.Default()
 	}
 	e := &Engine{cfg: d.Config, st: d.Store, gw: d.Gateway, gov: d.Governor, sup: d.Worker, fetch: d.Fetcher,
-		ws: d.Workspace, srch: d.Searcher, pics: d.Pictures, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), replies: d.Replies, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
+		ws: d.Workspace, srch: d.Searcher, pics: d.Pictures, news: d.News, mcp: d.MCP, docs: d.ToolDocs, version: d.Version, charter: d.Charter, sbx: d.Sandbox, aul: d.AUL, secret: d.Secret, vault: d.Vault, ledgerCfg: ledgerFrom(d.Config), replies: d.Replies, log: d.Log, runID: ids.New(), wake: make(chan struct{}, 1),
 		driving: map[string]*drivingTask{}, taskSup: map[string]*worker.Supervisor{}}
 	e.sups = append([]*worker.Supervisor{d.Worker}, d.MoreWorkers...)
 	e.pool = make(chan *worker.Supervisor, len(e.sups))

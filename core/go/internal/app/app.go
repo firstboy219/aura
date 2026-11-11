@@ -55,6 +55,7 @@ type Options struct {
 	Guard    *tools.Guard
 	Searcher tools.Searcher      // tests; nil = from config
 	Pictures tools.PictureFinder // tests; nil = Wikipedia unless Searcher is set
+	News     engine.NewsSource   // tests; nil = the default news feeds unless Searcher is set
 	// ExtraProviders replace or add providers by id (tests).
 	ExtraProviders map[string]gateway.Provider
 	Log            *slog.Logger
@@ -199,6 +200,10 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	if pics == nil && o.Searcher == nil {
 		pics = tools.NewWikiPictures(tools.NewGuard(), "en")
 	}
+	var news engine.NewsSource = o.News
+	if news == nil && o.Searcher == nil {
+		news = tools.NewNews(tools.NewGuard(), nil)
+	}
 	srch := o.Searcher
 	if srch == nil {
 		switch cfg.Tools.WebSearch.Provider {
@@ -273,7 +278,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Engine = engine.New(engine.Deps{Config: cfg, Store: st, Gateway: gw, Governor: a.Governor, Worker: a.Worker,
 		Fetcher:   tools.NewFetcher(guard, cfg.Tools.WebFetch.MaxBytes, time.Duration(cfg.Tools.WebFetch.TimeoutSeconds)*time.Second),
-		Workspace: ws, Searcher: srch, Pictures: pics, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
+		Workspace: ws, Searcher: srch, Pictures: pics, News: news, MCP: clients, ToolDocs: docs, Charter: charter, Sandbox: sbx, AUL: aulRT, Secret: a.secret, Vault: a.Vault, MoreWorkers: moreWorkers, Replies: !cfg.Reply.Disabled, Version: o.Version, Log: log})
 	a.Engine.Backfill(ctx)
 	if gh := cfg.Connectors.GitHub; gh.Enabled {
 		tok, err := a.secret(ctx, gh.TokenRef)
@@ -287,7 +292,16 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	if cfg.Browser.Socket != "" {
 		a.Egress = egress.New(tools.NewGuard(), log)
 		a.Egress.OnDeny = a.Engine.RecordEgressDenial
-		a.Engine.SetBrowser(browser.New(cfg.Browser.Socket), a.Egress)
+		bc := browser.New(cfg.Browser.Socket)
+		a.Engine.SetBrowser(bc, a.Egress)
+		if o.Searcher == nil && cfg.Tools.WebSearch.Provider == "chromium" {
+			names := cfg.Tools.WebSearch.Engines
+			if len(names) == 0 {
+				names = browser.Engines()
+			}
+			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names, cfg.Tools.WebSearch.Region,
+				tools.NewWikipedia(tools.NewGuard(), cfg.Tools.WebSearch.WikipediaLang)))
+		}
 	}
 	if n := a.Engine.RegisterActiveL2(ctx); n > 0 {
 		log.Info("L2 tools registered", "count", n)

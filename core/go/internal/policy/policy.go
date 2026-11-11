@@ -50,6 +50,7 @@ var Manifest = map[string]ToolSpec{
 	"web.fetch":      {ID: "web.fetch", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"web.search":     {ID: "web.search", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"data.read":      {ID: "data.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	"news.headlines": {ID: "news.headlines", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"calc":           {ID: "calc", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.event":     {ID: "wait.event", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
 	"wait.until":     {ID: "wait.until", Version: "1", SideEffect: "pure", Tier: func(map[string]any) Tier { return A0 }},
