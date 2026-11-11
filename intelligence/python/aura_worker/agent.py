@@ -164,7 +164,9 @@ TOOL_DOCS = {
     "web.fetch": 'web.fetch: fetch one web page. Set "url" to a URL from the objective, or leave it null to fetch a URL '
                  "found by an earlier web.search step or linked from an earlier fetched page (chosen when the step runs). "
                  "Reachable domains: {domains}.",
-    "web.search": 'web.search: search the web. Set "query". Results (titles, URLs, snippets) become observations.',
+    "web.search": 'web.search: search the web. Set "query" to a SHORT keyword query of 3-8 words, never the whole request '
+                  '(e.g. "kota terpadat Indonesia jumlah penduduk wikipedia", "harga emas antam hari ini logam mulia"); add the '
+                  'site or outlet name when the owner names one. Results (titles, URLs, snippets) become observations.',
     "news.headlines": 'news.headlines: today\'s news headlines from Indonesian and international news outlets (title, outlet, '
                       'time, link). Set "query" to a topic (e.g. "harga emas", "Nvidia") or null for the general headlines '
                       'of the day. Use it whenever the owner asks for news, what is happening, or current events; fetch an '
@@ -1035,6 +1037,9 @@ what "text" already says in full: text is the headline, blocks carry the substan
 - quote: a passage quoted from a source (text, title = who or where it is from).
 - links: sources (items: label, url, note) - only URLs that appear in the evidence. For news, one item per headline
   (label = the headline, note = outlet and one line of what it means): the app shows them as headline cards.
+  Whenever the owner asks for URLs, links or sources ("sebutkan URL", "sumbernya", "tautan"), include a links block
+  with every source (label = what it is, url = the exact URL from the evidence, note = outlet or site) in addition to
+  naming the site in "text".
   When the owner asked for news ("berita", "kabar hari ini", "apa yang terjadi"), ALWAYS include such a links block
   with the 3-6 most important headlines whose URLs appear in the evidence, give each a "say", and put any analysis in
   other blocks (figures for the people and companies involved).

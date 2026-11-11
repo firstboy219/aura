@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -161,5 +162,31 @@ func TestChromiumSearchFallsBackWhenEnginesRefuse(t *testing.T) {
 	s.fallback = nil
 	if _, err := s.Search(context.Background(), "q", 5); !errors.Is(err, tools.ErrSearch) {
 		t.Fatalf("want ErrSearch, got %v", err)
+	}
+}
+
+func TestRelevanceGateRejectsDecoyResults(t *testing.T) {
+	junk := []map[string]string{{"title": "如何评价 Grok4.6", "href": "https://www.zhihu.com/q/1"}, {"title": "Baby Hats & Kids Hats", "href": "https://hats.example/"}}
+	f := &fakeHost{results: map[string][]map[string]string{"bing": junk, "duckduckgo": junk}}
+	fb := &fixedSearcher{}
+	s, _ := newTestSearcher(t, f, fb)
+	res, err := s.Search(context.Background(), "Cari harga emas Antam hari ini per gram", 5)
+	if err != nil || !fb.called || res[0].Title != "Wiki" {
+		t.Fatalf("decoy results were accepted: %v %+v", err, res)
+	}
+	// Matching results pass: two of the query's words appear in a title.
+	f2 := &fakeHost{results: map[string][]map[string]string{"bing": {{"title": "Harga Emas Antam Hari Ini - Logam Mulia", "href": "https://www.logammulia.com/id"}}}}
+	fb2 := &fixedSearcher{}
+	s2, _ := newTestSearcher(t, f2, fb2)
+	res, err = s2.Search(context.Background(), "Cari harga emas Antam hari ini per gram", 5)
+	if err != nil || fb2.called || len(res) != 1 {
+		t.Fatalf("relevant results rejected: %v %+v fallback=%v", err, res, fb2.called)
+	}
+}
+
+func TestQueryTokens(t *testing.T) {
+	got := strings.Join(queryTokens("Sebutkan 3 kota berpenduduk terbanyak di Indonesia menurut Wikipedia"), ",")
+	if got != "kota,berpenduduk,terbanyak,indonesia,wikipedia" {
+		t.Fatal(got)
 	}
 }

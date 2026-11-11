@@ -110,6 +110,43 @@ func (w *Wikipedia) Search(ctx context.Context, query string, n int) ([]SearchRe
 	return res, nil
 }
 
+// Multi asks several providers and merges their results, one from each in turn
+// (ADR-0062: the fallback for the Chromium searcher covers both Indonesian and
+// English Wikipedia). A provider that fails is skipped while another answers.
+type Multi []Searcher
+
+func (m Multi) Name() string { return "wikipedia" }
+
+func (m Multi) Search(ctx context.Context, query string, n int) ([]SearchResult, error) {
+	var lists [][]SearchResult
+	var errs []error
+	for _, s := range m {
+		r, err := s.Search(ctx, query, n)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		lists = append(lists, r)
+	}
+	if len(lists) == 0 {
+		return nil, fmt.Errorf("%w: %v", ErrSearch, errors.Join(errs...))
+	}
+	var out []SearchResult
+	for i := 0; len(out) < n; i++ {
+		added := false
+		for _, l := range lists {
+			if i < len(l) && len(out) < n {
+				out = append(out, l[i])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out, nil
+}
+
 // Brave uses the Brave Search API (key from a secret file).
 type Brave struct {
 	api apiClient

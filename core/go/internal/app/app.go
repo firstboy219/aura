@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -304,8 +305,17 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			if len(names) == 0 {
 				names = browser.Engines()
 			}
-			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names,
-				tools.NewWikipedia(tools.NewGuard(), cfg.Tools.WebSearch.WikipediaLang)))
+			langs := []string{cfg.Tools.WebSearch.WikipediaLang}
+			for _, l := range []string{"id", "en"} {
+				if !slices.Contains(langs, l) {
+					langs = append(langs, l)
+				}
+			}
+			var wiki tools.Multi
+			for _, l := range langs {
+				wiki = append(wiki, tools.NewWikipedia(tools.NewGuard(), l))
+			}
+			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names, wiki))
 		}
 	}
 	if n := a.Engine.RegisterActiveL2(ctx); n > 0 {

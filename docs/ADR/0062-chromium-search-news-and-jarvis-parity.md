@@ -64,6 +64,18 @@ and deployed before the next.
   stays inside the existing browser isolation.
 - Letting the model run JavaScript to extract results: forbidden (AGENTS rule 5).
 
+## Correction after the first head-to-head test (2026-11-11)
+The claim above that "Bing served results to Chromium" held for one news query only. In the benchmark
+(`docs/BENCHMARK_AURA_vs_HERMES.md`) Bing answered Indonesian product and place queries with unrelated pages
+(dental amalgam for "harga emas antam", Chinese forum pages, a hat shop), and its real result titles were hidden
+elements. Search quality through a headless browser from a data-centre address is therefore unreliable, and making it
+reliable would mean disguising the browser to pass bot checks, which AURA does not do. Changes made instead:
+- The Chromium searcher refuses result sets that share no significant word with the query and falls back to
+  Wikipedia (Indonesian and English), so the model is never handed decoy pages.
+- The planner is told to write short keyword queries, and to include a links block when the owner asks for URLs.
+- Reliable sources stay first-class: news RSS, the `info.*` services and Wikipedia. A search API key (the Brave
+  API has a free tier) remains the way to get dependable general web search; that is the owner's decision.
+
 ## Consequences
 - Search depends on Bing tolerating a headless browser; when it stops, Wikipedia keeps `web.search` answering and
   the observation names the provider used.

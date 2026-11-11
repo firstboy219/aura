@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"aura.local/core/internal/egress"
 	"aura.local/core/internal/tools"
@@ -119,6 +120,11 @@ func (s *Searcher) one(ctx context.Context, name, query string, n int) ([]tools.
 	if out.SiteBlocked || st.SiteBlocked {
 		return nil, fmt.Errorf("%s: the engine refused the request (bot check)", name)
 	}
+	if !relevantResults(query, out.Results) {
+		// Engines answer some automated browsers with results that have nothing to do with the query (measured
+		// 2026-11-11: Chinese forum pages for an Indonesian query). Such results are never handed to the model.
+		return nil, fmt.Errorf("%s: the results do not match the query", name)
+	}
 	var res []tools.SearchResult
 	seen := map[string]bool{}
 	for _, r := range out.Results {
@@ -137,6 +143,52 @@ func (s *Searcher) one(ctx context.Context, name, query string, n int) ([]tools.
 		}
 	}
 	return res, nil
+}
+
+var stopWords = map[string]bool{"yang": true, "dengan": true, "untuk": true, "dalam": true, "dari": true, "pada": true, "adalah": true,
+	"hari": true, "ini": true, "itu": true, "apa": true, "bagaimana": true, "berapa": true, "sebutkan": true, "beserta": true,
+	"menurut": true, "tentang": true, "saya": true, "tolong": true, "carikan": true, "cari": true, "dan": true, "atau": true,
+	"sumbernya": true, "the": true, "and": true, "for": true, "with": true, "what": true, "how": true, "about": true, "from": true}
+
+func queryTokens(q string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !(unicode.IsLetter(r) || unicode.IsDigit(r)) }) {
+		if len([]rune(f)) >= 4 && !stopWords[f] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// relevantResults reports whether the visible results look like answers to the
+// query: some result mentions at least two of the query's significant words
+// (one when the query has only one or two) in its title, snippet or address.
+func relevantResults(query string, results []struct {
+	Title   string `json:"title"`
+	Href    string `json:"href"`
+	Snippet string `json:"snippet"`
+}) bool {
+	tokens := queryTokens(query)
+	if len(tokens) == 0 {
+		return true
+	}
+	need := 2
+	if len(tokens) < 3 {
+		need = 1
+	}
+	for _, r := range results {
+		text := strings.ToLower(r.Title + " " + r.Snippet + " " + r.Href)
+		hits := 0
+		for _, t := range tokens {
+			if strings.Contains(text, t) {
+				hits++
+			}
+		}
+		if hits >= need {
+			return true
+		}
+	}
+	return false
 }
 
 // ResultURL turns a result link as it appears on an engine's page into the
