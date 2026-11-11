@@ -190,6 +190,14 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 	if err != nil {
 		return err
 	}
+	inReply := false
+	if p.Question != nil && strings.TrimSpace(*p.Question) != "" && mayAnswer {
+		// A conversational request (nothing a tool must produce) is never parked
+		// waiting for an answer: the reply itself asks, and the owner's next message
+		// continues the conversation (ADR-0055 addendum 2026-11-11). Parking turned
+		// greetings into tasks that waited two days for an answer nobody owed.
+		p.Question, p.Steps, inReply = nil, nil, true
+	}
 	if p.Question != nil && strings.TrimSpace(*p.Question) != "" {
 		if asked >= maxQuestions {
 			return fmt.Errorf("invalid_plan: planner asked more than %d questions", maxQuestions)
@@ -226,7 +234,7 @@ func (e *Engine) plan(ctx context.Context, t *task.Task) error {
 			return err
 		}
 		if _, err := task.AppendEvent(ctx, tx, t.ID, nil, "PLAN_CREATED", "worker", map[string]any{
-			"steps": len(steps), "checkpoint": ck, "completion_criteria": p.CompletionCriteria, "direct_answer": direct}); err != nil {
+			"steps": len(steps), "checkpoint": ck, "completion_criteria": p.CompletionCriteria, "direct_answer": direct, "asked_in_reply": inReply}); err != nil {
 			return err
 		}
 		_, err = task.Transition(ctx, tx, t.ID, task.Running, "", "", "core")

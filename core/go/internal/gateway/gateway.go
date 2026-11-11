@@ -92,6 +92,7 @@ type Gateway struct {
 	backoff    func(attempt int) time.Duration
 	brk        *breakers
 	health     *routeHealth
+	issues     *providerIssues
 	// Rescue lets a call use another tier's routes when its own tier has no
 	// working route (ADR-0054). Set from configuration.
 	Rescue bool
@@ -101,7 +102,8 @@ type Gateway struct {
 	// or to the last candidate of a call.
 	Patience map[string]time.Duration
 	// Notify receives R0 self-healing events: R0_CIRCUIT_OPEN, R0_CIRCUIT_CLOSED,
-	// R0_EMPTY_ANSWER_RETRY, R0_TOOL_CALL_MARKUP (may be nil).
+	// R0_EMPTY_ANSWER_RETRY, R0_TOOL_CALL_MARKUP; and PROVIDER_REFUSED when a
+	// provider starts refusing the key or reports no credit (may be nil).
 	Notify func(event string, data map[string]any)
 }
 
@@ -123,6 +125,7 @@ func New(p Provider, routes map[string][]config.ModelRoute, gov *budget.Governor
 // provider (default "openrouter"), so tier fallback can cross providers.
 func NewMulti(provs map[string]Provider, routes map[string][]config.ModelRoute, gov *budget.Governor) *Gateway {
 	return &Gateway{provs: provs, routes: routes, gov: gov, maxRetries: 2, brk: newBreakers(), health: newRouteHealth(),
+		issues:  &providerIssues{m: map[string]ProviderIssue{}},
 		backoff: func(a int) time.Duration { return time.Duration(500*(1<<a)) * time.Millisecond }}
 }
 
@@ -475,6 +478,9 @@ func rawToolMarkup(s string) bool { return markupRe.MatchString(s) }
 func (g *Gateway) failRoute(route config.ModelRoute, pe *ProviderError) {
 	k := routeKey(route)
 	g.health.record(k, false, 0)
+	if id := g.provider(route).ID(); g.issues.set(id, pe, g.brk.now()) && issueKind(pe.Status) != IssueQuota {
+		g.notify("PROVIDER_REFUSED", map[string]any{"provider": id, "kind": issueKind(pe.Status), "status": pe.Status, "last_error": pe.Msg})
+	}
 	if d := restFor(pe); d > 0 {
 		// Quota, credit or authorisation: repeating cannot succeed, rest now.
 		if g.brk.rest(k, d) {
@@ -490,6 +496,7 @@ func (g *Gateway) failRoute(route config.ModelRoute, pe *ProviderError) {
 }
 
 func (g *Gateway) okRoute(route config.ModelRoute) {
+	g.issues.clear(g.provider(route).ID())
 	if g.brk.success(routeKey(route)) {
 		g.notify("R0_CIRCUIT_CLOSED", map[string]any{"route": route.RouteID, "provider": route.Provider})
 	}

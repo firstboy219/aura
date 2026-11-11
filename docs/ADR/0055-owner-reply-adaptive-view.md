@@ -80,3 +80,22 @@ The first sandbox run showed that a failed task ended in silence: the owner saw 
 - Evidence: `reply_test.go` `TestDirectAnswerFailsWithCoreExplanation`, `TestFailedTaskIsExplainedToTheOwner`,
   `TestNoDirectAnswerWhenWorkIsRequired`; `test_agent.py` `test_failure_reply_explains_and_never_claims_done`,
   `test_conversation_marks_the_most_recent_exchange`; sandbox suite S10, S11.
+
+## Addendum 2026-11-11: failures name the provider's own answer; conversations are not parked
+
+Found in production: every owner message failed with PROVIDER_UNAVAILABLE and the reply blamed the private-route
+rule, even for public tasks. The real cause was the provider rejecting the key (HTTP 401) and a second provider out
+of quota. Greetings ("tes halo") were turned into clarification questions and waited in WAITING_INPUT.
+
+- The gateway remembers each provider's last definite refusal (401/403 key rejected, 402 no credit, 429 quota) until
+  that provider answers again (`gateway/issues.go`, `ProviderIssues`). A PROVIDER_UNAVAILABLE reply states those
+  refusals, what the owner can do (the `aura secrets import <name> --stdin` command when the key is in the vault) or
+  how long until a quota-limited route is tried again; the private-route sentence appears only for private tasks.
+- When a provider starts refusing the key or credit, the owner gets one notification (`PROVIDER_REFUSED`, audited).
+  Quota refusals are not notified: waiting fixes them.
+- A planner question about a conversational request (nothing a tool must produce) no longer parks the task: the
+  reply is written directly and may itself ask for the one missing detail; the owner's next message continues the
+  conversation. Requests that need tools still use WAITING_INPUT. The planner is told not to answer greetings with a
+  question and to ask in the objective's language.
+- Evidence: `gateway_test.go` `TestProviderRefusalIsRememberedUntilItAnswers`, `TestQuotaIssueIsReportedWithoutNotification`;
+  `reply_test.go` `TestProviderRefusalIsNamedInTheFailureReply`, `TestConversationalQuestionIsAskedInTheReplyNotParked`.

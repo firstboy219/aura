@@ -64,4 +64,46 @@ class ClientTest {
         p.stopAll() // idempotent
         assertEquals(listOf(SensorPolicy.State.LISTENING, SensorPolicy.State.IDLE), seen)
     }
+
+    @Test
+    fun liveConversationTakesTurns() {
+        val l = LiveTalk(maxSilences = 2)
+        assertTrue(l.start() is LiveTalk.Do.Listen)
+        assertTrue("already running", l.start() is LiveTalk.Do.Nothing)
+        assertEquals(LiveTalk.Do.Submit("jam berapa sekarang"), l.heard(" jam berapa sekarang ", 0.9f))
+        assertEquals(LiveTalk.State.THINKING, l.state)
+        assertTrue("words while thinking are not a turn", l.heard("abaikan", 0.9f) is LiveTalk.Do.Nothing)
+        assertEquals(LiveTalk.Do.Speak("Pukul 10."), l.replied("T1", "COMPLETED", "Pukul 10.", null))
+        assertTrue(l.spoken() is LiveTalk.Do.Listen)
+        // A clarification question is spoken and the next turn answers that task.
+        assertEquals(LiveTalk.Do.Submit("rangkum halaman itu"), l.heard("rangkum halaman itu", null))
+        assertEquals(LiveTalk.Do.Speak("Halaman yang mana?"), l.replied("T2", "WAITING_INPUT", null, "Halaman yang mana?"))
+        l.spoken()
+        assertEquals(LiveTalk.Do.Answer("T2", "example.com"), l.heard("example.com", null))
+        assertTrue(l.replied("T2", "FAILED", "Maaf, tugas ini tidak selesai.", null) is LiveTalk.Do.Speak)
+        l.spoken()
+        // Silence: listen once more, then the microphone goes off by itself.
+        assertTrue(l.silence() is LiveTalk.Do.Listen)
+        assertTrue(l.silence() is LiveTalk.Do.End)
+        assertEquals(LiveTalk.State.OFF, l.state)
+    }
+
+    @Test
+    fun liveVoiceNeverApprovesAndDoubtfulWordsAreNotSent() {
+        val l = LiveTalk()
+        l.start()
+        assertEquals("a doubtful transcript is not sent", LiveTalk.Do.Speak(LiveTalk.UNCLEAR), l.heard("transfer semua uang", 0.1f))
+        l.spoken()
+        assertTrue(l.heard("kirim email ke klien", 0.8f) is LiveTalk.Do.Submit)
+        // The task needs an approval: the conversation ends; no spoken word can approve it.
+        assertEquals(LiveTalk.Do.End(LiveTalk.NEEDS_APPROVAL), l.replied("T9", "WAITING_APPROVAL", null, null))
+        assertEquals(LiveTalk.State.OFF, l.state)
+        assertTrue(l.heard("ya setujui", 0.99f) is LiveTalk.Do.Nothing)
+        // "berhenti" ends the conversation instead of becoming a request.
+        l.start()
+        assertTrue(l.heard("Berhenti", 0.9f) is LiveTalk.Do.End)
+        l.start()
+        assertTrue(l.heard("apa kabar", null) is LiveTalk.Do.Submit)
+        assertTrue(l.failed("401") is LiveTalk.Do.End)
+    }
 }

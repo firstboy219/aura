@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"aura.local/core/internal/budget"
+	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
@@ -296,6 +297,11 @@ func (e *Engine) failureReply(parent context.Context, t *task.Task, reason, deta
 	}
 	if text == "" {
 		text, blocks = failureSummary(code, t.Objective, evidence)
+		if code == taxonomy.ProviderUnavailable {
+			if cause := e.providerCause(t); cause != "" {
+				text = "Maaf, tugas ini tidak selesai. / Sorry, this task was not completed.\n" + cause
+			}
+		}
 		notes = []ReplyNote{note}
 	}
 	if err := e.storeReply(ctx, t, text, blocks, basis, notes, nil); err != nil {
@@ -304,17 +310,78 @@ func (e *Engine) failureReply(parent context.Context, t *task.Task, reason, deta
 }
 
 var failureTexts = map[string]string{
-	taxonomy.ProviderUnavailable: "Tidak ada model yang bisa dipakai untuk tugas ini saat ini. Tugas privat hanya boleh memakai rute yang tidak menyimpan prompt. / " +
-		"No model route is usable for this task right now. A private task may only use routes that do not log prompts.",
-	taxonomy.BudgetExceeded: "Anggaran tugas atau anggaran harian habis sebelum tugas selesai. / The task or daily budget ran out before the task finished.",
-	taxonomy.MaxIterations:  "Batas jumlah langkah tercapai sebelum tugas selesai. / The iteration limit was reached before the task finished.",
-	taxonomy.MaxWallTime:    "Batas waktu tugas habis sebelum tugas selesai. / The task ran out of time before it finished.",
-	taxonomy.PolicyDenied:   "Tugas ini meminta sesuatu yang tidak diizinkan oleh izin atau kebijakan yang berlaku. / The task asked for something its permissions or policy do not allow.",
-	taxonomy.ToolFailed:     "Sebuah alat gagal dan rencana pengganti tidak berhasil. / A tool failed and replanning did not help.",
+	taxonomy.ProviderUnavailable: "Tidak ada model yang bisa dipakai untuk tugas ini saat ini. / No model route is usable for this task right now.",
+	taxonomy.BudgetExceeded:      "Anggaran tugas atau anggaran harian habis sebelum tugas selesai. / The task or daily budget ran out before the task finished.",
+	taxonomy.MaxIterations:       "Batas jumlah langkah tercapai sebelum tugas selesai. / The iteration limit was reached before the task finished.",
+	taxonomy.MaxWallTime:         "Batas waktu tugas habis sebelum tugas selesai. / The task ran out of time before it finished.",
+	taxonomy.PolicyDenied:        "Tugas ini meminta sesuatu yang tidak diizinkan oleh izin atau kebijakan yang berlaku. / The task asked for something its permissions or policy do not allow.",
+	taxonomy.ToolFailed:          "Sebuah alat gagal dan rencana pengganti tidak berhasil. / A tool failed and replanning did not help.",
 	taxonomy.VerificationFailed: "Hasil yang dibuat tidak lolos pemeriksaan, jadi tidak saya laporkan sebagai selesai. / " +
 		"The result did not pass verification, so it is not reported as done.",
 	taxonomy.WorkerCrash: "Proses pekerja berhenti berulang kali. / The worker process stopped repeatedly.",
 	taxonomy.SiteBlocked: "Situs tujuan menolak akses otomatis; tidak ada jalan lain yang dicoba. / The site refused automated access; no way around it was tried.",
+}
+
+// providerCause states why no model could be used, from what the providers
+// themselves answered (gateway.ProviderIssues) and the privacy rule — the facts
+// the owner needs in order to act: replace a rejected key, add credit, or wait
+// for quota. Empty when the gateway knows no cause.
+func (e *Engine) providerCause(t *task.Task) string {
+	if e.gw == nil {
+		return ""
+	}
+	var id, en []string
+	for _, i := range e.gw.ProviderIssues() {
+		msg := view.CleanText(i.Message, 160)
+		switch i.Kind {
+		case gateway.IssueKeyRejected:
+			id = append(id, fmt.Sprintf("Penyedia model %q menolak kunci API AURA (HTTP %d: %s). Tugasnya sendiri tidak salah; kunci itu perlu diganti oleh Tuan%s.", i.Provider, i.Status, msg, e.keyHint(i.Provider)))
+			en = append(en, fmt.Sprintf("Model provider %q rejects AURA's API key (HTTP %d: %s). The task itself is not at fault; the owner must replace the key%s.", i.Provider, i.Status, msg, e.keyHint(i.Provider)))
+		case gateway.IssueNoCredit:
+			id = append(id, fmt.Sprintf("Penyedia model %q melaporkan kredit habis (HTTP %d: %s).", i.Provider, i.Status, msg))
+			en = append(en, fmt.Sprintf("Model provider %q reports no credit (HTTP %d: %s).", i.Provider, i.Status, msg))
+		case gateway.IssueQuota:
+			back, backEN := "", ""
+			if d := e.gw.QuotaBackIn(i.Provider); d > 0 {
+				m := int(d.Minutes()) + 1
+				back, backEN = fmt.Sprintf(" Rute tercepat dicoba lagi sekitar %d menit lagi.", m), fmt.Sprintf(" The soonest route is tried again in about %d min.", m)
+			}
+			id = append(id, fmt.Sprintf("Kuota penyedia model %q sedang habis (HTTP %d).%s", i.Provider, i.Status, back))
+			en = append(en, fmt.Sprintf("Model provider %q is out of quota (HTTP %d).%s", i.Provider, i.Status, backEN))
+		}
+	}
+	if !t.Scope.IsPublic() {
+		mayLog := false
+		for _, h := range e.gw.Health() {
+			mayLog = mayLog || h.MayLog
+		}
+		if mayLog {
+			id = append(id, "Tugas ini privat, jadi rute gratis yang boleh menyimpan prompt tidak dipakai.")
+			en = append(en, "This task is private, so free routes that may log prompts were not used.")
+		}
+	}
+	if len(id) == 0 {
+		return ""
+	}
+	return strings.Join(id, " ") + "\n" + strings.Join(en, " ")
+}
+
+// keyHint names the command that replaces a provider's key when the key lives in
+// the vault (the name is configuration, never the secret).
+func (e *Engine) keyHint(provider string) string {
+	file := ""
+	if provider == "openrouter" {
+		file = e.cfg.Providers.OpenRouter.KeyFile
+	}
+	for _, p := range e.cfg.Providers.OpenAICompatible {
+		if p.ID == provider {
+			file = p.KeyFile
+		}
+	}
+	if name, ok := strings.CutPrefix(file, "vault:"); ok && name != "" {
+		return fmt.Sprintf(" (`aura secrets import %s --stdin`)", name)
+	}
+	return ""
 }
 
 // failureSummary is the Core's own statement of a failure: fixed wording per

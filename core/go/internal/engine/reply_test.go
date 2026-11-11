@@ -178,6 +178,52 @@ func TestDirectAnswerFailsWithCoreExplanation(t *testing.T) {
 	}
 }
 
+// A greeting must never park a task waiting for the owner: when the planner asks
+// a question about a conversational request, the reply itself speaks and the task
+// ends (found in production: "tes halo" waited in WAITING_INPUT for an answer).
+func TestConversationalQuestionIsAskedInTheReplyNotParked(t *testing.T) {
+	h := newHarness(t, harnessOpts{replies: true, respond: replyModel(
+		func(string) string {
+			return `{"steps":[],"completion_criteria":[],"question":"Halo! Apa tugas yang ingin Anda lakukan?"}`
+		},
+		func(string) gatewaytest.Reply {
+			return gatewaytest.Reply{Content: replyJSON("Halo Tuan, ada yang bisa saya bantu?")}
+		})})
+	tk := h.submit("tes halo", nil)
+	h.wait(tk.ID, task.Succeeded)
+	r, _ := h.eng.GetReply(context.Background(), tk.ID)
+	if r == nil || r.Text != "Halo Tuan, ada yang bisa saya bantu?" || !hasNote(r, "model_knowledge") {
+		t.Fatalf("reply = %+v", r)
+	}
+	var pending int
+	h.st.R.QueryRow("select count(*) from task_inputs where task_id=?", tk.ID).Scan(&pending)
+	if pending != 0 {
+		t.Fatalf("a conversational task recorded %d owner questions", pending)
+	}
+}
+
+// When the provider refuses AURA's key, the owner is told exactly that — the
+// one thing only the owner can fix — and not a generic "no route" text.
+func TestProviderRefusalIsNamedInTheFailureReply(t *testing.T) {
+	h := newHarness(t, harnessOpts{replies: true, respond: func(config.ModelRoute, gateway.Request) gatewaytest.Reply {
+		return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 401, Msg: "User not found."}}
+	}})
+	tk := h.submit("halo, kamu siapa?", nil)
+	h.wait(tk.ID, task.Failed)
+	r, _ := h.eng.GetReply(context.Background(), tk.ID)
+	if r == nil || !hasNote(r, "task_failed") {
+		t.Fatalf("reply = %+v", r)
+	}
+	for _, want := range []string{"menolak kunci API", "HTTP 401", "User not found.", "rejects AURA's API key"} {
+		if !strings.Contains(r.Text, want) {
+			t.Fatalf("reply does not name the cause (%q missing): %s", want, r.Text)
+		}
+	}
+	if strings.Contains(r.Text, "privat") && tk.Scope.IsPublic() {
+		t.Fatalf("a public task must not be told about the private-route rule: %s", r.Text)
+	}
+}
+
 // A task that fails while working is explained by the reply writer in failure
 // mode; the reply is labelled task_failed and the task stays FAILED.
 func TestFailedTaskIsExplainedToTheOwner(t *testing.T) {

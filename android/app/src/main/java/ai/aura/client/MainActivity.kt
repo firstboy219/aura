@@ -33,6 +33,11 @@ class MainActivity : Activity() {
     private var tab = "tasks"
     private var pendingMic: (() -> Unit)? = null
     private var lastPublic = false
+    private val live = LiveTalk()
+    private lateinit var liveBox: LinearLayout
+    private lateinit var liveStatus: TextView
+    private lateinit var liveHeard: TextView
+    private lateinit var liveSaid: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,14 +51,34 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             visibility = View.GONE
             addView(TextView(this@MainActivity).apply {
-                text = "● Mikrofon aktif — AURA mendengarkan"
+                text = "● Mikrofon dipakai AURA (dikte atau percakapan langsung)"
                 setTextColor(Color.WHITE)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(Button(this@MainActivity).apply { text = "Hentikan"; setOnClickListener { voice.stop() } })
         }
-        policy.onChange { s -> runOnUiThread { banner.visibility = if (s == SensorPolicy.State.LISTENING) View.VISIBLE else View.GONE } }
+        policy.onChange { s -> runOnUiThread {
+            banner.visibility = if (s == SensorPolicy.State.LISTENING) View.VISIBLE else View.GONE
+            if (s == SensorPolicy.State.IDLE) endLive() // one stop ends everything, the conversation included
+        } }
         root.addView(banner)
+        // The live conversation panel: what AURA hears, as it is spoken, and what it answers.
+        liveStatus = label("", bold = true)
+        liveHeard = label("", size = 16f)
+        liveSaid = label("", size = 14f).apply { setTextColor(Color.DKGRAY) }
+        liveBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(232, 240, 254))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            visibility = View.GONE
+            addView(liveStatus); addView(liveHeard); addView(liveSaid)
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(button("Sela / bicara sekarang") { if (live.state == LiveTalk.State.SPEAKING) voice.hush() })
+                addView(button("Akhiri percakapan") { voice.stop() })
+            })
+        }
+        root.addView(liveBox)
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for ((id, label) in listOf("tasks" to "Tugas", "approvals" to "Persetujuan", "notices" to "Notifikasi", "settings" to "Pengaturan")) {
             tabs.addView(Button(this).apply {
@@ -134,6 +159,7 @@ class MainActivity : Activity() {
         content.addView(public)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(button("🎤 Bicara") { startMic { objective.append(if (objective.text.isEmpty()) it else " $it") } })
+        row.addView(button("🎧 Percakapan langsung") { startLive() })
         row.addView(button("Kirim") {
             val text = objective.text.toString().trim()
             if (text.isEmpty()) return@button
@@ -301,7 +327,7 @@ class MainActivity : Activity() {
         })
         content.addView(label("Sensor dan privasi", bold = true))
         content.addView(CheckBox(this).apply {
-            text = "Izinkan mikrofon untuk dikte (hanya saat Tuan menekan 🎤)"
+            text = "Izinkan mikrofon untuk dikte dan percakapan langsung (hanya setelah Tuan menekan 🎤 atau 🎧)"
             isChecked = store.micAllowed
             setOnCheckedChangeListener { _, on -> store.micAllowed = on; if (!on) voice.stop() }
         })
@@ -322,6 +348,8 @@ class MainActivity : Activity() {
         content.addView(button("Hentikan semua sensor sekarang") { voice.stop(); toast("Semua sensor dihentikan") })
         content.addView(label(
             "Suara dikenali oleh pengenal suara perangkat (offline bila tersedia) dan hanya teksnya yang dikirim ke AURA; " +
+                "percakapan langsung berhenti saat aplikasi ditutup, saat hening, atau saat Tuan berkata \"berhenti\"; " +
+                "persetujuan tindakan tidak pernah diterima lewat suara; " +
                 "rekaman suara tidak disimpan. Kamera dan layar tidak dipakai di versi ini. Kata sandi tidak disimpan; " +
                 "ponsel hanya menyimpan token perangkat terenkripsi (Android Keystore), yang dicabut saat keluar.", size = 12f))
         if (store.token.isNotEmpty()) content.addView(button("Keluar dari perangkat ini") {
@@ -347,6 +375,94 @@ class MainActivity : Activity() {
         if (!voice.available()) { toast("Pengenal suara tidak tersedia di perangkat ini"); return }
         voice.listen(onText) { toast(it) }
     }
+
+    // ---------------------------------------------------------------- live conversation
+    /** Starts a spoken conversation: AURA listens, shows the words as they are spoken, answers aloud, listens again. */
+    private fun startLive() {
+        val granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (store.micAllowed && !granted) {
+            pendingMic = { startLive() }
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
+            return
+        }
+        policy.whyNot(store.micAllowed, granted, foreground)?.let { toast(it); return }
+        if (!voice.available()) { toast("Pengenal suara tidak tersedia di perangkat ini"); return }
+        liveHeard.text = ""
+        liveSaid.text = ""
+        liveBox.visibility = View.VISIBLE
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        act(live.start())
+    }
+
+    private fun endLive() {
+        live.stop()
+        liveBox.visibility = View.GONE
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun act(d: LiveTalk.Do) {
+        when (d) {
+            is LiveTalk.Do.Nothing -> {}
+            is LiveTalk.Do.Listen -> {
+                // Every turn re-checks the sensor rules: consent, permission and foreground may have changed.
+                val granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                if (!store.micAllowed || !granted || !foreground) { voice.stop(); return }
+                liveStatus.text = "● Mendengarkan… silakan bicara"
+                voice.hear(
+                    { liveHeard.text = "Tuan: $it…" },
+                    { text, conf -> liveHeard.text = "Tuan: $text"; act(live.heard(text, conf)) },
+                    { act(live.silence()) },
+                    { toast(it); voice.stop() })
+            }
+            is LiveTalk.Do.Submit -> {
+                liveStatus.text = "AURA sedang memproses…"
+                liveTurn({ api().createTask(d.text, listOf("web.search", "web.fetch", "workspace.write"), emptyList(), lastPublic).id })
+            }
+            is LiveTalk.Do.Answer -> {
+                liveStatus.text = "AURA sedang memproses…"
+                liveTurn({ api().answer(d.taskId, d.text); d.taskId })
+            }
+            is LiveTalk.Do.Speak -> {
+                liveStatus.text = "AURA berbicara…"
+                liveSaid.text = "AURA: " + d.text.take(600)
+                voice.speak(d.text.take(600)) { act(live.spoken()) }
+            }
+            is LiveTalk.Do.End -> {
+                liveSaid.text = "AURA: " + d.say
+                voice.stop()
+                voice.speak(d.say)
+                toast(d.say)
+                if (tab == "tasks") render()
+            }
+        }
+    }
+
+    private fun liveTurn(send: () -> String) {
+        io.execute {
+            val r = runCatching(send)
+            runOnUiThread {
+                r.onSuccess { liveFollow(it, 0) }.onFailure { e -> act(live.failed(e.message ?: e.toString())) }
+            }
+        }
+    }
+
+    /** Polls the turn's task quickly so the spoken answer follows the question closely. */
+    private fun liveFollow(id: String, n: Int) {
+        content.postDelayed({
+            if (isFinishing || isDestroyed || live.state != LiveTalk.State.THINKING) return@postDelayed
+            io.execute {
+                val r = runCatching { api().task(id).let { t -> t to if (t.state == "WAITING_INPUT") api().events(id).lastOrNull { it.type == "INPUT_REQUESTED" }?.data else null } }
+                runOnUiThread {
+                    r.onSuccess { (t, q) ->
+                        if (t.state in ACTIVE && n < 150) liveFollow(id, n + 1)
+                        else act(live.replied(id, t.state, t.reply?.text, q?.let { questionText(it) }))
+                    }.onFailure { e -> act(live.failed(e.message ?: e.toString())) }
+                }
+            }
+        }, 800)
+    }
+
+    private fun questionText(data: String) = runCatching { org.json.JSONObject(data).optString("question") }.getOrNull()?.takeIf { it.isNotBlank() } ?: data
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

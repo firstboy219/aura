@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -34,6 +35,7 @@ import (
 	"aura.local/core/internal/egress"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/gateway"
+	"aura.local/core/internal/ids"
 	"aura.local/core/internal/mcp"
 	"aura.local/core/internal/obs"
 	"aura.local/core/internal/policy"
@@ -171,6 +173,17 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	gw.Notify = func(event string, data map[string]any) { // R0 self-healing is always recorded (Blueprint §8A.5)
 		st.Write(context.Background(), func(tx *sql.Tx) error { return policy.Audit(context.Background(), tx, event, "core", "", "", data) })
 		log.Warn("self-healing", "event", event, "data", data)
+		if event == "PROVIDER_REFUSED" {
+			// Only the owner can replace a key or add credit, so the owner is told once
+			// per change (the gateway reports the transition, not every refusal).
+			body, _ := json.Marshal(data)
+			st.Write(context.Background(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(context.Background(), "insert into notifications(id, kind, title, body_json, created_at) values(?,?,?,?,?)",
+					ids.New(), "info", fmt.Sprintf("Model provider %v refuses AURA's key or credit (HTTP %v) — owner action needed", data["provider"], data["status"]),
+					string(body), ids.NowMs())
+				return err
+			})
+		}
 	}
 	ws, err := tools.NewWorkspace(cfg.Workspace.Root)
 	if err != nil {

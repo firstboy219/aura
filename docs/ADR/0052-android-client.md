@@ -41,4 +41,4 @@ another product's build is read or reused (Blueprint §15).
 - Approving from the phone uses only the member token (approver role). There is no second factor like the web's TOTP
   step-up yet. Mitigations: the member can be disabled, and the approval is still bound to the exact action hash.
 - No push notifications (FCM would add a Google dependency). Polling under JobScheduler is used instead.
-- No camera or screen perception; no live voice conversation, only dictation and read-out.
+- No camera or screen perception. Live voice conversation was added later on the same on-device basis (ADR-0057).

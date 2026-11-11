@@ -228,7 +228,9 @@ ANSWER_RULE_DENIED = "Every plan needs at least one step."
 
 ASK_RULE_ALLOWED = ('If the objective is genuinely ambiguous so that any plan would be a guess (for example it does not '
                     'say which source, file or time), set "question" to ONE specific question for the owner and return '
-                    'no steps. Otherwise set "question" to null. Do not ask about things you can decide sensibly.')
+                    'no steps. Otherwise set "question" to null. Do not ask about things you can decide sensibly. Never ask what '
+                    'the owner wants in reply to a greeting, a test message or small talk: that needs no question. '
+                    'Write the question in the language of the objective.')
 ASK_RULE_DENIED = 'Set "question" to null and plan with sensible defaults; the owner has already answered questions.'
 
 REVIEW_SYSTEM = """You are the plan review module of AURA. Check a plan before it runs.
@@ -947,7 +949,10 @@ REPLY_BASIS = {
                  "copy figures exactly. Mention the files written by their path."),
     "model_knowledge": ("Basis: no tool was used. Answer from your own knowledge and the conversation. Do not state "
                         "current prices, news, dates of recent events or other facts you cannot know without a source; "
-                        "say what you would need to look up instead. The owner is told this answer was not checked."),
+                        "say what you would need to look up instead. The owner is told this answer was not checked. "
+                        "If the request cannot be answered or carried out without ONE missing detail (which page, which "
+                        "file, which date), ask for it in one short question instead of guessing: the owner's next "
+                        "message continues this conversation."),
 }
 
 REPLY_FAILURE = """THIS TASK FAILED: it was not completed and nothing in it was verified. Never present it as done.

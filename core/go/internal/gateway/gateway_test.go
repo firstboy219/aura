@@ -702,3 +702,65 @@ func TestFreeRoutePatience(t *testing.T) {
 		t.Fatalf("paid route: %+v %v", res, err)
 	}
 }
+
+// ADR-0055 addendum: a provider that refuses the key is remembered as an issue
+// the owner can act on, announced once, and forgotten when the provider answers.
+func TestProviderRefusalIsRememberedUntilItAnswers(t *testing.T) {
+	refuse := true
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		if refuse {
+			return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 401, Msg: "User not found."}}
+		}
+		return gatewaytest.Reply{Content: `{"answer":"ok"}`}
+	}}
+	g, _, id := setup(t, f)
+	var told []map[string]any
+	g.Notify = func(ev string, d map[string]any) {
+		if ev == "PROVIDER_REFUSED" {
+			told = append(told, d)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req()); !errors.Is(err, gateway.ErrAllRoutes) {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	is := g.ProviderIssues()
+	if len(is) != 1 || is[0].Kind != gateway.IssueKeyRejected || is[0].Status != 401 || is[0].Message != "User not found." {
+		t.Fatalf("issues = %+v", is)
+	}
+	if len(told) != 1 || told[0]["kind"] != gateway.IssueKeyRejected {
+		t.Fatalf("the owner must be told exactly once, got %v", told)
+	}
+	refuse = false
+	now := time.Now().Add(11 * time.Minute) // past the rest after a refused key
+	g.SetClockForTest(func() time.Time { return now })
+	if _, err := g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req()); err != nil {
+		t.Fatal(err)
+	}
+	if is := g.ProviderIssues(); len(is) != 0 {
+		t.Fatalf("an answering provider has no issue: %+v", is)
+	}
+}
+
+// A quota refusal is an issue too, but waiting fixes it: the owner is not notified.
+func TestQuotaIssueIsReportedWithoutNotification(t *testing.T) {
+	f := &gatewaytest.Fake{Respond: func(r config.ModelRoute, q gateway.Request) gatewaytest.Reply {
+		return gatewaytest.Reply{Err: &gateway.ProviderError{Status: 429, Msg: "quota exceeded"}}
+	}}
+	g, _, id := setup(t, f)
+	told := 0
+	g.Notify = func(ev string, d map[string]any) {
+		if ev == "PROVIDER_REFUSED" {
+			told++
+		}
+	}
+	g.Complete(context.Background(), gateway.Budget{TaskID: id, TaskLimitUSD: 5}, req())
+	is := g.ProviderIssues()
+	if len(is) != 1 || is[0].Kind != gateway.IssueQuota || told != 0 {
+		t.Fatalf("issues = %+v, notifications = %d", is, told)
+	}
+	if d := g.QuotaBackIn(is[0].Provider); d <= 0 || d > 31*time.Minute {
+		t.Fatalf("quota back in %v", d)
+	}
+}
