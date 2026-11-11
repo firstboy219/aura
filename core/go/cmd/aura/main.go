@@ -850,8 +850,9 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		return usageErr("unknown task subcommand " + sub)
 	case "ask":
 		fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-		var toolsF, domains multiFlag
+		var toolsF, domains, heard multiFlag
 		fs.Var(&toolsF, "tool", "granted tool (repeatable)")
+		fs.Var(&heard, "heard", "treat the request as spoken; another recognizer hypothesis (repeatable, ADR-0058)")
 		fs.Var(&domains, "allow-domain", "allowlisted domain (repeatable)")
 		public := fs.Bool("public", false, "content is public: allow model routes that may log prompts (free models)")
 		tier := fs.String("tier", "", "force a model tier: fast | standard | deep")
@@ -870,6 +871,13 @@ func client(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		if *tier != "" {
 			body["tier"] = *tier
+		}
+		if len(heard) > 0 {
+			alts := []map[string]string{{"text": pos[0]}}
+			for _, h := range heard {
+				alts = append(alts, map[string]string{"text": h})
+			}
+			body["voice"] = map[string]any{"alternatives": alts}
 		}
 		var out askTask
 		if err := c.do("POST", "/tasks", body, nil, &out); err != nil {
@@ -1787,6 +1795,7 @@ type askTask struct {
 	State    string  `json:"state"`
 	Reason   *string `json:"reason"`
 	Question string  `json:"question"`
+	HeardAs  string  `json:"heard_as"`
 	CostUSD  float64 `json:"cost_usd"`
 	Reply    *struct {
 		Text  string `json:"text"`
@@ -1809,6 +1818,9 @@ func printReply(w io.Writer, t *askTask) {
 			fmt.Fprintf(w, "No reply. Reason: %s\n", *t.Reason)
 		}
 		return
+	}
+	if t.HeardAs != "" {
+		fmt.Fprintf(w, "(heard as: %s)\n", t.HeardAs)
 	}
 	fmt.Fprintf(w, "%s\n", t.Reply.Text)
 	for _, b := range t.Reply.View {
