@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir --root-user-action=ignore requests==2.32.3 pandas==2.2.3 openpyxl==3.1.5 \
       python-docx==1.1.2 pypdf==5.1.0 matplotlib==3.9.2 beautifulsoup4==4.12.3 pytest==8.3.4 \
+ && git config --system --add safe.directory /mirror/upstream.git \
+ && git config --system --add safe.directory /mirror/autotoko.git \
  && useradd --system --uid 10004 --home-dir /work --shell /bin/bash runner \
  && mkdir -p /work /run/aura-shell && chown runner:runner /work /run/aura-shell && chmod 0755 /run/aura-shell
 COPY shell/aura_shell /opt/aura-shell/aura_shell
