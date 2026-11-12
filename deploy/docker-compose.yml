@@ -143,6 +143,10 @@ services:
     volumes:
       - aura-shell-sock:/run/aura-shell
       - aura-shell-work:/work
+      # JARVIS' code work on AURA (ADR-0067): the runner's root-owned mirrors of JARVIS main / AutoToko develop, and JARVIS' hand-off
+      # folder (task instructions, spec, review, diffs) — both read-only; AURA hands a diff back, JARVIS' runner applies and tests it.
+      - ${JARVIS_DEV_MIRROR:-/home/ubuntu/my-project/infra/data/dev-mirror}:/mirror:ro
+      - ${JARVIS_HANDOFF:-/home/ubuntu/my-project/infra/data/dev/handoff}:/handoff:ro
     cpus: 1.0
     mem_limit: 2g
     pids_limit: 512
