@@ -20,7 +20,9 @@ type DuckDuckGoHTML struct {
 	timeout time.Duration
 }
 
-func NewDuckDuckGoHTML(g *Guard) *DuckDuckGoHTML { return &DuckDuckGoHTML{guard: g, timeout: 15 * time.Second} }
+func NewDuckDuckGoHTML(g *Guard) *DuckDuckGoHTML {
+	return &DuckDuckGoHTML{guard: g, timeout: 15 * time.Second}
+}
 
 func (d *DuckDuckGoHTML) Name() string { return "duckduckgo-html" }
 
