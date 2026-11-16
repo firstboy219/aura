@@ -404,6 +404,9 @@ func (e *Engine) serveTool(ctx context.Context, s *session, g *policy.Grant, req
 	if tier == policy.A2 && s.t.AgentRole == "lab" {
 		return nil, e.deny(ctx, s, req.Method, "lab_no_approval", map[string]any{"tool_id": c.ToolID}) // the Lab never asks the owner
 	}
+	if ok, used, limit := e.toolQuotaLeft(ctx, c.ToolID, s.step.ID); !ok {
+		return nil, e.deny(ctx, s, req.Method, "tool_quota_exceeded", map[string]any{"tool_id": c.ToolID, "used_today": used, "limit_per_day": limit}) // ODI A5: the owner's cost control
+	}
 	s.invoked = true
 	if tier == policy.A2 {
 		act := policy.Action{ToolID: spec.ID, ToolVersion: spec.Version, Arguments: args, Target: target,

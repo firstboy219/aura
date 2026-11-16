@@ -67,7 +67,7 @@ func Canonical(reason string) string {
 		return ""
 	case strings.HasPrefix(r, "budget_exceeded_iterations"), strings.HasPrefix(r, "max_attempts"):
 		return MaxIterations
-	case strings.HasPrefix(r, "budget_exceeded"):
+	case strings.HasPrefix(r, "budget_exceeded"), strings.HasPrefix(r, "tool_quota"):
 		return BudgetExceeded
 	case strings.HasPrefix(r, "max_wall"), strings.Contains(r, "deadline"):
 		return MaxWallTime
