@@ -32,6 +32,8 @@ type TriggerSpec struct {
 	Purpose      string      `json:"purpose,omitempty"` // watch only
 	// Render "browser" reads watch sources in the isolated Chromium, for pages that need JavaScript (ADR-0062).
 	Render string `json:"render,omitempty"`
+	// Policy is the optional ODI A7 schedule policy (overlap, quiet hours, expiry, grace, jitter).
+	Policy *TriggerPolicy `json:"policy,omitempty"`
 }
 
 // Trigger is one schedule.
@@ -144,6 +146,9 @@ func (e *Engine) CreateTrigger(ctx context.Context, tr *Trigger) (*Trigger, erro
 	default:
 		return nil, bad("kind must be task or watch")
 	}
+	if err := tr.Spec.Policy.validate(tr.Kind); err != nil {
+		return nil, bad("%v", err)
+	}
 	spec, _ := json.Marshal(tr.Spec)
 	tr.ID, tr.Enabled, tr.NextRunAt = ids.New(), true, next.UnixMilli()
 	err = e.st.Write(ctx, func(tx *sql.Tx) error {
@@ -236,7 +241,11 @@ func (e *Engine) RunTriggers(ctx context.Context) {
 	rows.Close()
 	for _, tr := range due {
 		slot := tr.NextRunAt
+		if e.triggerPolicyGate(ctx, tr, slot) {
+			continue
+		}
 		next, _ := nextRun(tr.IntervalSeconds, tr.DailyAt, time.Now(), e.cfg.Location())
+		next = next.Add(jitterFor(tr.Spec.Policy))
 		// Claim the slot first: a crash after this never runs the same slot twice.
 		claimed := false
 		e.st.Write(ctx, func(tx *sql.Tx) error {
@@ -402,9 +411,10 @@ type Notification struct {
 
 // Notifications lists notifications, unread first.
 func (e *Engine) Notifications(ctx context.Context, unreadOnly bool) ([]Notification, error) {
-	q := "select id, kind, trigger_id, task_id, title, body_json, read_at, created_at from notifications"
+	now := ids.NowMs()
+	q := fmt.Sprintf("select id, kind, trigger_id, task_id, title, body_json, read_at, created_at from notifications where (snoozed_until is null or snoozed_until<=%d) and (expires_at is null or expires_at>%d)", now, now)
 	if unreadOnly {
-		q += " where read_at is null"
+		q += " and read_at is null"
 	}
 	rows, err := e.st.R.QueryContext(ctx, q+" order by (read_at is not null), created_at desc limit 200")
 	if err != nil {

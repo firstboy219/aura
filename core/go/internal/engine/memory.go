@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -31,15 +32,16 @@ type Memory struct {
 	Provenance   map[string]any `json:"provenance"`
 	CreatedAt    int64          `json:"created_at"`
 	UpdatedAt    int64          `json:"updated_at"`
+	ExpiresAt    *int64         `json:"expires_at,omitempty"` // ODI A7: after this the memory is retired, never used as a fact again
 }
 
-const memCols = "id, kind, content, privacy, status, version, supersedes, source_task_id, provenance_json, created_at, updated_at"
+const memCols = "id, kind, content, privacy, status, version, supersedes, source_task_id, provenance_json, created_at, updated_at, expires_at"
 
 func scanMemory(sc interface{ Scan(...any) error }) (*Memory, error) {
 	var m Memory
 	var prov string
 	if err := sc.Scan(&m.ID, &m.Kind, &m.Content, &m.Privacy, &m.Status, &m.Version, &m.Supersedes, &m.SourceTaskID, &prov,
-		&m.CreatedAt, &m.UpdatedAt); err != nil {
+		&m.CreatedAt, &m.UpdatedAt, &m.ExpiresAt); err != nil {
 		return nil, err
 	}
 	json.Unmarshal([]byte(prov), &m.Provenance)
@@ -75,7 +77,7 @@ func (e *Engine) SearchMemories(ctx context.Context, text string, includePrivate
 		return []*Memory{}, nil
 	}
 	query := `select ` + prefixCols("m.", memCols) + ` from memories_fts f join memories m on m.rowid = f.rowid
-		where memories_fts match ? and m.status = 'active'`
+		where memories_fts match ? and m.status = 'active' and (m.expires_at is null or m.expires_at > ` + strconv.FormatInt(ids.NowMs(), 10) + `)`
 	if !includePrivate {
 		query += " and m.privacy = 'public'"
 	}

@@ -34,14 +34,18 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addMemory(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Content string `json:"content"`
-		Private bool   `json:"private"`
+		Content       string `json:"content"`
+		Private       bool   `json:"private"`
+		ExpiresInDays int    `json:"expires_in_days"` // ODI A7: 0 = never
 	}
 	if err := decodeStrict(r, &in); err != nil {
 		s.mapErr(w, r, err)
 		return
 	}
 	m, err := s.Engine.AddOwnerMemory(r.Context(), in.Content, in.Private)
+	if err == nil && in.ExpiresInDays > 0 {
+		m, err = s.Engine.SetMemoryExpiry(r.Context(), m.ID, in.ExpiresInDays)
+	}
 	if err != nil {
 		s.mapErr(w, r, err)
 		return
@@ -626,4 +630,57 @@ func (s *Server) profileLoginFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"saved": saved})
+}
+
+// snoozeNotification hides a notification for N minutes (ODI A7).
+func (s *Server) snoozeNotification(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Minutes int `json:"minutes"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	if err := s.Engine.SnoozeNotification(r.Context(), r.PathValue("id"), in.Minutes); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"snoozed": r.PathValue("id"), "minutes": in.Minutes})
+}
+
+// ackNotification acknowledges a notification (ODI A7).
+func (s *Server) ackNotification(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.AckNotification(r.Context(), r.PathValue("id")); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"acknowledged": r.PathValue("id")})
+}
+
+// setMemoryExpiry sets or clears a memory's expiry (ODI A7).
+func (s *Server) setMemoryExpiry(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Days int `json:"days"`
+	}
+	if err := decodeStrict(r, &in); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	m, err := s.Engine.SetMemoryExpiry(r.Context(), r.PathValue("id"), in.Days)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
+
+// retentionReport is a dry run: what the owner's retention proposal would purge. Nothing is deleted (ODI A7, ADR-0076).
+func (s *Server) retentionReport(w http.ResponseWriter, r *http.Request) {
+	p, would, err := s.Engine.RetentionReport(r.Context(), s.Store.R)
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"policy": p, "would_purge": would, "enforced": false,
+		"note": "report only: deleting data needs the owner's explicit approval of these numbers; the audit log and task events are never part of a retention proposal"})
 }

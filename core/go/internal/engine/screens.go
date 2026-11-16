@@ -341,7 +341,7 @@ func (e *Engine) Home(ctx context.Context) HomeContext {
 	r.QueryRowContext(ctx, "select count(*) from approvals where status='pending' and expires_at>?", now.UnixMilli()).Scan(&c.Approvals)
 	r.QueryRowContext(ctx, "select count(*) from tasks where parent_task_id is null and state='WAITING_INPUT'").Scan(&c.Questions)
 	r.QueryRowContext(ctx, "select count(*) from tasks where parent_task_id is null and state in ('PLANNING','RUNNING','VERIFYING','QUEUED')").Scan(&c.Running)
-	r.QueryRowContext(ctx, "select count(*) from notifications where read_at is null").Scan(&c.Unread)
+	r.QueryRowContext(ctx, "select count(*) from notifications where read_at is null and (snoozed_until is null or snoozed_until<=strftime('%s','now')*1000) and (expires_at is null or expires_at>strftime('%s','now')*1000)").Scan(&c.Unread)
 	r.QueryRowContext(ctx, `select coalesce(sum(state='FAILED'),0), coalesce(sum(state='COMPLETED'),0), coalesce(sum(cost_actual_usd),0) from tasks
 		where parent_task_id is null and updated_at>=?`, day).Scan(&c.FailedToday, &c.DoneToday, &c.CostTodayUSD)
 	if e.gw != nil {

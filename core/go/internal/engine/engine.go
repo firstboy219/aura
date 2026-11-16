@@ -203,6 +203,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 		e.Supervise(ctx)
 		e.RunTriggers(ctx)
+		e.ExpireMemories(ctx)
 		e.RunReminders(ctx)
 		e.improveTick(ctx)
 	}
