@@ -186,6 +186,27 @@ paths:
       security: []
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [question], additionalProperties: false, properties: { gap: { type: string }, question: { type: string, maxLength: 1500 }, expected_form: { type: string } } } } } }
       responses: { '200': { description: Untrusted answer (trust untrusted, source_type external-ai) }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '502': { $ref: '#/components/responses/Error' } }
+  /admin/tool-manifests:
+    get: { operationId: toolManifests, description: "Owner: the manifest of every registered tool (side effect, tier, risk label, network destination class, data classes, idempotency); manifest_gaps counts tools missing declared facts (ODI A5).", responses: { '200': { description: Manifests } } }
+  /admin/tool-quotas:
+    get: { operationId: getToolQuotas, description: "Owner: per-tool daily quotas (steps per UTC day).", responses: { '200': { description: Quotas } } }
+    put: { operationId: putToolQuotas, description: "Owner: replace the quotas ({quotas: {tool_id: n}}, 0 removes). Audited. A step past its tool's quota is denied as tool_quota_exceeded.", responses: { '200': { description: Quotas }, '400': { $ref: '#/components/responses/Error' } } }
+  /devices:
+    get: { operationId: listDevices, description: "Owner: paired devices (ODI A6).", responses: { '200': { description: Devices } } }
+  /devices/pairings:
+    post: { operationId: startDevicePairing, description: "Owner: start a pairing; returns a one-time challenge (shown once).", responses: { '201': { description: Pairing }, '400': { $ref: '#/components/responses/Error' } } }
+  /devices/pairings/{id}/complete:
+    post: { operationId: completeDevicePairing, security: [], description: "Device: complete a pairing with the challenge, its ed25519 public key and a signature proving it holds the key. Rate limited. The device is pending until the owner confirms it.", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '202': { description: Pending }, '403': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } } }
+  /devices/{id}/confirm:
+    post: { operationId: confirmDevice, description: "Owner: trust a pending device with a subset of the capabilities it requested (web: TOTP step-up code).", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Trusted }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /devices/{id}/revoke:
+    post: { operationId: revokeDevice, description: "Owner: revoke a device at once; its leases end and the tasks it held stay paused.", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Revoked } } }
+  /devices/self/heartbeat:
+    post: { operationId: deviceHeartbeat, security: [], description: "Device (ed25519-signed headers X-Aura-Device, X-Aura-Timestamp, X-Aura-Nonce, X-Aura-Signature).", responses: { '200': { description: OK }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /devices/self/leases:
+    post: { operationId: deviceBeginLease, security: [], description: "Device (signed): take over a task; automation on it pauses. 409 when the task is already leased.", responses: { '201': { description: Lease }, '409': { $ref: '#/components/responses/Error' } } }
+  /devices/self/leases/{id}/release:
+    post: { operationId: deviceReleaseLease, security: [], description: "Device (signed): hand back with the sha256 of a fresh observation (422 without one).", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Released }, '422': { $ref: '#/components/responses/Error' } } }
   /admin/audit:
     get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
   /aul/check:

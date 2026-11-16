@@ -54,9 +54,9 @@
   {
    "id": "AT-08",
    "title": "Pencabutan owner/perangkat/tugas menghentikan aksi berikutnya dan mengisolasi pekerja",
-   "status": "partial",
+   "status": "met",
    "phase": "A6",
-   "evidence": "grant revocation proven (policy.TestGrantVerification), cancel/kill stop workers (TestCancelKillsWorkerQuickly, TestKillSwitch, TestCancelRootCancelsDescendants, TestDisconnectKillsBusyWorker); owner/device revocation needs the device registry (A6)"
+   "evidence": "grant revocation (policy.TestGrantVerification), cancel/kill stop workers (TestCancelKillsWorkerQuickly, TestKillSwitch, TestCancelRootCancelsDescendants), approval revoke (engine.TestRevokeApprovalFailsTheTaskAndRevokesItsGrants), and device revocation (device.TestRevocationStopsTheDeviceAndItsLeases; app.TestDevicePairingConfirmSignedRequestsAndRevocationOverHTTP): a revoked device authenticates no more and its leases end; its tasks stay paused"
   },
   {
    "id": "AT-09",
@@ -75,9 +75,9 @@
   {
    "id": "AT-11",
    "title": "Takeover desktop menjeda otomasi; handback butuh observasi baru dan rekonsiliasi",
-   "status": "not_applicable_yet",
+   "status": "partial",
    "phase": "A6",
-   "evidence": "belum ada pekerja desktop (takeover browser P5a ada)"
+   "evidence": "browser takeover pauses the task and forces re-inspection on handback (existing); device takeover lease: device.TestTakeoverLeasePausesAndHandbackNeedsFreshObservation + app.TestDeviceTakeoverLeaseOverHTTP (server side). No desktop worker exists, so desktop takeover is not proven end to end"
   },
   {
    "id": "AT-12",

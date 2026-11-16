@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"aura.local/core/internal/budget"
+	"aura.local/core/internal/device"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/nexus"
@@ -54,7 +55,9 @@ type Server struct {
 	Web   WebConfig
 	Vault *vault.Vault
 	// Nexus is the ODI A4 service (cognition router, fallback authorizer, Teacher Gate); nil in tests that do not need it.
-	Nexus    *nexus.Service
+	Nexus *nexus.Service
+	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
+	Devices  *device.Service
 	loginLim loginLimiter
 
 	once sync.Once
@@ -171,6 +174,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/members/{id}/department", auth(s.setDepartment))
 	mux.Handle("GET /api/v1/admin/audit", auth(s.auditSearch))
 	mux.Handle("GET /api/v1/admin/audit/verify", auth(s.auditVerify))
+	mux.Handle("POST /api/v1/devices/pairings", auth(s.startPairing))
+	mux.HandleFunc("POST /api/v1/devices/pairings/{id}/complete", s.completePairing) // public: one-time challenge + proof of key possession, rate limited
+	mux.Handle("GET /api/v1/devices", auth(s.listDevices))
+	mux.Handle("POST /api/v1/devices/{id}/confirm", auth(s.confirmDevice))
+	mux.Handle("POST /api/v1/devices/{id}/revoke", auth(s.revokeDevice))
+	mux.HandleFunc("POST /api/v1/devices/self/heartbeat", s.signedDevice(s.deviceHeartbeat))
+	mux.HandleFunc("POST /api/v1/devices/self/leases", s.signedDevice(s.deviceBeginLease))
+	mux.HandleFunc("POST /api/v1/devices/self/leases/{id}/release", s.signedDevice(s.deviceReleaseLease))
 	mux.Handle("GET /api/v1/admin/tool-manifests", auth(s.toolManifests))
 	mux.Handle("GET /api/v1/admin/tool-quotas", auth(s.getToolQuotas))
 	mux.Handle("PUT /api/v1/admin/tool-quotas", auth(s.putToolQuotas))

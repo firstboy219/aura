@@ -33,6 +33,7 @@ import (
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/channel"
 	"aura.local/core/internal/config"
+	"aura.local/core/internal/device"
 	"aura.local/core/internal/egress"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/gateway"
@@ -79,8 +80,9 @@ type App struct {
 	Vault       *vault.Vault // nil when secrets.master_key_file is not set
 	Sandbox     *sandbox.Runtime
 	AUL         *aul.Runtime
-	Nexus       *nexus.Service // ODI A4: cognition router, fallback authorizer, Teacher Gate (mode off = legacy providers, unchanged)
-	Egress      *egress.Proxy  // browser egress proxy (nil: browser automation off)
+	Devices     *device.Service // ODI A6
+	Nexus       *nexus.Service  // ODI A4: cognition router, fallback authorizer, Teacher Gate (mode off = legacy providers, unchanged)
+	Egress      *egress.Proxy   // browser egress proxy (nil: browser automation off)
 	MoreWorkers []*worker.Supervisor
 	srv         *http.Server
 }
@@ -191,6 +193,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 			})
 		}
 	}
+	a.Devices = &device.Service{St: st}
 	a.Nexus = nexus.NewService(st, gw.Legacy, func() string {
 		v, err := a.secret(context.Background(), vault.RefPrefix+"connector.nexus_service_token")
 		if err != nil {
@@ -343,7 +346,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
-		Vault: a.Vault, Nexus: a.Nexus, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+		Vault: a.Vault, Nexus: a.Nexus, Devices: a.Devices, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
 	// The owner's runtime daily budget overrides the config value (ADR-0043).
 	var budgetSetting string
 	if st.R.QueryRowContext(ctx, "select value from settings where key=?", api.SettingDailyBudget).Scan(&budgetSetting) == nil {
@@ -592,6 +595,18 @@ func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
 	go func() { engineDone <- a.Engine.Run(ectx) }()
 	go a.maintain(ectx)
 	go a.Nexus.Run(ectx)
+	go func() { // overdue takeover leases expire; their tasks stay paused until the owner decides
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ectx.Done():
+				return
+			case <-t.C:
+				a.Devices.ExpireLeases(ectx)
+			}
+		}
+	}()
 	if tg := a.Cfg.Channels.Telegram; tg.Enabled {
 		if tok, err := a.secret(ectx, tg.TokenRef); err != nil {
 			a.Log.Error("telegram channel disabled: token unavailable", "err", err)
