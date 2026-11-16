@@ -5,23 +5,23 @@
   {
    "id": "AT-01",
    "title": "NEXUS-only: rencana berkeyakinan rendah/mahal/antre/lambat tidak memicu fallback AI luar",
-   "status": "not_met",
+   "status": "met",
    "phase": "A4",
-   "evidence": "tidak ada klien NEXUS; gateway berantai OpenRouter/Gemini (model_tiers)"
+   "evidence": "nexus.TestAT01_HealthyNexusNeverTriggersExternalAI: low confidence, insufficient evidence, overload, rate limit, deadline, bad request and a slow call never reach an external provider and never make NEXUS look unavailable (fake NEXUS). Default mode is off until the owner switches; no real NEXUS exists yet"
   },
   {
    "id": "AT-02",
    "title": "Fallback ditolak bila policy AURA menolak atau tidak tersedia",
-   "status": "not_met",
+   "status": "met",
    "phase": "A4",
-   "evidence": "tidak ada FallbackAuthorization"
+   "evidence": "nexus.TestAT02_FallbackNeedsEvidenceAndAURAPolicy: with valid unavailability evidence, no provider named / data class not permitted / policy unreadable / health unknown / merely degraded all deny; an authorization is scoped (providers, budget, call count, expiry), evidence-referenced and audited; an exhausted one is not renewed (fake NEXUS)"
   },
   {
    "id": "AT-03",
    "title": "Pemulihan NEXUS menghentikan grant fallback baru dan mencabut grant berjalan",
-   "status": "not_met",
+   "status": "met",
    "phase": "A4",
-   "evidence": "tidak ada gerbang fallback"
+   "evidence": "nexus.TestAT03_RecoveryRevokesFallbackAndReturnsToNexus: recovery (consecutive probes + hold-down) revokes every authorization (audited), a revoked one cannot be used, new calls go to NEXUS; TestOwnerDisableAllowsScopedFallbackWithoutCallingNexus; TestMonitorHysteresis (fake NEXUS)"
   },
   {
    "id": "AT-04",
@@ -33,9 +33,9 @@
   {
    "id": "AT-05",
    "title": "Pekerja tidak bisa membaca DB Core, rahasia, kredensial host, atau jaringan sembarang",
-   "status": "partial",
+   "status": "met",
    "phase": "A5",
-   "evidence": "konfigurasi terbukti (network none, ro, cap_drop ALL, hanya soket); belum ada uji otomatis"
+   "evidence": "live probe 2026-11-16 (deploy/checks/worker-isolation.sh, kept in docs/odi/evidence): as uid 10002 the DB, API token, provider key and workspaces are unreadable, no TCP/UDP/DNS, only lo exists, writes outside scratch denied; container network none, read-only rootfs, cap_drop ALL; engine.TestOutOfScopeRequestsDeniedAndAudited (hostile worker). Re-run after every deploy"
   },
   {
    "id": "AT-06",

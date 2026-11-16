@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,9 @@ type Request struct {
 	// DataClass is set by the Core from the task ("public" or "private"); the
 	// worker cannot set it. Routes that may log prompts serve public tasks only.
 	DataClass string `json:"-"`
+	// OnlyProviders, when set by the ODI fallback layer, limits the call to routes of these providers (a FallbackAuthorization names them). Never
+	// set from the worker.
+	OnlyProviders []string `json:"-"`
 }
 
 // Result of one completion (after any repair).
@@ -93,6 +97,7 @@ type Gateway struct {
 	brk        *breakers
 	health     *routeHealth
 	issues     *providerIssues
+	cognition  CognitionRouter
 	// Rescue lets a call use another tier's routes when its own tier has no
 	// working route (ADR-0054). Set from configuration.
 	Rescue bool
@@ -144,14 +149,54 @@ type Budget struct {
 	MaxCalls       int
 }
 
+// CognitionRouter is the ODI layer (package nexus) that decides who serves a call: NEXUS, or an external provider only under a FallbackAuthorization
+// (ADR-0073). It receives the legacy path as a function and must not call any provider except through it. Nil means "legacy providers only", which is
+// what AURA does until the owner switches NEXUS on.
+type CognitionRouter interface {
+	Complete(ctx context.Context, b Budget, req Request, legacy func(context.Context, Budget, Request) (*Result, error)) (*Result, error)
+}
+
+// SetCognition installs the router (nil restores the legacy path).
+func (g *Gateway) SetCognition(r CognitionRouter) { g.cognition = r }
+
+// ValidateStructured checks content against a JSON Schema the way the gateway does for its own providers (used for NEXUS results).
+func ValidateStructured(rawSchema json.RawMessage, content string) (json.RawMessage, error) {
+	s, err := compileSchema(rawSchema)
+	if err != nil {
+		return nil, err
+	}
+	return validate(s, rawSchema, content)
+}
+
 // Complete runs a request: per route, reserve → attempt (with bounded retry) →
 // reconcile; structured output is validated and repaired at most once.
 func (g *Gateway) Complete(ctx context.Context, b Budget, req Request) (*Result, error) {
+	if g.cognition != nil {
+		return g.cognition.Complete(ctx, b, req, g.complete)
+	}
+	return g.complete(ctx, b, req)
+}
+
+// Legacy is the gateway's own provider path, without the cognition router (the router and the Teacher Gate call providers through it, under their grants).
+func (g *Gateway) Legacy(ctx context.Context, b Budget, req Request) (*Result, error) {
+	return g.complete(ctx, b, req)
+}
+
+func (g *Gateway) complete(ctx context.Context, b Budget, req Request) (*Result, error) {
 	usable := func(tier string) []config.ModelRoute {
 		var out []config.ModelRoute
 		for _, r := range g.routes[tier] {
 			if r.MayLog() && req.DataClass != "public" {
 				continue // never send private task content to an endpoint that may log prompts
+			}
+			if len(req.OnlyProviders) > 0 {
+				p := r.Provider
+				if p == "" {
+					p = "openrouter"
+				}
+				if !slices.Contains(req.OnlyProviders, p) {
+					continue // a fallback authorization names its providers
+				}
 			}
 			out = append(out, r)
 		}

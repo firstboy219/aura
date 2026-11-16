@@ -21,6 +21,7 @@ import (
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/ids"
+	"aura.local/core/internal/nexus"
 	"aura.local/core/internal/odi"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
@@ -50,8 +51,10 @@ type Server struct {
 	// Webhooks are the configured inbound webhooks by name (ADR-0034).
 	Webhooks map[string]Webhook
 	// Web is the Workspace Web App configuration (ADR-0041); Vault holds its TOTP secret.
-	Web      WebConfig
-	Vault    *vault.Vault
+	Web   WebConfig
+	Vault *vault.Vault
+	// Nexus is the ODI A4 service (cognition router, fallback authorizer, Teacher Gate); nil in tests that do not need it.
+	Nexus    *nexus.Service
 	loginLim loginLimiter
 
 	once sync.Once
@@ -168,6 +171,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/members/{id}/department", auth(s.setDepartment))
 	mux.Handle("GET /api/v1/admin/audit", auth(s.auditSearch))
 	mux.Handle("GET /api/v1/admin/audit/verify", auth(s.auditVerify))
+	mux.Handle("GET /api/v1/admin/nexus", auth(s.getNexus))
+	mux.Handle("PUT /api/v1/admin/nexus", auth(s.putNexus))
+	mux.Handle("POST /api/v1/admin/nexus/owner-disable", auth(s.nexusOwnerDisable))
+	mux.HandleFunc("POST /api/v1/teacher/requests", s.teacherRequest) // own service-token check (ODI A4): a leaked token can only submit sanitized questions under the owner's limits
 	mux.Handle("GET /api/v1/admin/usage", auth(s.usageReport))
 	mux.Handle("GET /api/v1/admin/budget", auth(s.getBudget))
 	mux.Handle("PUT /api/v1/admin/budget", auth(s.putBudget))

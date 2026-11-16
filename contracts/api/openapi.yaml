@@ -167,6 +167,25 @@ paths:
       responses:
         '200': { description: Chain intact, content: { application/json: { schema: { $ref: '#/components/schemas/AuditChain' } } } }
         '409': { description: Chain broken, content: { application/json: { schema: { $ref: '#/components/schemas/AuditChain' } } } }
+  /admin/nexus:
+    get: { operationId: getNexus, description: "Owner: NEXUS gateway policy, objective health state with its evidence, active fallback authorizations and the 24 h shadow summary (ODI A4, ADR-0073).", responses: { '200': { description: Status } } }
+    put:
+      operationId: putNexus
+      description: "Owner: merge policy fields (mode off|shadow|primary, base_url, fallback_providers, fallback_data_classes, fallback_budget_usd, fallback_max_calls, fallback_ttl_minutes, teacher_*). Becoming primary requires NEXUS to answer consecutive readiness probes now (409 NEXUS_HEALTH_UNKNOWN otherwise). Defaults deny: no provider is approved for fallback or the Teacher Gate until named."
+      responses: { '200': { description: Status }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
+  /admin/nexus/owner-disable:
+    post:
+      operationId: nexusOwnerDisable
+      description: "Owner: switch NEXUS off for N minutes (1..1440), the second valid trigger for fallback; 0 switches it back on and revokes every fallback authorization."
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [minutes], additionalProperties: false, properties: { minutes: { type: integer, minimum: 0, maximum: 1440 } } } } } }
+      responses: { '200': { description: Status }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } }
+  /teacher/requests:
+    post:
+      operationId: teacherRequest
+      description: "NEXUS asks to learn from an external AI through AURA (Teacher Gate). Own service token (vault connector.teacher_service_token), not the owner's. Refused unless the owner enabled the gate and named a provider; the question must pass the sanitizer; the answer is returned as untrusted external-ai data."
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [question], additionalProperties: false, properties: { gap: { type: string }, question: { type: string, maxLength: 1500 }, expected_form: { type: string } } } } } }
+      responses: { '200': { description: Untrusted answer (trust untrusted, source_type external-ai) }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '502': { $ref: '#/components/responses/Error' } }
   /admin/audit:
     get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
   /aul/check:
