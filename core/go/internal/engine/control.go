@@ -388,7 +388,7 @@ func (e *Engine) Approve(ctx context.Context, approvalID, hash, by string) (*pol
 		if err != nil {
 			return err
 		}
-		if err := policy.Audit(ctx, tx, "APPROVAL_GRANTED", "owner", ap.TaskID, "", map[string]any{"approval_id": ap.ID, "action_hash": ap.ActionHash}); err != nil {
+		if err := policy.Audit(ctx, tx, "APPROVAL_GRANTED", "owner", ap.TaskID, "", map[string]any{"approval_id": ap.ID, "action_hash": ap.ActionHash, "risk_class": ap.RiskClass, "auth_strength": ap.AuthStrength, "policy_version": ap.PolicyVersion}); err != nil {
 			return err
 		}
 		if _, err := task.AppendEvent(ctx, tx, ap.TaskID, &ap.StepID, "APPROVAL_DECIDED", "owner", map[string]any{"approval_id": ap.ID, "approved": true}); err != nil {
@@ -431,6 +431,24 @@ func (e *Engine) Reject(ctx context.Context, approvalID, by string) (*policy.App
 			}
 			e.failForApproval(ctx, ap, reason)
 		}
+	}
+	return ap, err
+}
+
+// RevokeApproval is the owner withdrawing a pending or approved-but-unused approval: the approval is invalidated, the step and task fail, and the
+// task's grants are revoked (ODI A3, ADR-0072).
+func (e *Engine) RevokeApproval(ctx context.Context, approvalID, by, reason string) (*policy.Approval, error) {
+	var ap *policy.Approval
+	err := e.st.Write(ctx, func(tx *sql.Tx) error {
+		var err error
+		ap, err = policy.RevokeApproval(ctx, tx, approvalID, by, reason)
+		if err != nil {
+			return err
+		}
+		return policy.Audit(ctx, tx, "APPROVAL_REVOKED", "owner", ap.TaskID, "", map[string]any{"approval_id": ap.ID, "action_hash": ap.ActionHash, "by": by, "reason": reason})
+	})
+	if err == nil {
+		e.failForApproval(ctx, ap, "approval_revoked")
 	}
 	return ap, err
 }

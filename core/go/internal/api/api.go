@@ -167,6 +167,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/members/{id}/disable", auth(s.disableMember))
 	mux.Handle("POST /api/v1/admin/members/{id}/department", auth(s.setDepartment))
 	mux.Handle("GET /api/v1/admin/audit", auth(s.auditSearch))
+	mux.Handle("GET /api/v1/admin/audit/verify", auth(s.auditVerify))
 	mux.Handle("GET /api/v1/admin/usage", auth(s.usageReport))
 	mux.Handle("GET /api/v1/admin/budget", auth(s.getBudget))
 	mux.Handle("PUT /api/v1/admin/budget", auth(s.putBudget))
@@ -695,6 +696,22 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 			by = "owner(web)"
 		}
 		ap, err = s.Engine.Reject(r.Context(), id, by) // rejecting never needs step-up
+	case "revoke":
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if err := decodeStrict(r, &in); err != nil {
+			s.mapErr(w, r, err)
+			return
+		}
+		by := "owner"
+		if p := PrincipalOf(r); p.Role != RoleOwner {
+			by = "member:" + p.Name + " (" + p.Role + ")"
+		}
+		if viaWeb(r) {
+			by = "owner(web)"
+		}
+		ap, err = s.Engine.RevokeApproval(r.Context(), id, by, truncateStr(in.Reason, 300))
 	default:
 		s.fail(w, r, 404, "not_found", "no such decision")
 		return

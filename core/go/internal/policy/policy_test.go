@@ -168,3 +168,70 @@ func TestNewRequestInvalidatesPrevious(t *testing.T) {
 		t.Fatalf("pending %d", len(p))
 	}
 }
+
+func TestAuthStrengthOf(t *testing.T) {
+	for by, want := range map[string]string{
+		"owner(web, step-up)":   "owner_web_step_up_totp",
+		"owner(web)":            "owner_web_session",
+		"owner":                 "owner_token",
+		"member:Sari (finance)": "member_token",
+		"member:Budi (admin)":   "member_token",
+		"":                      "unknown",
+		"worker":                "unknown",
+	} {
+		if got := AuthStrengthOf(by); got != want {
+			t.Errorf("AuthStrengthOf(%q)=%s want %s", by, got, want)
+		}
+	}
+}
+
+func TestApprovalDecisionRecordsWhoHowAndWhen(t *testing.T) {
+	s, tk := setup(t)
+	ctx := context.Background()
+	a := baseActionFor(t, s, tk.ID)
+	ap := approval(t, s, a, 60_000)
+	if len(ap.Nonce) != 32 || ap.RiskClass != "R2" || ap.PolicyVersion != RiskPolicyVersion {
+		t.Fatalf("%+v", ap)
+	}
+	tk2 := &task.Task{Objective: "y", ConfigHash: "h"}
+	if err := s.Write(ctx, func(tx *sql.Tx) error { return task.Insert(ctx, tx, tk2) }); err != nil {
+		t.Fatal(err)
+	}
+	other := approval(t, s, baseActionFor(t, s, tk2.ID), 60_000)
+	if other.Nonce == ap.Nonce {
+		t.Fatal("two approvals share a nonce")
+	}
+	var got *Approval
+	s.Write(ctx, func(tx *sql.Tx) error {
+		var err error
+		got, err = Decide(ctx, tx, other.ID, true, other.ActionHash, "owner(web, step-up)")
+		return err
+	})
+	if got.AuthStrength != "owner_web_step_up_totp" {
+		t.Fatalf("%+v", got)
+	}
+	if err := s.Write(ctx, func(tx *sql.Tx) error { return Consume(ctx, tx, other.ID, other.Action()) }); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := GetApproval(ctx, s.R, other.ID); c.ConsumedAt == nil || c.Status != "consumed" {
+		t.Fatalf("%+v", c)
+	}
+	// Revoke: pending and approved can be withdrawn; consumed cannot.
+	if err := s.Write(ctx, func(tx *sql.Tx) error { _, err := RevokeApproval(ctx, tx, other.ID, "owner", "late"); return err }); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("consumed approval revoked: %v", err)
+	}
+	var r *Approval
+	if err := s.Write(ctx, func(tx *sql.Tx) error {
+		var err error
+		r, err = RevokeApproval(ctx, tx, ap.ID, "owner", "wrong amount")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != "invalidated" || r.RevokedAt == nil || r.RevokeReason != "wrong amount" {
+		t.Fatalf("%+v", r)
+	}
+	if err := s.Write(ctx, func(tx *sql.Tx) error { _, err := Decide(ctx, tx, ap.ID, true, ap.ActionHash, "owner"); return err }); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("revoked approval approved: %v", err)
+	}
+}

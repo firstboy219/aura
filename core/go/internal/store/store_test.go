@@ -64,7 +64,7 @@ func TestMigrateFromEmptyAndReopen(t *testing.T) {
 
 func TestReadPoolIsQueryOnly(t *testing.T) {
 	s := open(t)
-	if _, err := s.R.Exec("insert into audit_events values('x','t','core',null,null,'{}',0)"); err == nil {
+	if _, err := s.R.Exec("insert into audit_events(id, type, actor, task_id, request_id, data_json, at) values('x','t','core',null,null,'{}',0)"); err == nil {
 		t.Fatal("read pool accepted a write")
 	}
 }
@@ -73,7 +73,7 @@ func TestAppendOnlyTriggers(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
 	err := s.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec("insert into audit_events values('a','t','core',null,null,'{}',0)")
+		_, err := tx.Exec("insert into audit_events(id, type, actor, task_id, request_id, data_json, at) values('a','t','core',null,null,'{}',0)")
 		return err
 	})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestConcurrentWritersNoBusy(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			errs <- s.Write(context.Background(), func(tx *sql.Tx) error {
-				_, err := tx.Exec("insert into audit_events values(?,?,?,?,?,?,?)",
+				_, err := tx.Exec("insert into audit_events(id, type, actor, task_id, request_id, data_json, at) values(?,?,?,?,?,?,?)",
 					fmt.Sprint("id", i), "t", "core", nil, nil, "{}", i)
 				return err
 			})

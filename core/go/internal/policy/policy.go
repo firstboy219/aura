@@ -318,6 +318,14 @@ type Approval struct {
 	Status      string         `json:"status"`
 	ExpiresAt   int64          `json:"expires_at"`
 	CreatedAt   int64          `json:"created_at"`
+	// ODI A3 (ADR-0072): replay resistance and accountability. A revoked approval has status "invalidated" with RevokedAt set.
+	Nonce         string `json:"nonce,omitempty"`
+	AuthStrength  string `json:"auth_strength,omitempty"`
+	RiskClass     string `json:"risk_class,omitempty"`
+	PolicyVersion string `json:"policy_version,omitempty"`
+	ConsumedAt    *int64 `json:"consumed_at,omitempty"`
+	RevokedAt     *int64 `json:"revoked_at,omitempty"`
+	RevokeReason  string `json:"revoke_reason,omitempty"`
 }
 
 // Action reconstructs the approved action from the stored record.
@@ -336,23 +344,26 @@ func RequestApproval(ctx context.Context, tx *sql.Tx, a Action, ttlMs int64) (*A
 	p, _ := json.Marshal(a.Arguments)
 	ap := &Approval{ID: ids.New(), TaskID: a.TaskID, StepID: a.StepID, GrantID: a.GrantID, ToolID: a.ToolID,
 		ToolVersion: a.ToolVersion, SideEffect: a.SideEffect, Target: a.Target, Parameters: a.Arguments,
-		ActionHash: a.Hash(), Status: "pending", ExpiresAt: now + ttlMs, CreatedAt: now}
+		ActionHash: a.Hash(), Status: "pending", ExpiresAt: now + ttlMs, CreatedAt: now,
+		Nonce: newNonce(), RiskClass: string(RiskOf(a.SideEffect, A2)), PolicyVersion: RiskPolicyVersion}
 	_, err := tx.ExecContext(ctx, `insert into approvals(id, task_id, step_id, grant_id, tool_id, tool_version, side_effect, target,
-		params_json, action_hash, status, expires_at, created_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		params_json, action_hash, status, expires_at, created_at, nonce, risk_class, policy_version) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		ap.ID, ap.TaskID, ap.StepID, ap.GrantID, ap.ToolID, ap.ToolVersion, ap.SideEffect, ap.Target, string(p),
-		ap.ActionHash, ap.Status, ap.ExpiresAt, ap.CreatedAt)
+		ap.ActionHash, ap.Status, ap.ExpiresAt, ap.CreatedAt, ap.Nonce, ap.RiskClass, ap.PolicyVersion)
 	return ap, err
 }
 
-const apCols = "id, task_id, step_id, grant_id, tool_id, tool_version, side_effect, target, params_json, action_hash, status, expires_at, created_at"
+const apCols = "id, task_id, step_id, grant_id, tool_id, tool_version, side_effect, target, params_json, action_hash, status, expires_at, created_at, nonce, auth_strength, risk_class, policy_version, consumed_at, revoked_at, revoke_reason"
 
 func scanApproval(sc interface{ Scan(...any) error }) (*Approval, error) {
 	var ap Approval
 	var p string
+	var nonce, auth, risk, pol, why sql.NullString
 	if err := sc.Scan(&ap.ID, &ap.TaskID, &ap.StepID, &ap.GrantID, &ap.ToolID, &ap.ToolVersion, &ap.SideEffect,
-		&ap.Target, &p, &ap.ActionHash, &ap.Status, &ap.ExpiresAt, &ap.CreatedAt); err != nil {
+		&ap.Target, &p, &ap.ActionHash, &ap.Status, &ap.ExpiresAt, &ap.CreatedAt, &nonce, &auth, &risk, &pol, &ap.ConsumedAt, &ap.RevokedAt, &why); err != nil {
 		return nil, err
 	}
+	ap.Nonce, ap.AuthStrength, ap.RiskClass, ap.PolicyVersion, ap.RevokeReason = nonce.String, auth.String, risk.String, pol.String, why.String
 	json.Unmarshal([]byte(p), &ap.Parameters)
 	return &ap, nil
 }
@@ -419,10 +430,10 @@ func Decide(ctx context.Context, tx *sql.Tx, id string, approve bool, hash, by s
 		}
 		status = "approved"
 	}
-	if _, err := tx.ExecContext(ctx, "update approvals set status=?, decided_by=?, decided_at=? where id=?", status, by, now, id); err != nil {
+	if _, err := tx.ExecContext(ctx, "update approvals set status=?, decided_by=?, decided_at=?, auth_strength=? where id=?", status, by, now, AuthStrengthOf(by), id); err != nil {
 		return nil, err
 	}
-	ap.Status = status
+	ap.Status, ap.AuthStrength = status, AuthStrengthOf(by)
 	return ap, nil
 }
 
@@ -450,7 +461,7 @@ func Consume(ctx context.Context, tx *sql.Tx, id string, a Action) error {
 		}
 		return store.Commit(ErrMismatch)
 	}
-	res, err := tx.ExecContext(ctx, "update approvals set status='consumed' where id=? and status='approved'", id)
+	res, err := tx.ExecContext(ctx, "update approvals set status='consumed', consumed_at=? where id=? and status='approved'", ids.NowMs(), id)
 	if err != nil {
 		return err
 	}
@@ -470,7 +481,31 @@ func Audit(ctx context.Context, tx *sql.Tx, typ, actor, taskID, requestID string
 	if requestID != "" {
 		rid = requestID
 	}
-	_, err := tx.ExecContext(ctx, "insert into audit_events(id, type, actor, task_id, request_id, data_json, at) values(?,?,?,?,?,?,?)",
-		ids.New(), typ, actor, tid, rid, string(b), ids.NowMs())
+	// ODI A3: every row is chained to the previous one (see chain.go); the single-writer store keeps the order.
+	id, at := ids.New(), ids.NowMs()
+	prev, err := lastChainHash(ctx, tx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "insert into audit_events(id, type, actor, task_id, request_id, data_json, at, prev_hash, hash) values(?,?,?,?,?,?,?,?,?)",
+		id, typ, actor, tid, rid, string(b), at, prev, ChainHash(prev, id, typ, actor, taskID, requestID, string(b), at))
 	return err
+}
+
+// RevokeApproval withdraws an approval that is still pending or approved-but-unused (Blueprint §9 lifecycle: REVOKED). The status becomes
+// 'invalidated' (the CHECK constraint is untouched) with revoked_at and the reason recorded; a consumed approval cannot be revoked (the action ran).
+func RevokeApproval(ctx context.Context, tx *sql.Tx, id, by, reason string) (*Approval, error) {
+	ap, err := GetApproval(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if ap.Status != "pending" && ap.Status != "approved" {
+		return ap, fmt.Errorf("%w: %s", ErrNotPending, ap.Status)
+	}
+	now := ids.NowMs()
+	if _, err := tx.ExecContext(ctx, "update approvals set status='invalidated', revoked_at=?, revoke_reason=?, decided_by=coalesce(decided_by, ?) where id=?", now, reason, by, id); err != nil {
+		return nil, err
+	}
+	ap.Status, ap.RevokedAt, ap.RevokeReason = "invalidated", &now, reason
+	return ap, nil
 }

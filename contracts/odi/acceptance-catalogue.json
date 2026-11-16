@@ -47,9 +47,9 @@
   {
    "id": "AT-07",
    "title": "Konten situs/alat berbahaya tidak bisa menambah kapabilitas atau mengubah kebijakan",
-   "status": "unproven",
+   "status": "met",
    "phase": "A3",
-   "evidence": "tidak ada uji bernama"
+   "evidence": "engine.TestDynamicFetchWithoutProvenanceDenied (a URL that only appears in an injected snippet is denied), TestOutOfScopeRequestsDeniedAndAudited (hostile worker: out-of-plan, out-of-scope, forged-token and escaping calls all denied and audited), TestA3ForbiddenWrite, TestDelegationGrantWideningDenied; page text/tool output is data, authority comes only from Core-issued grants and tiers"
   },
   {
    "id": "AT-08",

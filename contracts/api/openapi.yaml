@@ -160,6 +160,13 @@ paths:
     get: { operationId: getScorecard, responses: { '200': { description: Efficiency scorecard } } }
   /admin/usage:
     get: { operationId: adminUsage, description: "Owner: usage by department|member|day|tier|task_class|model (ADR-0049).", responses: { '200': { description: Usage groups } } }
+  /admin/audit/verify:
+    get:
+      operationId: adminAuditVerify
+      description: "Owner: re-compute the audit hash chain (ODI A3, ADR-0072). 200 when intact, 409 with broken_at/broken_why when a row was edited, removed or inserted. Anchor `head` outside this database."
+      responses:
+        '200': { description: Chain intact, content: { application/json: { schema: { $ref: '#/components/schemas/AuditChain' } } } }
+        '409': { description: Chain broken, content: { application/json: { schema: { $ref: '#/components/schemas/AuditChain' } } } }
   /admin/audit:
     get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
   /aul/check:
@@ -242,6 +249,18 @@ paths:
         '200': { description: Approved, content: { application/json: { schema: { $ref: '#/components/schemas/Approval' } } } }
         '409': { $ref: '#/components/responses/Error' }
         '410': { $ref: '#/components/responses/Error' }
+  /approvals/{id}/revoke:
+    post:
+      operationId: revokeApproval
+      description: "Owner: withdraw an approval that is pending or approved but not yet used (ODI A3). The step and task fail with reason approval_revoked and the task's grants are revoked. A consumed approval cannot be revoked."
+      parameters: [ { $ref: '#/components/parameters/ApprovalId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { reason: { type: string, maxLength: 300 } } }
+      responses:
+        '200': { description: Revoked (status invalidated, revoked_at set), content: { application/json: { schema: { $ref: '#/components/schemas/Approval' } } } }
+        '409': { $ref: '#/components/responses/Error' }
   /approvals/{id}/reject:
     post:
       operationId: reject
@@ -421,6 +440,23 @@ components:
         parameters: { type: object }
         action_hash: { type: string }
         expires_at: { type: string, format: date-time }
+        nonce: { type: string, description: Random value bound to this approval (ODI A3) }
+        auth_strength: { type: string, description: "How the approver authenticated: owner_web_step_up_totp | owner_web_session | owner_token | member_token | unknown" }
+        risk_class: { enum: [R0, R1, R2, R3, R4], description: Risk label under policy_version; labels only, never relaxes the A0-A3 enforcement }
+        policy_version: { type: string }
+        consumed_at: { type: integer }
+        revoked_at: { type: integer }
+        revoke_reason: { type: string }
+    AuditChain:
+      type: object
+      required: [valid, chained, legacy_unchained, head]
+      properties:
+        valid: { type: boolean }
+        chained: { type: integer, description: Rows covered by the hash chain }
+        legacy_unchained: { type: integer, description: Rows written before the chain started (not verifiable) }
+        head: { type: string, description: Hash of the newest chained row }
+        broken_at: { type: string }
+        broken_why: { type: string }
     TreeNode:
       type: object
       required: [task, tree_cost_usd, children]

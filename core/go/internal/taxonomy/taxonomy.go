@@ -83,7 +83,7 @@ func Canonical(reason string) string {
 		return ModelOutputInvalid
 	case strings.HasPrefix(r, "verification_failed"), strings.HasPrefix(r, "completion_check_failed"):
 		return VerificationFailed
-	case strings.HasPrefix(r, "approval_rejected"), strings.HasPrefix(r, "outcome_unknown_without_intent"):
+	case strings.HasPrefix(r, "approval_rejected"), strings.HasPrefix(r, "approval_revoked"), strings.HasPrefix(r, "outcome_unknown_without_intent"):
 		return OwnerRejected
 	case strings.HasPrefix(r, "approval_expired"):
 		return ApprovalExpired
