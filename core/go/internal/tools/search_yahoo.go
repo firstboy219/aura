@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
@@ -25,7 +26,6 @@ func NewYahooHTML(g *Guard) *YahooHTML { return &YahooHTML{guard: g, timeout: 15
 func (y *YahooHTML) Name() string { return "yahoo-html" }
 
 var (
-	reYahooBlock   = regexp.MustCompile(`(?s)<div class="dd algo[^"]*"[^>]*>(.*?)(?:<div class="dd (?:algo|[a-zA-Z]+ )|$)`)
 	reYahooTitle   = regexp.MustCompile(`(?s)<h3[^>]*class="title"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*?(?:aria-label="([^"]*)")?[^>]*>(.*?)</a>`)
 	reYahooSnippet = regexp.MustCompile(`(?s)<div class="compText[^"]*"[^>]*>\s*<p[^>]*>(.*?)</p>`)
 	reYahooRU      = regexp.MustCompile(`/RU=([^/]+)/`)
@@ -36,8 +36,13 @@ var (
 func ParseYahooHTML(page string, n int) []SearchResult {
 	var out []SearchResult
 	seen := map[string]bool{}
-	for _, b := range reYahooBlock.FindAllStringSubmatch(page, -1) {
-		block := b[1]
+	chunks := strings.Split(page, `<div class="dd algo`) // one chunk per result block (the first piece is what comes before the first result)
+	if len(chunks) > 1 {
+		chunks = chunks[1:]
+	} else {
+		chunks = nil
+	}
+	for _, block := range chunks {
 		m := reYahooTitle.FindStringSubmatch(block)
 		if m == nil {
 			continue
@@ -73,28 +78,67 @@ func ParseYahooHTML(page string, n int) []SearchResult {
 	return out
 }
 
-func (y *YahooHTML) Search(ctx context.Context, query string, n int) ([]SearchResult, error) {
-	client := &http.Client{Timeout: y.timeout, Transport: &http.Transport{Proxy: nil, DialContext: y.guard.DialContext},
+// pageClient is the plain HTTP client of the search pages: through the SSRF guard, HTTP/2 (Yahoo answers HTTP/1.1 clients with a 500), no redirects followed.
+func pageClient(g *Guard, timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil, DialContext: g.DialContext, ForceAttemptHTTP2: true},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://search.yahoo.com/search?"+url.Values{"p": {query}}.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36")
+}
+
+// pageHeaders are the standard headers of a page request; the client says who it is (the same honest user agent as every other AURA request, no browser is claimed).
+func pageHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "id-ID,id;q=0.9,en;q=0.6")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSearch, err)
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+}
+
+// yahooClient follows Yahoo's own redirects (to its regional hosts, e.g. au.search.yahoo.com, and back with a cookie) and nowhere else.
+func yahooClient(g *Guard, timeout time.Duration) *http.Client {
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{Timeout: timeout, Jar: jar, Transport: &http.Transport{Proxy: nil, DialContext: g.DialContext, ForceAttemptHTTP2: true},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 4 || req.URL.Scheme != "https" || !(req.URL.Hostname() == "search.yahoo.com" || strings.HasSuffix(req.URL.Hostname(), ".search.yahoo.com")) {
+				return http.ErrUseLastResponse
+			}
+			pageHeaders(req)
+			return nil
+		}}
+}
+
+func (y *YahooHTML) Search(ctx context.Context, query string, n int) ([]SearchResult, error) {
+	var last error
+	for attempt := 0; attempt < 4; attempt++ { // Yahoo sometimes drops a connection: a few more tries with a pause, then give up
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, last
+			case <-time.After(time.Duration(attempt) * 600 * time.Millisecond):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://search.yahoo.com/search?"+url.Values{"p": {query}}.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		pageHeaders(req)
+		resp, err := yahooClient(y.guard, y.timeout).Do(req)
+		if err != nil {
+			last = fmt.Errorf("%w: %v", ErrSearch, err)
+			continue
+		}
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 3<<20))
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			last = fmt.Errorf("%w: search.yahoo.com returned HTTP %d", ErrSearch, resp.StatusCode)
+			continue
+		}
+		if rerr != nil {
+			last = fmt.Errorf("%w: %v", ErrSearch, rerr)
+			continue
+		}
+		return ParseYahooHTML(string(body), n), nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%w: search.yahoo.com returned HTTP %d", ErrSearch, resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 3<<20))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrSearch, err)
-	}
-	return ParseYahooHTML(string(body), n), nil
+	return nil, last
 }
 
 // Merged asks every searcher at once and takes their results in turns, each address once; one failing costs nothing, all failing is an error.

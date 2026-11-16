@@ -69,16 +69,14 @@ func oneLineText(s string, max int) string {
 }
 
 func (d *DuckDuckGoHTML) Search(ctx context.Context, query string, n int) ([]SearchResult, error) {
-	client := &http.Client{Timeout: d.timeout, Transport: &http.Transport{Proxy: nil, DialContext: d.guard.DialContext},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := pageClient(d.guard, d.timeout)
 	form := url.Values{"q": {query}, "kl": {"id-id"}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://html.duckduckgo.com/html/", strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
+	pageHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36")
-	req.Header.Set("Accept-Language", "id-ID,id;q=0.9,en;q=0.6")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSearch, err)
