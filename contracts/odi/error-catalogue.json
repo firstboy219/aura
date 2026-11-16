@@ -1,0 +1,16 @@
+{
+ "_doc": "ODI AURA Blueprint v1.1 Lampiran B. retryable = apakah pemanggil boleh mencoba lagi otomatis. current_code diisi bila API AURA sekarang sudah punya padanan (kosong = belum).",
+ "version": "0.1-draft",
+ "errors": [
+  {"code":"AUTHN_REQUIRED","retryable":false,"http":401}, {"code":"AUTHN_INVALID","retryable":false,"http":401},
+  {"code":"AUTHZ_DENIED","retryable":false,"http":403}, {"code":"POLICY_HARD_DENY","retryable":false,"http":403},
+  {"code":"APPROVAL_REQUIRED","retryable":false,"http":409}, {"code":"APPROVAL_EXPIRED","retryable":false,"http":409}, {"code":"APPROVAL_REPLAYED","retryable":false,"http":409},
+  {"code":"APPROVAL_DIGEST_MISMATCH","retryable":false,"http":409,"current_code":"approval_mismatch"},
+  {"code":"GRANT_EXPIRED","retryable":true,"http":401}, {"code":"GRANT_REVOKED","retryable":false,"http":403}, {"code":"GRANT_SCOPE_MISMATCH","retryable":false,"http":403},
+  {"code":"NEXUS_UNAVAILABLE","retryable":true,"http":503}, {"code":"NEXUS_HEALTH_UNKNOWN","retryable":true,"http":503}, {"code":"FALLBACK_NOT_AUTHORIZED","retryable":false,"http":403},
+  {"code":"WORKER_UNAVAILABLE","retryable":true,"http":503}, {"code":"WORKER_PROTOCOL_INVALID","retryable":false,"http":502}, {"code":"WORKER_ISOLATION_VIOLATION","retryable":false,"http":500},
+  {"code":"IDEMPOTENCY_CONFLICT","retryable":false,"http":409}, {"code":"TASK_STATE_CONFLICT","retryable":false,"http":409}, {"code":"DEADLINE_EXCEEDED","retryable":false,"http":504}, {"code":"BUDGET_EXCEEDED","retryable":false,"http":402},
+  {"code":"VERIFICATION_FAILED","retryable":false,"http":422}, {"code":"OUTCOME_UNCERTAIN","retryable":false,"http":202}, {"code":"RECONCILIATION_REQUIRED","retryable":false,"http":409},
+  {"code":"EGRESS_DENIED","retryable":false,"http":403}, {"code":"DESTINATION_NOT_ALLOWED","retryable":false,"http":403}, {"code":"DATA_CLASS_NOT_ALLOWED","retryable":false,"http":403}
+ ]
+}

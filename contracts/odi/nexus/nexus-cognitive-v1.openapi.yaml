@@ -1,0 +1,21 @@
+openapi: 3.1.0
+info: {title: NEXUS Cognitive API, version: 1.0.0-draft, description: "DRAF N0. Hanya AURA yang boleh memanggil (service identity). Keluaran NEXUS bersifat saran; execution_authority selalu none."}
+paths:
+  /health/live: {get: {summary: Liveness, responses: {"200": {description: ok}}}}
+  /health/ready: {get: {summary: Kesiapan jalur kognitif kritis, responses: {"200": {description: siap}, "503": {description: tidak siap}}}}
+  /api/v1/manifest: {get: {summary: Manifest platform/skema (terautentikasi), responses: {"200": {description: ok}}}}
+  /api/v1/capabilities: {get: {summary: Registri kapabilitas, responses: {"200": {description: ok}}}}
+  /api/v1/cognitive/requests:
+    post:
+      summary: AURA mengirim permintaan kognitif
+      requestBody: {required: true, content: {application/json: {schema: {$ref: cognitive-request.schema.json}}}}
+      responses:
+        "202": {description: diterima (RECEIVED), content: {application/json: {schema: {$ref: cognitive-result.schema.json}}}}
+        "4XX": {description: galat, content: {application/json: {schema: {$ref: error-envelope.schema.json}}}}
+  /api/v1/cognitive/requests/{id}: {get: {summary: Status/hasil dalam lingkup pemanggil, parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: {"200": {description: ok}}}}
+  /api/v1/cognitive/requests/{id}/cancel: {post: {summary: Batalkan pekerjaan berjalan, parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: {"200": {description: CANCELLED}}}}
+  /api/v1/models/status: {get: {summary: Status model/runtime (istimewa), responses: {"200": {description: ok}}}}
+  /api/v1/knowledge/status: {get: {summary: Status korpus/indeks (istimewa), responses: {"200": {description: ok}}}}
+  /api/v1/evaluations/{id}: {get: {summary: Laporan evaluasi (istimewa), parameters: [{name: id, in: path, required: true, schema: {type: string}}], responses: {"200": {description: ok}}}}
+x-states: [RECEIVED, VALIDATING, QUEUED, RUNNING, VERIFYING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED, CANCELLED, EXPIRED, REJECTED]
+x-error-codes: [INVALID_REQUEST, UNAUTHENTICATED, FORBIDDEN, VERSION_UNSUPPORTED, RATE_LIMITED, OVERLOADED, DEADLINE_EXCEEDED, CANCELLED, INSUFFICIENT_EVIDENCE, MODEL_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, INTERNAL_ERROR]

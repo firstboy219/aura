@@ -1,0 +1,4 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"ErrorEnvelope","type":"object","required":["error"],
+ "properties":{"error":{"type":"object","required":["code","message","retryable","request_id","trace_id","schema_version"],
+  "properties":{"code":{"enum":["INVALID_REQUEST","UNAUTHENTICATED","FORBIDDEN","VERSION_UNSUPPORTED","RATE_LIMITED","OVERLOADED","DEADLINE_EXCEEDED","CANCELLED","INSUFFICIENT_EVIDENCE","MODEL_UNAVAILABLE","KNOWLEDGE_UNAVAILABLE","INTERNAL_ERROR"]},
+   "message":{"type":"string"},"retryable":{"type":"boolean"},"request_id":{"type":"string"},"trace_id":{"type":"string"},"details_ref":{"type":"string"},"schema_version":{"const":"1.0"}}}}}

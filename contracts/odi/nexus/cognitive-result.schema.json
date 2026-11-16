@@ -1,0 +1,10 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"CognitiveResult","type":"object",
+ "required":["request_id","status","execution_authority","trace_id","created_at","schema_version"],
+ "properties":{"request_id":{"type":"string","format":"uuid"},
+  "status":{"enum":["RECEIVED","VALIDATING","QUEUED","RUNNING","VERIFYING","SUCCEEDED","INSUFFICIENT_EVIDENCE","FAILED","CANCELLED","EXPIRED","REJECTED"]},
+  "result":{"type":"object","properties":{"content":{"type":"string"},"claims":{"type":"array"},"recommendations":{"type":"array"},"assumptions":{"type":"array"},"unknowns":{"type":"array"},"limitations":{"type":"array"}}},
+  "evidence_refs":{"type":"array","items":{"type":"string"}},
+  "confidence":{"type":"object","properties":{"band":{"enum":["low","medium","high"]},"method":{"type":"string"}}},
+  "execution_authority":{"const":"none"},
+  "model":{"type":"object","properties":{"model_id":{"type":"string"},"version":{"type":"string"},"runtime":{"type":"string"}}},
+  "knowledge_release_id":{"type":"string"},"trace_id":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"schema_version":{"const":"1.0"}}}

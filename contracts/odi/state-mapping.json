@@ -1,0 +1,23 @@
+{
+ "_doc": "ODI AURA Blueprint v1.1 §5: status tugas AURA sekarang -> status kanonik. Lapisan pemetaan ADITIF; skema dan perilaku tidak berubah. status: mapped | extension | proposed.",
+ "version": "0.1-draft",
+ "canonical": ["RECEIVED","VALIDATING","ACCEPTED","REJECTED","COGNITION_PENDING","PLANNED","POLICY_CHECK","AWAITING_APPROVAL","READY","RUNNING","VERIFYING","SUCCEEDED","PARTIAL","FAILED","CANCELLED","EXPIRED","PAUSED","RECOVERY_REQUIRED"],
+ "current": {
+  "CREATED":          {"canonical": "ACCEPTED",          "status": "mapped",    "note": "RECEIVED/VALIDATING terjadi di API sebelum baris dibuat; tidak dipersisten"},
+  "PLANNING":         {"canonical": "COGNITION_PENDING", "status": "mapped",    "note": "PLANNED belum dibedakan dari PLANNING"},
+  "RUNNING":          {"canonical": "RUNNING",           "status": "mapped",    "note": "VERIFYING berlangsung di dalam RUNNING (verifikasi langkah)"},
+  "WAITING_APPROVAL": {"canonical": "AWAITING_APPROVAL", "status": "mapped"},
+  "WAITING_INPUT":    {"canonical": null,                "status": "extension", "note": "klarifikasi dari pemilik; tidak ada padanan di Blueprint"},
+  "WAITING_EXTERNAL": {"canonical": null,                "status": "extension", "note": "menunggu peristiwa luar atau tugas anak"},
+  "SCHEDULED":        {"canonical": null,                "status": "extension", "note": "menunggu waktu tertentu (wait.until, triggers); bukan READY, yaitu siap dijalankan sekarang"},
+  "PAUSED":           {"canonical": "PAUSED",            "status": "mapped"},
+  "COMPLETED":        {"canonical": "SUCCEEDED",         "status": "mapped"},
+  "FAILED":           {"canonical": "FAILED",            "status": "mapped"},
+  "CANCELLED":        {"canonical": "CANCELLED",         "status": "mapped"},
+  "BUDGET_EXCEEDED":  {"canonical": "FAILED",            "status": "proposed",  "note": "reason_code BUDGET_EXCEEDED (Lampiran B); keputusan Pemilik"}
+ },
+ "not_implemented": {
+  "RECEIVED": "A2", "VALIDATING": "A2", "REJECTED": "A2", "PLANNED": "A2", "POLICY_CHECK": "A3", "READY": "A2", "VERIFYING": "A2",
+  "PARTIAL": "A2", "EXPIRED": "A2", "RECOVERY_REQUIRED": "A2"
+ }
+}

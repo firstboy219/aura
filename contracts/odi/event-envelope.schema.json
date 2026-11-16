@@ -1,0 +1,7 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://aura.local/contracts/odi/event-envelope.schema.json","title":"AuraEventEnvelope (Blueprint v1.1 §14)",
+ "type":"object","additionalProperties":false,
+ "required":["event_id","event_type","schema_version","sequence","occurred_at","recorded_at","actor_ref","task_id","correlation_id","classification"],
+ "properties":{"event_id":{"type":"string"},"event_type":{"type":"string"},"schema_version":{"type":"string"},"sequence":{"type":"integer","minimum":1},
+  "occurred_at":{"type":"string","format":"date-time"},"recorded_at":{"type":"string","format":"date-time"},"actor_ref":{"type":"string"},"task_id":{"type":"string"},
+  "correlation_id":{"type":"string"},"causation_id":{"type":"string"},"payload_ref":{"type":"string"},
+  "classification":{"enum":["public","internal","confidential","restricted"]},"integrity_ref":{"type":"string"}}}
