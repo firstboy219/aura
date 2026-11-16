@@ -57,7 +57,9 @@ type Server struct {
 	// Nexus is the ODI A4 service (cognition router, fallback authorizer, Teacher Gate); nil in tests that do not need it.
 	Nexus *nexus.Service
 	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
-	Devices  *device.Service
+	Devices *device.Service
+	// Changes holds the ODI A8 self-engineering proposals.
+	Changes  *odi.Changes
 	loginLim loginLimiter
 
 	once sync.Once
@@ -174,6 +176,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/members/{id}/department", auth(s.setDepartment))
 	mux.Handle("GET /api/v1/admin/audit", auth(s.auditSearch))
 	mux.Handle("GET /api/v1/admin/audit/verify", auth(s.auditVerify))
+	mux.Handle("POST /api/v1/admin/changes", auth(s.createChange))
+	mux.Handle("GET /api/v1/admin/changes", auth(s.listChanges))
+	mux.Handle("GET /api/v1/admin/changes/{id}", auth(s.getChange))
+	mux.Handle("POST /api/v1/admin/changes/{id}/decide", auth(s.decideChange))
+	mux.Handle("POST /api/v1/admin/changes/{id}/move", auth(s.moveChange))
 	mux.Handle("POST /api/v1/devices/pairings", auth(s.startPairing))
 	mux.HandleFunc("POST /api/v1/devices/pairings/{id}/complete", s.completePairing) // public: one-time challenge + proof of key possession, rate limited
 	mux.Handle("GET /api/v1/devices", auth(s.listDevices))

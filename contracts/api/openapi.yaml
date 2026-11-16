@@ -207,6 +207,23 @@ paths:
     post: { operationId: deviceBeginLease, security: [], description: "Device (signed): take over a task; automation on it pauses. 409 when the task is already leased.", responses: { '201': { description: Lease }, '409': { $ref: '#/components/responses/Error' } } }
   /devices/self/leases/{id}/release:
     post: { operationId: deviceReleaseLease, security: [], description: "Device (signed): hand back with the sha256 of a fresh observation (422 without one).", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Released }, '422': { $ref: '#/components/responses/Error' } } }
+  /admin/changes:
+    get: { operationId: listChanges, description: "Owner: self-engineering change proposals (ODI A8), optional ?status=.", responses: { '200': { description: Changes } } }
+    post: { operationId: createChange, description: "File a change proposal. The level (L0-L3) is computed from the paths it touches; L2/L3 need tests, rollback plan and risks; a diff that weakens its own tests is recorded as blocked. proposed_by agent:<name> marks an automated proposer.", responses: { '201': { description: Change }, '422': { $ref: '#/components/responses/Error' } } }
+  /admin/changes/{id}:
+    get: { operationId: getChange, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Change }, '404': { $ref: '#/components/responses/Error' } } }
+  /admin/changes/{id}/decide:
+    post: { operationId: decideChange, description: "Approve or reject. L2 needs the owner; L3 (and agent-proposed L2) needs the owner with a fresh TOTP code; nobody approves their own proposal unless they are the owner; a blocked change cannot be approved.", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Change }, '403': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } } }
+  /admin/changes/{id}/move:
+    post: { operationId: moveChange, description: "Record a rollout step (in_canary, deployed, accepted, rolled_back) with evidence. Accepting needs post_deploy_health evidence with ok=true and the owner; a rollback needs a note.", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Change }, '403': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } } }
+  /admin/retention:
+    get: { operationId: retentionReport, description: "Owner: dry run of the retention proposal (odi.retention): what WOULD be purged. Nothing is deleted (ODI A7).", responses: { '200': { description: Report } } }
+  /notifications/{id}/snooze:
+    post: { operationId: snoozeNotification, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [minutes], additionalProperties: false, properties: { minutes: { type: integer, minimum: 1, maximum: 10080 } } } } } }, responses: { '200': { description: Snoozed } } }
+  /notifications/{id}/ack:
+    post: { operationId: ackNotification, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: Acknowledged } } }
+  /memories/{id}/expiry:
+    post: { operationId: setMemoryExpiry, description: "Set (days > 0) or clear (0) a memory's expiry; an expired memory is never retrieved as a fact and is retired by the maintenance tick (ODI A7).", parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [days], additionalProperties: false, properties: { days: { type: integer, minimum: 0, maximum: 3650 } } } } } }, responses: { '200': { description: Memory } } }
   /admin/audit:
     get: { operationId: adminAudit, description: "Owner: audit search (type, actor, task_id, since, until, q, limit); format=csv|jsonl exports and is audited.", responses: { '200': { description: Audit events or export file } } }
   /aul/check:
