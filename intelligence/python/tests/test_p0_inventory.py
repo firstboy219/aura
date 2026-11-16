@@ -47,6 +47,10 @@ def test_migrations_create_exactly_the_planned_tables():
         "notes", "media", "media_lookups",  # migration 0016, ADR-0061
         "reminders",  # migration 0017, ADR-0063
         "shell_log",  # migration 0018, ADR-0065
+        # ODI (Blueprint v1.1): additive migrations 0019 (columns only), 0022 (columns + a trigger), and the tables below
+        "fallback_authorizations", "teacher_requests", "nexus_shadow",  # migration 0020, ADR-0073
+        "devices", "device_pairings", "device_nonces", "device_leases",  # migration 0021, ADR-0075
+        "change_proposals",  # migration 0023, ADR-0077
     }
 
 
