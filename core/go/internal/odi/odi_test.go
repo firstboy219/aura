@@ -69,6 +69,7 @@ type mapping struct {
 		Canonical *string `json:"canonical"`
 		Status    string  `json:"status"`
 	} `json:"current"`
+	Derived        map[string]string `json:"derived"`
 	NotImplemented map[string]string `json:"not_implemented"`
 }
 
@@ -147,11 +148,15 @@ func TestStateMappingCoversEveryStateOfTheSchemaAndTheCode(t *testing.T) {
 	}
 	for c := range canon {
 		_, todo := m.NotImplemented[c]
-		if !covered[c] && !todo {
-			t.Errorf("canonical %s is neither mapped nor listed in not_implemented", c)
+		_, derived := m.Derived[c]
+		n := 0
+		for _, b := range []bool{covered[c], todo, derived} {
+			if b {
+				n++
+			}
 		}
-		if covered[c] && todo {
-			t.Errorf("canonical %s is both mapped and listed in not_implemented", c)
+		if n != 1 {
+			t.Errorf("canonical %s must be exactly one of mapped, derived or not_implemented (mapped=%v derived=%v not_implemented=%v)", c, covered[c], derived, todo)
 		}
 	}
 }

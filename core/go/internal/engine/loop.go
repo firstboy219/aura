@@ -921,6 +921,11 @@ type criterionResult struct {
 // evidence. Model confidence is not evidence: a criterion counts as met only
 // if its quote is found in the evidence by the Core (ADR-0016).
 func (e *Engine) verify(ctx context.Context, t *task.Task, criteria []string, evidence []evidenceItem) ([]string, error) {
+	// ODI A2: mark the verification phase so the canonical state VERIFYING can be derived (internal event, hidden from the timeline).
+	e.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := task.AppendInternalEvent(ctx, tx, t.ID, nil, "VERIFY_STARTED", "core", map[string]any{"criteria": len(criteria)})
+		return err
+	})
 	// "<file> exists" is decided by the Core from the files it holds; only the
 	// other criteria need a model (and none at all if every one is about existence).
 	decided := map[string]criterionResult{}

@@ -335,9 +335,27 @@ components:
         tier: { type: [string, 'null'] }
         question: { type: string, description: Pending clarification question (WAITING_INPUT only) }
         reply: { $ref: '#/components/schemas/Reply' }
+        assurance: { $ref: '#/components/schemas/Assurance' }
         wait_reason: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    Assurance:
+      type: object
+      description: >
+        Derived, never stored (ADR-0071, ODI Blueprint v1.1 §5 and §15). canonical_state is the Blueprint state for this task; extension names an AURA state the
+        Blueprint has none for. verification_level says what evidence stands behind the result: V0 attempted, V1 the tool reported success, V2 a postcondition was
+        observed, V3 independently confirmed. claim is what AURA may truthfully say; a V1 result is never "completed_verified".
+      required: [canonical_state, verification_level, claim, steps_total, steps_succeeded, steps_failed, steps_outstanding]
+      properties:
+        canonical_state: { type: string }
+        extension: { type: string }
+        verification_level: { enum: [none, V0, V1, V2, V3] }
+        claim: { enum: [in_progress, waiting, completed_verified, completed_unverified, attempted_only, completed_no_side_effect, partial, failed, uncertain, cancelled] }
+        steps_total: { type: integer }
+        steps_succeeded: { type: integer }
+        steps_failed: { type: integer }
+        steps_outstanding: { type: integer }
+        uncertain: { type: boolean }
     Reply:
       type: object
       description: What AURA told the owner about a finished task, with an adaptive view the client draws natively (ADR-0055).
@@ -353,7 +371,7 @@ components:
             type: object
             required: [code]
             properties:
-              code: { enum: [model_knowledge, core_summary, ungrounded_numbers, view_trimmed, task_failed] }
+              code: { enum: [model_knowledge, core_summary, ungrounded_numbers, view_trimmed, task_failed, unverified_outcome] }
               detail: { type: string }
         files: { type: array, items: { type: string } }
         created_at: { type: integer, description: Unix milliseconds }

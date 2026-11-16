@@ -21,6 +21,7 @@ import (
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/engine"
 	"aura.local/core/internal/ids"
+	"aura.local/core/internal/odi"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/store"
 	"aura.local/core/internal/task"
@@ -329,10 +330,12 @@ type Task struct {
 	Tier         *string     `json:"tier"`
 	Question     *string     `json:"question,omitempty"`
 	// HeardAs is what AURA understood a spoken objective to mean (ADR-0058).
-	HeardAs   string        `json:"heard_as,omitempty"`
-	Reply     *engine.Reply `json:"reply,omitempty"`
-	CreatedAt string        `json:"created_at"`
-	UpdatedAt string        `json:"updated_at"`
+	HeardAs string        `json:"heard_as,omitempty"`
+	Reply   *engine.Reply `json:"reply,omitempty"`
+	// Assurance is the derived ODI view (canonical state, verification level, truthful claim); only on GET /tasks/{id} (ADR-0071).
+	Assurance *odi.Assurance `json:"assurance,omitempty"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 func recoveryOf(t *task.Task) string {
@@ -458,6 +461,9 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		out.Question = s.Engine.PendingQuestion(r.Context(), t.ID)
 	}
 	out.Reply, _ = s.Engine.GetReply(r.Context(), t.ID)
+	if a, err := odi.Load(r.Context(), s.Store.R, t); err == nil {
+		out.Assurance = &a
+	}
 	if t.Scope.Voice != nil {
 		out.HeardAs = s.Engine.HeardAs(r.Context(), t.ID)
 	}

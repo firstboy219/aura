@@ -14,10 +14,16 @@
   "COMPLETED":        {"canonical": "SUCCEEDED",         "status": "mapped"},
   "FAILED":           {"canonical": "FAILED",            "status": "mapped"},
   "CANCELLED":        {"canonical": "CANCELLED",         "status": "mapped"},
-  "BUDGET_EXCEEDED":  {"canonical": "FAILED",            "status": "proposed",  "note": "reason_code BUDGET_EXCEEDED (Lampiran B); keputusan Pemilik"}
+  "BUDGET_EXCEEDED":  {"canonical": "FAILED",            "status": "proposed",  "by_reason": {"max_wall_seconds": "EXPIRED"}, "note": "FAILED dengan reason_code BUDGET_EXCEEDED (Lampiran B); batas waktu dinding (max_wall_seconds) -> EXPIRED; keputusan Pemilik"}
+ },
+ "derived": {
+  "PLANNED": "PLANNING dengan langkah rencana sudah ada",
+  "VERIFYING": "RUNNING setelah VERIFY_STARTED dan sebelum VERIFIED/VERIFICATION_FAILED/VERIFICATION_SKIPPED (peristiwa internal baru, ADR-0071)",
+  "PARTIAL": "COMPLETED dengan minimal satu langkah FAILED (bukan SKIPPED oleh replan)",
+  "EXPIRED": "BUDGET_EXCEEDED dengan reason max_wall_seconds",
+  "RECOVERY_REQUIRED": "WAITING_APPROVAL karena OUTCOME_UNKNOWN: hasil eksternal tidak diketahui, harus direkonsiliasi"
  },
  "not_implemented": {
-  "RECEIVED": "A2", "VALIDATING": "A2", "REJECTED": "A2", "PLANNED": "A2", "POLICY_CHECK": "A3", "READY": "A2", "VERIFYING": "A2",
-  "PARTIAL": "A2", "EXPIRED": "A2", "RECOVERY_REQUIRED": "A2"
+  "RECEIVED": "A2", "VALIDATING": "A2", "REJECTED": "A2", "READY": "A2", "POLICY_CHECK": "A3"
  }
 }

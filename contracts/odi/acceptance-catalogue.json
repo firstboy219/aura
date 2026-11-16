@@ -2,17 +2,89 @@
  "_doc": "ODI AURA Blueprint v1.1 Lampiran C. status: met | partial | unproven | not_met | not_applicable_yet. Dasar: AURA A0 16 Nov 2026 (docs/odi/AURA_A0_AUDIT.md). Diubah hanya oleh bukti uji.",
  "version": "0.1-draft",
  "tests": [
-  {"id":"AT-01","title":"NEXUS-only: rencana berkeyakinan rendah/mahal/antre/lambat tidak memicu fallback AI luar","status":"not_met","phase":"A4","evidence":"tidak ada klien NEXUS; gateway berantai OpenRouter/Gemini (model_tiers)"},
-  {"id":"AT-02","title":"Fallback ditolak bila policy AURA menolak atau tidak tersedia","status":"not_met","phase":"A4","evidence":"tidak ada FallbackAuthorization"},
-  {"id":"AT-03","title":"Pemulihan NEXUS menghentikan grant fallback baru dan mencabut grant berjalan","status":"not_met","phase":"A4","evidence":"tidak ada gerbang fallback"},
-  {"id":"AT-04","title":"Ubah satu parameter material membatalkan persetujuan; replay dan kedaluwarsa ditolak","status":"partial","phase":"A3","evidence":"action_hash + konsumsi + 409 approval_mismatch ada; uji ubah-parameter/replay/kedaluwarsa lengkap belum"},
-  {"id":"AT-05","title":"Pekerja tidak bisa membaca DB Core, rahasia, kredensial host, atau jaringan sembarang","status":"partial","phase":"A5","evidence":"konfigurasi terbukti (network none, ro, cap_drop ALL, hanya soket); belum ada uji otomatis"},
-  {"id":"AT-06","title":"Pengiriman ganda API/peristiwa tidak menggandakan efek samping","status":"partial","phase":"A2","evidence":"tasks.idempotency_key UNIQUE; uji bernama terbatas"},
-  {"id":"AT-07","title":"Konten situs/alat berbahaya tidak bisa menambah kapabilitas atau mengubah kebijakan","status":"unproven","phase":"A3","evidence":"tidak ada uji bernama"},
-  {"id":"AT-08","title":"Pencabutan owner/perangkat/tugas menghentikan aksi berikutnya dan mengisolasi pekerja","status":"unproven","phase":"A3","evidence":"tidak ada uji bernama; registri perangkat belum ada"},
-  {"id":"AT-09","title":"Respons alat tanpa postcondition terverifikasi tidak dilaporkan selesai","status":"unproven","phase":"A2","evidence":"level verifikasi V0-V3 belum diaudit"},
-  {"id":"AT-10","title":"Restart Core dan pekerja mati dilanjutkan/direkonsiliasi dari checkpoint tanpa replay tidak aman","status":"partial","phase":"A2","evidence":"9 uji bernama crash/recover (6 berkas)"},
-  {"id":"AT-11","title":"Takeover desktop menjeda otomasi; handback butuh observasi baru dan rekonsiliasi","status":"not_applicable_yet","phase":"A6","evidence":"belum ada pekerja desktop (takeover browser P5a ada)"},
-  {"id":"AT-12","title":"Cadangan pulih ke keadaan teruji dengan RPO/RTO terdokumentasi dan pemeriksaan integritas","status":"partial","phase":"A9","evidence":"integrity_check salinan SQLite ok (16 Nov); pemulihan penuh ke kontainer AURA belum; RPO/RTO belum ditetapkan"}
+  {
+   "id": "AT-01",
+   "title": "NEXUS-only: rencana berkeyakinan rendah/mahal/antre/lambat tidak memicu fallback AI luar",
+   "status": "not_met",
+   "phase": "A4",
+   "evidence": "tidak ada klien NEXUS; gateway berantai OpenRouter/Gemini (model_tiers)"
+  },
+  {
+   "id": "AT-02",
+   "title": "Fallback ditolak bila policy AURA menolak atau tidak tersedia",
+   "status": "not_met",
+   "phase": "A4",
+   "evidence": "tidak ada FallbackAuthorization"
+  },
+  {
+   "id": "AT-03",
+   "title": "Pemulihan NEXUS menghentikan grant fallback baru dan mencabut grant berjalan",
+   "status": "not_met",
+   "phase": "A4",
+   "evidence": "tidak ada gerbang fallback"
+  },
+  {
+   "id": "AT-04",
+   "title": "Ubah satu parameter material membatalkan persetujuan; replay dan kedaluwarsa ditolak",
+   "status": "met",
+   "phase": "A3",
+   "evidence": "policy.TestApprovalIntegrity (hash mismatch, changed parameter invalidates, reuse refused, expiry refused) + TestNewRequestInvalidatesPrevious; API 409 approval_mismatch / 410 approval_expired"
+  },
+  {
+   "id": "AT-05",
+   "title": "Pekerja tidak bisa membaca DB Core, rahasia, kredensial host, atau jaringan sembarang",
+   "status": "partial",
+   "phase": "A5",
+   "evidence": "konfigurasi terbukti (network none, ro, cap_drop ALL, hanya soket); belum ada uji otomatis"
+  },
+  {
+   "id": "AT-06",
+   "title": "Pengiriman ganda API/peristiwa tidak menggandakan efek samping",
+   "status": "met",
+   "phase": "A2",
+   "evidence": "API Idempotency-Key (engine TestCreateValidationIdempotencyAndErrors), webhook dedup (app TestSignedWebhookRaisesEventOnce), step idempotency keys, trigger once per slot (TestTriggerCreatesTaskOncePerSlot), app.TestCrashRecovery (20 random SIGKILLs, no duplicate effect)"
+  },
+  {
+   "id": "AT-07",
+   "title": "Konten situs/alat berbahaya tidak bisa menambah kapabilitas atau mengubah kebijakan",
+   "status": "unproven",
+   "phase": "A3",
+   "evidence": "tidak ada uji bernama"
+  },
+  {
+   "id": "AT-08",
+   "title": "Pencabutan owner/perangkat/tugas menghentikan aksi berikutnya dan mengisolasi pekerja",
+   "status": "partial",
+   "phase": "A6",
+   "evidence": "grant revocation proven (policy.TestGrantVerification), cancel/kill stop workers (TestCancelKillsWorkerQuickly, TestKillSwitch, TestCancelRootCancelsDescendants, TestDisconnectKillsBusyWorker); owner/device revocation needs the device registry (A6)"
+  },
+  {
+   "id": "AT-09",
+   "title": "Respons alat tanpa postcondition terverifikasi tidak dilaporkan selesai",
+   "status": "met",
+   "phase": "A2",
+   "evidence": "odi.TestDeriveTruthfulClaims (a V1/V0 result is never completed_verified), TestWeakestEffectDrivesTheReplyNote + reply note unverified_outcome; ADR-0071"
+  },
+  {
+   "id": "AT-10",
+   "title": "Restart Core dan pekerja mati dilanjutkan/direkonsiliasi dari checkpoint tanpa replay tidak aman",
+   "status": "met",
+   "phase": "A2",
+   "evidence": "app.TestCrashRecovery: 20 random SIGKILLs of Core+worker, interrupted tasks resume and complete; TestDisconnectKillsBusyWorker; step recovery events (TASK_RECOVERED/STEP_RECOVERED)"
+  },
+  {
+   "id": "AT-11",
+   "title": "Takeover desktop menjeda otomasi; handback butuh observasi baru dan rekonsiliasi",
+   "status": "not_applicable_yet",
+   "phase": "A6",
+   "evidence": "belum ada pekerja desktop (takeover browser P5a ada)"
+  },
+  {
+   "id": "AT-12",
+   "title": "Cadangan pulih ke keadaan teruji dengan RPO/RTO terdokumentasi dan pemeriksaan integritas",
+   "status": "partial",
+   "phase": "A9",
+   "evidence": "integrity_check salinan SQLite ok (16 Nov); pemulihan penuh ke kontainer AURA belum; RPO/RTO belum ditetapkan"
+  }
  ]
 }

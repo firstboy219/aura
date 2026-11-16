@@ -21,6 +21,7 @@ import (
 	"aura.local/core/internal/budget"
 	"aura.local/core/internal/gateway"
 	"aura.local/core/internal/ids"
+	"aura.local/core/internal/odi"
 	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
 	"aura.local/core/internal/taxonomy"
@@ -43,6 +44,7 @@ const (
 )
 
 // ReplyNote is an honest caveat the Core attaches to a reply; clients show it.
+// (unverified_outcome, ODI A2: a write that no check observed; Detail names the evidence level.)
 type ReplyNote struct {
 	Code   string `json:"code"` // model_knowledge | core_summary | ungrounded_numbers | view_trimmed | task_failed | voice_confirm | screen_designed
 	Detail string `json:"detail,omitempty"`
@@ -496,6 +498,12 @@ func (e *Engine) writeReply(ctx context.Context, t *task.Task, evidence []eviden
 	}
 	if len(removed) > 0 {
 		notes = append(notes, ReplyNote{Code: "view_trimmed", Detail: truncate(strings.Join(removed, "; "), 400)})
+	}
+	// ODI A2 (ADR-0071): a consequential step that no postcondition check observed must not read as "done and checked".
+	if failure == nil {
+		if lvl, bad, err := odi.UnverifiedEffects(ctx, e.st.R, t.ID); err == nil && bad {
+			notes = append(notes, ReplyNote{Code: "unverified_outcome", Detail: "evidence " + lvl + ": " + map[string]string{odi.V0: "the action was attempted; no success was reported", odi.V1: "the tool reported success; nothing observed the result"}[lvl]})
+		}
 	}
 	if notes == nil {
 		notes = []ReplyNote{}
