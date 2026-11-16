@@ -322,8 +322,8 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 				wiki = append(wiki, tools.NewWikipedia(tools.NewGuard(), l))
 			}
 			// the browser's engines first; when they find nothing (Bing serves unrelated results, DuckDuckGo a 403 to a headless browser) a plain HTTP request to
-			// DuckDuckGo's HTML endpoint, and Wikipedia last (ADR-0068)
-			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names, tools.FirstWithResults{tools.NewDuckDuckGoHTML(tools.NewGuard()), wiki}))
+			// Yahoo (Bing's index) and DuckDuckGo together, and Wikipedia last (ADR-0068)
+			a.Engine.SetSearcher(browser.NewSearcher(bc, a.Egress, names, tools.FirstWithResults{tools.Merged{tools.NewYahooHTML(tools.NewGuard()), tools.NewDuckDuckGoHTML(tools.NewGuard())}, wiki}))
 		}
 	}
 	if n := a.Engine.RegisterActiveL2(ctx); n > 0 {
