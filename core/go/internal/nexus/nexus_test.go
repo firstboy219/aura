@@ -545,3 +545,47 @@ func TestSanitizeAcceptsOrdinaryQuestions(t *testing.T) {
 		}
 	}
 }
+
+func TestShadowSamplingAndConcurrencyAreBounded(t *testing.T) {
+	// 0 %: nothing is sent to NEXUS
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent = ModeShadow, 0 })
+	for i := 0; i < 5; i++ {
+		r.call(context.Background(), "t1", "public")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if r.f.count() != 0 {
+		t.Fatalf("0%% shadow still sent %d calls to NEXUS", r.f.count())
+	}
+	// 100 % but NEXUS is slow: at most two shadow calls are in flight, the others are skipped (and legacy is never delayed)
+	r2 := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent = ModeShadow, 100 })
+	release := make(chan struct{})
+	r2.f.submit = func(w http.ResponseWriter, q Request) { <-release; writeResult(w, 200, q, "SUCCEEDED", "late", "low") }
+	start := time.Now()
+	for i := 0; i < 6; i++ {
+		if _, err := r2.call(context.Background(), "t1", "public"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("a slow NEXUS delayed the legacy path")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := r2.f.count(); n != 2 {
+		t.Fatalf("expected exactly 2 shadow calls in flight, NEXUS saw %d", n)
+	}
+	close(release)
+	// sampling by percentage uses the injected random source
+	r3 := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent = ModeShadow, 30 })
+	hits := 0
+	r3.svc.Router.Rand = func() int { hits++; return map[int]int{1: 10, 2: 90, 3: 29, 4: 30}[hits] }
+	for i := 0; i < 4; i++ {
+		r3.call(context.Background(), "t1", "public")
+		time.Sleep(60 * time.Millisecond)
+	}
+	if n := r3.f.count(); n != 2 {
+		t.Fatalf("30%% sampling with draws 10,90,29,30 should send 2 calls, sent %d", n)
+	}
+	if err := (Policy{Mode: ModeOff, ShadowPercent: 101, FallbackTTLMinutes: 10}).Validate(); err == nil {
+		t.Fatal("shadow_percent above 100 accepted")
+	}
+}

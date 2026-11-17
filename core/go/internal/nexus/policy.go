@@ -27,6 +27,7 @@ type Policy struct {
 	Mode               string   `json:"mode"`
 	BaseURL            string   `json:"base_url"`
 	OwnerDisabledUntil int64    `json:"owner_disabled_until_ms"` // Unix ms; the owner switched NEXUS off until then
+	ShadowPercent      int      `json:"shadow_percent"`          // shadow mode: the share of calls (0..100) that is also sent to NEXUS; the rest is not measured
 	FallbackProviders  []string `json:"fallback_providers"`
 	FallbackDataClass  []string `json:"fallback_data_classes"`
 	FallbackBudgetUSD  float64  `json:"fallback_budget_usd"`
@@ -40,7 +41,7 @@ type Policy struct {
 }
 
 func DefaultPolicy() Policy {
-	return Policy{Mode: ModeOff, FallbackDataClass: []string{"public"}, FallbackBudgetUSD: 0.25, FallbackMaxCalls: 20, FallbackTTLMinutes: 10,
+	return Policy{Mode: ModeOff, ShadowPercent: 100, FallbackDataClass: []string{"public"}, FallbackBudgetUSD: 0.25, FallbackMaxCalls: 20, FallbackTTLMinutes: 10,
 		TeacherTier: "standard", TeacherBudgetUSD: 0.05, TeacherMaxPerDay: 20}
 }
 
@@ -55,6 +56,9 @@ func (p Policy) Validate() error {
 	}
 	if p.FallbackBudgetUSD < 0 || p.FallbackBudgetUSD > 50 || p.FallbackMaxCalls < 0 || p.FallbackMaxCalls > 1000 || p.FallbackTTLMinutes < 1 || p.FallbackTTLMinutes > 1440 {
 		return errors.New("fallback limits out of range")
+	}
+	if p.ShadowPercent < 0 || p.ShadowPercent > 100 {
+		return errors.New("shadow_percent must be 0..100")
 	}
 	if p.TeacherBudgetUSD < 0 || p.TeacherBudgetUSD > 5 || p.TeacherMaxPerDay < 0 || p.TeacherMaxPerDay > 500 {
 		return errors.New("teacher limits out of range")

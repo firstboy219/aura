@@ -32,6 +32,10 @@ type Router struct {
 
 	mu       sync.Mutex
 	lastGood *Policy
+	// shadowSem bounds the shadow calls in flight: shadow mode measures NEXUS, it must never pile work onto it or onto the host.
+	shadowSem chan struct{}
+	// Rand returns a number in [0,100) (tests inject it).
+	Rand func() int
 }
 
 func (r *Router) now() time.Time {
@@ -61,8 +65,21 @@ func (r *Router) Complete(ctx context.Context, b gateway.Budget, req gateway.Req
 	switch pol.Mode {
 	case ModeShadow:
 		res, err := legacy(ctx, b, req)
-		if err == nil && pol.BaseURL != "" {
-			go r.shadow(context.WithoutCancel(ctx), b, req, res)
+		if err == nil && pol.BaseURL != "" && r.sampled(pol.ShadowPercent) {
+			r.mu.Lock()
+			if r.shadowSem == nil {
+				r.shadowSem = make(chan struct{}, 2)
+			}
+			sem := r.shadowSem
+			r.mu.Unlock()
+			select {
+			case sem <- struct{}{}:
+				go func() {
+					defer func() { <-sem }()
+					r.shadow(context.WithoutCancel(ctx), b, req, res)
+				}()
+			default: // two shadow calls are already running: this one is not measured
+			}
 		}
 		return res, err
 	case ModePrimary:
@@ -241,6 +258,22 @@ func btoi(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (r *Router) sampled(percent int) bool {
+	if percent >= 100 {
+		return true
+	}
+	if percent <= 0 {
+		return false
+	}
+	n := 0
+	if r.Rand != nil {
+		n = r.Rand()
+	} else {
+		n = int(time.Now().UnixNano()/1000) % 100
+	}
+	return n < percent
 }
 
 // Digest is a short stable id for audit rows that must refer to content without storing it.
