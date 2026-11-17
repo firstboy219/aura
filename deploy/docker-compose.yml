@@ -5,6 +5,8 @@ name: aura
 
 services:
   aura-core:
+    oom_score_adj: -300   # memory policy v4: no hard limit; tier 'service' (data -900 < inference -500 < service -300 < support -100 < disposable 300 < sandbox 500)
+    mem_reservation: 256m   # protected working set (memory.low): reclaimed/swapped last
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -32,7 +34,6 @@ services:
     # aura-shell-net: the shell sandbox reaches the same egress proxy (ADR-0065).
     networks: [aura-net, aura-browser-net, aura-shell-net]
     cpuset: "0-3"        # ODI resource policy v3 (owner delegated to Claude 2026-11-17): priority, not partition: every service may use all 4 logical CPUs; weight decides who wins (inference 2048, services 1024, background 128 on cores 2-3)
-    mem_limit: 1g
     pids_limit: 256
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
@@ -49,6 +50,7 @@ services:
   # The Python worker, isolated (Blueprint P4, ADR-0035): its own unprivileged uid, NO network at all, no data,
   # workspace or secret mounts, read-only root, scratch on tmpfs. It is reachable only through the socket volume.
   aura-worker:
+    oom_score_adj: -100   # memory policy v4: no hard limit; tier 'support' (data -900 < inference -500 < service -300 < support -100 < disposable 300 < sandbox 500)
     image: aura-core:local
     container_name: aura-worker
     # AURA_RELEASE_PUBKEY (deploy/.env, not committed): the worker host verifies the signed release first (ADR-0037).
@@ -59,7 +61,6 @@ services:
     volumes:
       - aura-worker-sock:/run/aura-worker
     cpuset: "0-3"        # ODI resource policy v3 (owner delegated to Claude 2026-11-17): priority, not partition: every service may use all 4 logical CPUs; weight decides who wins (inference 2048, services 1024, background 128 on cores 2-3)
-    mem_limit: 768m
     pids_limit: 64
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
@@ -77,6 +78,7 @@ services:
   # no route to the internet. Its only way out is the Core's egress proxy (per-session credentials, task domain
   # allowlist, SSRF guard). It is driven by the Core through the socket volume; no data or secret mounts.
   aura-browser:
+    oom_score_adj: 300   # memory policy v4: no hard limit; tier 'disposable' (data -900 < inference -500 < service -300 < support -100 < disposable 300 < sandbox 500)
     build:
       context: ..
       dockerfile: deploy/browser.Dockerfile
@@ -90,7 +92,6 @@ services:
     volumes:
       - aura-browser-sock:/run/aura-browser
     cpuset: "0-3"        # ODI resource policy v3 (owner delegated to Claude 2026-11-17): priority, not partition: every service may use all 4 logical CPUs; weight decides who wins (inference 2048, services 1024, background 128 on cores 2-3)
-    mem_limit: 1g
     pids_limit: 512
     shm_size: 256m
     read_only: true
@@ -109,6 +110,7 @@ services:
   # product's proxy is used. Started only with the "tunnel" profile (COMPOSE_PROFILES=tunnel in deploy/.env) once the
   # owner's tunnel token is in /opt/aura/secrets/cloudflare_tunnel_token. Only that one file is mounted.
   aura-tunnel:
+    oom_score_adj: -300   # memory policy v4: no hard limit; tier 'service' (data -900 < inference -500 < service -300 < support -100 < disposable 300 < sandbox 500)
     image: cloudflare/cloudflared:2025.4.0
     container_name: aura-tunnel
     profiles: ["tunnel"]
@@ -119,7 +121,6 @@ services:
     volumes:
       - /opt/aura/secrets/cloudflare_tunnel_token:/run/secrets/tunnel_token:ro
     cpuset: "0-3"        # ODI resource policy v3 (owner delegated to Claude 2026-11-17): priority, not partition: every service may use all 4 logical CPUs; weight decides who wins (inference 2048, services 1024, background 128 on cores 2-3)
-    mem_limit: 128m
     pids_limit: 64
     read_only: true
     security_opt: ["no-new-privileges:true"]
@@ -131,6 +132,7 @@ services:
   # network is internal; the internet is reached through the Core's egress proxy with per-command credentials (public
   # hosts only). Every command is decided and logged by the Core's watcher before it arrives here.
   aura-shell:
+    oom_score_adj: 500   # memory policy v4: no hard limit; tier 'sandbox' (data -900 < inference -500 < service -300 < support -100 < disposable 300 < sandbox 500)
     build:
       context: ..
       dockerfile: deploy/shell.Dockerfile
@@ -148,7 +150,6 @@ services:
       - ${JARVIS_DEV_MIRROR:-/home/ubuntu/my-project/infra/data/dev-mirror}:/mirror:ro
       - ${JARVIS_HANDOFF:-/home/ubuntu/my-project/infra/data/dev/handoff}:/handoff:ro
     cpuset: "0-3"        # ODI resource policy v3 (owner delegated to Claude 2026-11-17): priority, not partition: every service may use all 4 logical CPUs; weight decides who wins (inference 2048, services 1024, background 128 on cores 2-3)
-    mem_limit: 2g
     pids_limit: 512
     read_only: true
     tmpfs: ["/tmp:size=512m,mode=1777"]
