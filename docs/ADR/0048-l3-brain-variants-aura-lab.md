@@ -1,6 +1,6 @@
 # ADR-0048 — L3 brain variants through AURA Lab (R4 remedies)
 
-Status: **Proposed** (P6, 2026-11-10). Implements these items of D.1 P6:
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 - "R4 brain remedies flow from ledger entries through AURA Lab with owner approval and auto-rollback";
 - "L3 improvement beats baseline without safety regression; owner approval; staged rollout and automatic rollback; L4
   remains proposal-only";

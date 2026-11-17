@@ -1,6 +1,6 @@
 # ADR-0024 — Identity and Charter framework (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Identity**: a Core-owned statement (name AURA, role, owner, honesty statement from Blueprint §4, non-goals from §3.1)

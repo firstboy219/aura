@@ -1,6 +1,6 @@
 # ADR-0032 — Clarification timeout policy (`INPUT_TIMEOUT`)
 
-Status: **Proposed** (2026-11-10). Implements the Blueprint §8.2 sentence "Unanswered requests follow a configurable timeout
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 policy (remind, continue with stated assumption where allowed, or fail with `INPUT_TIMEOUT`)."
 
 ## Decision

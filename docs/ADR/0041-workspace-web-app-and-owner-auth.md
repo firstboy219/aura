@@ -1,6 +1,6 @@
 # ADR-0041 — Workspace Web App, owner authentication and remote exposure
 
-Status: **Proposed** (P5a, 2026-11-10). Implements Blueprint 13A.4 (Workspace Web App), 13A.7 (cross-interface rules: API-first,
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 server-side authorization, approval UX, untrusted rendering, web security baseline, localization, efficiency) and the D.1 P5 web
 security tests. Owner decisions: expose through **Cloudflare Tunnel** at `aura.cosger.online` (app) and `aurax.cosger.online`
 (API); voice (OCA) is deferred.

@@ -1,6 +1,6 @@
 # ADR-0077 — ODI A8: self-engineering change levels, approval rules and evidence-gated rollout
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit tests (implementation-verified)
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §16. AURA already has sandboxed L2 tools (approved by the sha256 of their exact source), the Limitation Ledger and Lab, and a runtime guard that rejects proposals touching policy, permissions, identity or the Charter (`PROTECTED_PROPOSAL_REJECTED`). What it lacked was one place where *any* change proposal is classified by level, checked for weakening its own evidence, approved by the right person, and moved to "accepted" only with evidence of the deployment.

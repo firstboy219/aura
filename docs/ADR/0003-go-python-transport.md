@@ -1,6 +1,6 @@
 # ADR-0003 — Go–Python transport
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 JSON-RPC 2.0, newline-delimited, over the worker's stdin/stdout; stderr is worker log (captured, size-capped,

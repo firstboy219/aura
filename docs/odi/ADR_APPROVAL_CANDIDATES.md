@@ -4,6 +4,8 @@ No ADR file was changed: approving an ADR is the owner's decision. This list sho
 
 Proposed ADRs: 65; referenced in code: 57; not referenced: 8.
 
+**Update 2026-11-17: the owner approved the 57 referenced ADRs and ADR-0081 ("Ok setuju"); their status lines now read Accepted. The 8 without a code reference stay Proposed.**
+
 ## Referenced in code (candidates to accept as implemented)
 
 | ADR | Title | code refs | example |

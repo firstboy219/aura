@@ -1,6 +1,6 @@
 # ADR-0017 — Provenance-bound dynamic tool arguments
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 P1 bound every tool argument to the plan (A-18). P2 research needs URLs discovered during the task (search results).

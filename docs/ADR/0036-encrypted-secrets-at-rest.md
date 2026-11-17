@@ -1,6 +1,6 @@
 # ADR-0036 — Encrypted secrets at rest, key rotation, backup/restore
 
-Status: **Proposed** (P4-M2, 2026-11-10). Implements Blueprint D.1 P4: "Encrypted secrets at rest; backup/restore and key rotation
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 tested." The P1 limitation in SECURITY_MODEL §4 (file permissions only) is replaced.
 
 ## Decision

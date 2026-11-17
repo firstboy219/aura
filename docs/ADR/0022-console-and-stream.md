@@ -1,6 +1,6 @@
 # ADR-0022 — Event stream and Console TUI
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Stream:** Server-Sent Events at `GET /api/v1/stream` (bearer auth; optional `task_id`), emitting task events in

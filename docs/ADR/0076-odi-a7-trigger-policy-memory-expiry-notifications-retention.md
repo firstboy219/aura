@@ -1,6 +1,6 @@
 # ADR-0076 — ODI A7: trigger policy, memory expiry, notification hygiene, retention report
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: engine tests (implementation-verified)
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §14 and §17. A0/A7 audit: events are append-only with a per-task sequence and external events are de-duplicated (AT-06 met); a trigger claims its slot before running and computes the next slot from "now", so a missed slot runs once and never as a burst (already compliant); memories carry provenance, status, version and lineage; but there was no overlap policy, quiet hours, trigger expiry, memory expiry, notification snooze/acknowledgement or de-duplication, and no retention view.

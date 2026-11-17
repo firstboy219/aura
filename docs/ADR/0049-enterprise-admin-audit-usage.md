@@ -1,6 +1,6 @@
 # ADR-0049 — Enterprise Admin: departments, audit search/export, usage by department
 
-Status: **Proposed** (P6, 2026-11-10). Implements part of D.1 P6 "Enterprise Admin Console supports SSO setup, role mapping,
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 connector governance, policy, audit search/export, and usage by department". It builds on ADR-0043 (roles, members,
 write-only credentials).
 

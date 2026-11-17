@@ -1,6 +1,6 @@
 # ADR-0071 — ODI A2: derived canonical state, verification levels and truthful claims
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit tests in `core/go/internal/odi` (implementation-verified); not yet production-proven
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §5 and §15 want every task to report a canonical state, state the real evidence level (V0–V3) behind a result, and never call a task done because a tool call was merely issued (AT-09). AURA persists 12 states and already verifies against completion criteria, but nothing said at what level a result was checked.

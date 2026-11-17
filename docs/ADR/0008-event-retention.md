@@ -1,6 +1,6 @@
 # ADR-0008 — Event retention and audit/content separation
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - `task_events` (append-only, source of truth) store **metadata and redacted summaries**: type, step, tool, status,

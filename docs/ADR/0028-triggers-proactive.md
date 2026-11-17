@@ -1,6 +1,6 @@
 # ADR-0028 — Scheduled triggers and Proactive Intelligence v1 (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Triggers** (`triggers`): interval or daily schedule, an objective template, tools, domains, data class and budget;

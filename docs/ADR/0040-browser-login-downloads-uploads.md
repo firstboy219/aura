@@ -1,6 +1,6 @@
 # ADR-0040 — Browser login, one-time codes, downloads and uploads
 
-Status: **Proposed** (P4 follow-up, owner request 2026-11-10). Implements Blueprint 8.8.1 rule 4 (authentication), rule 7 (downloads
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 quarantined, uploads off by default) and D.1 P4 ("browser authentication uses a human-mediated or approved delegated flow; no raw
 passwords, cookies or MFA secrets are exposed to the model/worker; CAPTCHA/MFA challenges are handed back to the human").
 

@@ -1,6 +1,6 @@
 # ADR-0037 — Signed runtime artifacts
 
-Status: **Proposed** (P4-M3, 2026-11-10). Implements Blueprint D.1 P4: "Signed runtime artifact verification is operational for
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 controlled releases."
 
 ## Decision

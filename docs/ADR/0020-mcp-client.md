@@ -1,6 +1,6 @@
 # ADR-0020 — MCP client adapter
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 MCP servers are declared by the owner in config (`mcp.servers[]`: name, command, env allowlist, and per tool: tier,

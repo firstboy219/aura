@@ -1,6 +1,6 @@
 # ADR-0039 — Browser Automation v1
 
-Status: **Proposed** (P4-M5, 2026-11-10). Implements Blueprint 8.8.1 and D.1 P4 (Browser Automation v1), RS-8 and BRW-01…08.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Runtime:** a separate container, `aura-browser`, running Playwright 1.49.1 (Apache-2.0) with Chromium 131 (BSD) on Debian

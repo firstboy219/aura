@@ -1,6 +1,6 @@
 # ADR-0021 — Second model provider and web search providers
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Second provider:** an OpenAI-compatible chat-completions adapter (`providers.openai_compatible[]`: id, base_url,

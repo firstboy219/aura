@@ -1,6 +1,6 @@
 # ADR-0010 — Browser egress boundary (contract only; implementation P4)
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision (contract)
 The P4 Playwright runtime will run as a separate on-demand process/container with **no direct egress**: all traffic

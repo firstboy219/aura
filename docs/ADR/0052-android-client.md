@@ -1,6 +1,6 @@
 # ADR-0052 — Android client v0.1 (P7)
 
-Status: **Proposed** (P7, 2026-11-10). The owner chose "build directly with Gradle". The toolchain is AURA's own
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 (`deploy/android.Dockerfile`): JDK 17, Android cmdline-tools 11076708 and Gradle 8.10.2, all pinned by sha256. Nothing from
 another product's build is read or reused (Blueprint §15).
 

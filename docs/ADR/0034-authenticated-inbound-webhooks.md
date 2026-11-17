@@ -1,6 +1,6 @@
 # ADR-0034 — Authenticated inbound webhooks
 
-Status: **Proposed** (2026-11-10). Blueprint §8.11 and §8.2.1 call for authenticated inbound webhooks in P3a (one scheduler; prefer
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 events over polling).
 
 ## Decision

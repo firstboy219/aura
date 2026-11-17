@@ -1,6 +1,6 @@
 # ADR-0043 — Workspace Admin foundation: members, roles, budget, write-only credentials
 
-Status: **Proposed** (P5a, 2026-11-10). Implements D.1 P5 "Workspace Admin foundation: members, roles, budgets, and connector
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 credentials (write-only) work with server-side authorization" and the web security test "a hidden-UI action is still denied
 server-side for an unauthorized role". There is still one workspace; tenants and SSO are P6+.
 

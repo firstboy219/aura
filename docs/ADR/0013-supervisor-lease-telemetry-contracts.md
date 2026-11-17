@@ -1,6 +1,6 @@
 # ADR-0013 — Stable contracts for P2 supervisor, activity events and telemetry
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision (contracts only; no supervisor/scheduler/learning/profile code in P0/P1)
 - **Task lease:** `tasks.lease_owner`, `tasks.lease_expires_at` columns exist from P1 (Core is the only owner in

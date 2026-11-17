@@ -1,6 +1,6 @@
 # ADR-0046 — Specialist subagent profiles
 
-Status: **Proposed** (P6, 2026-11-10). Implements D.1 P6 "managed specialist subagent profiles" within AGENTS.md rule 18.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Profiles are owner configuration**, defined in `specialists:` in `config.yaml`. Each profile has:

@@ -1,6 +1,6 @@
 # ADR-0026 — Owner Working Profile (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 `profile_items`: statement, scope (`global` or a task category), provenance (`explicit` via API/CLI, or `inferred`

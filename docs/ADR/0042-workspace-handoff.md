@@ -1,6 +1,6 @@
 # ADR-0042 — Workspace handoff and owner sign-in through the remote browser view
 
-Status: **Proposed** (P5a, 2026-11-10). Implements D.1 P5 "Workspace handoff: where a browser/desktop session is supported, the
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 Owner can take over and return control. AURA pauses its actions on that session during takeover and resumes only after explicit
 return-control and policy revalidation". It also gives Blueprint 8.8.1 rule 4 a human-mediated login path ("prefer user-mediated
 login").

@@ -1,6 +1,6 @@
 # ADR-0050 — AUL v1: capability-safe workflows compiled to IR and run in a WebAssembly VM
 
-Status: **Proposed** (P8, 2026-11-10). Implements D.1 P8: "malformed AUL cannot escape runtime; undeclared capabilities fail
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 static checks; AUL executes as WASM under Core grants". It follows the Blueprint §11 pipeline: Source → Lexer → Parser → AST →
 type/capability check → IR → policy validation → WASM.
 

@@ -1,6 +1,6 @@
 # ADR-0073 — ODI A4: NEXUS gateway, AURA-owned fallback, Teacher Gate
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit tests with a fake NEXUS (implementation-verified); **no real NEXUS exists yet, so nothing here is production-proven and the default mode is `off`**
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 Implements the design in ADR-0070.
 
 ## Decision

@@ -1,6 +1,6 @@
 # ADR-0007 — Worker trust and scratch boundary (P1)
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision (P1 — honest trust level, §5.1 rule 4)
 - The worker is a **constrained, trusted application process** started by Core inside the same `aura-core`

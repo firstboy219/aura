@@ -1,6 +1,6 @@
 # ADR-0070 — ODI: NEXUS gateway, AURA-owned fallback and Teacher Gate (design only)
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: design-reviewed. **Nothing in this ADR is implemented.**
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint §7: all runtime cognition goes through NEXUS; an external AI provider is allowed only when objective health evidence shows NEXUS unavailable, or the owner disables NEXUS; AURA alone authorizes it. Today AURA's gateway (`internal/gateway`) walks `model_tiers` priorities across OpenRouter and Gemini on errors and cost. Owner decisions (2026-11-16): the current external routes stay until NEXUS passes its gate; NEXUS may *learn* from external AI only through AURA (Teacher Gate); NEXUS must never refuse an owner request merely because it does not know.

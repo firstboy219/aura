@@ -1,6 +1,6 @@
 # ADR-0016 — P2 agent loop: replanning, verification, plan review, clarification, cascade
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Replanning** is bounded: at most 2 replans per task (step failure or failed verification). The worker's

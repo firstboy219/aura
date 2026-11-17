@@ -1,6 +1,6 @@
 # ADR-0081 — Spatial session authorization (JARVIS blueprint v1.4 §6, §14, §16)
 
-**Proposed** — awaiting owner approval · Date: 2026-11-17 · Not implemented.
+**Accepted by the owner 2026-11-17** ("Ok setuju") as a design · Date: 2026-11-17 · Implementation behind a default-off policy flag (`spatial_sessions_enabled`).
 
 ## Context
 JARVIS blueprint v1.4 adds Spatial Intelligence. The authority chain is: JARVIS requests a scoped spatial session → **AURA authorizes** → AMPI perceives approved input → AURA binds context and may invoke NEXUS → AURA applies policy → JARVIS presents. Today AURA has only the AMPI *intake* (ADR-0080: signed packets stored once, nothing started). No route exists for a spatial session, and AURA holds no AMPI client credential.

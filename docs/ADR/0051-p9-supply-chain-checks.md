@@ -1,6 +1,6 @@
 # ADR-0051 — P9 supply-chain checks: reproducible build and license audit
 
-Status: **Proposed** (P9, 2026-11-10). Covers the parts of D.1 P9 "reproducible deployment, signed release pipeline,
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 dependency/license audit" that do not need owner decisions. The signed release pipeline is ADR-0037. This ADR adds the AUL
 VM to the signed manifest (ADR-0050).
 

@@ -1,6 +1,6 @@
 # ADR-0047 — Worker pool and parallel subagents
 
-Status: **Proposed** (P6, 2026-11-10). Supersedes the single-worker limit of ADR-0003 for P6+. Implements D.1 P6 "parallel
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 subagents under one parent with budget carving and cascade".
 
 ## Decision

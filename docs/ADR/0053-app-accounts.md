@@ -1,6 +1,6 @@
 # ADR-0053 — App accounts: username/password sign-in for the Android client
 
-Status: **Proposed** (2026-11-10). Owner request: when signing in from the APK, the token is generated automatically. The
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 owner asked for an account `admin` for the app.
 
 ## Decision

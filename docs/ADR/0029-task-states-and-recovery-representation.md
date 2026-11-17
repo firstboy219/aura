@@ -1,6 +1,6 @@
 # ADR-0029 — Task state names and the representation of INTERRUPTED / RECOVERING
 
-Status: **Proposed** (checkpoint v1.3.11, 2026-11-09).
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint §8.2 names the states `CREATED, PLANNING, RUNNING, WAITING_APPROVAL, WAITING_EXTERNAL, WAITING_INPUT, SCHEDULED,

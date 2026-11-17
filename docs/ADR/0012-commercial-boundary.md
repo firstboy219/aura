@@ -1,6 +1,6 @@
 # ADR-0012 — Commercial boundary (contract only)
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision (contract)
 Runtime stays deployment-neutral: one instance = one workspace boundary (A-10). The only runtime identity contract is

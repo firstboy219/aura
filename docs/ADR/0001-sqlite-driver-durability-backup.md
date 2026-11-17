@@ -1,6 +1,6 @@
 # ADR-0001 — SQLite driver, embedded version, WAL durability, checkpoint and backup
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint §6, §10: pure-Go driver; verify embedded SQLite ≥ 3.51.3 (WAL-reset fix), FTS5, WAL, backup API; Go Core is

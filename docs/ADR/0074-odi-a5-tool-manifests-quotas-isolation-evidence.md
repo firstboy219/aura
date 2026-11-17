@@ -1,6 +1,6 @@
 # ADR-0074 — ODI A5: tool manifests, per-tool quotas, isolation evidence
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit/engine tests and a live probe (implementation-verified)
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §10–§11. A0 found: compiled tools have a trusted entry (id, version, side effect, tier) but no declared network destination or data classes; tool quotas did not exist; worker isolation was strong (network none, read-only, cap_drop ALL) and already had a probe script, but no recorded evidence.

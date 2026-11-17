@@ -1,6 +1,6 @@
 # ADR-0054 — Adaptive routing: route health, immediate rest on quota, tier rescue
 
-Status: **Proposed** (2026-11-10). Owner request: AURA must manage its own needs instead of being rigid, and it must
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 answer. Evidence for the problem: on 2026-11-10 owner tasks from the Android app failed with `PROVIDER_UNAVAILABLE`
 because the statically ordered free routes were exhausted while other usable routes existed.
 

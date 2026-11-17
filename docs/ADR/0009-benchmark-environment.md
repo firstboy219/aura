@@ -1,6 +1,6 @@
 # ADR-0009 — Benchmark execution environment
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - Deterministic CI benchmarks run with a **fake provider** and local fixture HTTP server inside the test container.

@@ -1,6 +1,6 @@
 # ADR-0044 — First messaging channel: Telegram bot
 
-Status: **Proposed** (P5b, 2026-11-10). Implements D.1 P5 "P5b: add one messaging channel" and cross-channel continuity. The
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 owner's instruction to continue to the last phase is recorded as waiving the P5a acceptance gate (ASSUMPTIONS A-28).
 
 ## Decision

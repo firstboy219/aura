@@ -1,6 +1,6 @@
 # ADR-0078 — ODI: NEXUS learns from the external answers AURA obtained for heavy public tasks
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-17 · Evidence: unit tests with a fake NEXUS (implementation-verified); the benefit of the lessons is **not yet measured**
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Owner direction (2026-11-17): a task that NEXUS mini cannot carry (long agent prompts; first shadow data: most AURA prompts exceed its 4096-token context and a 1k-token prompt takes about a minute on this CPU) may go to an external AI, and NEXUS mini should learn from it so that it can handle such a task next time. This is the Teacher Gate idea (ADR-0070/0073, owner amendments E1/E2) driven by AURA's own traffic.

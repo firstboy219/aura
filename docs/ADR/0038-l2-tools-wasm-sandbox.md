@@ -1,6 +1,6 @@
 # ADR-0038 — L2 tools in a WASM sandbox (remedy R3)
 
-Status: **Proposed** (P4-M4, 2026-11-10). Implements Blueprint 8A.1 L2 ("new executable tool with manifest/tests/capabilities;
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 isolated WASM or equivalent sandbox; tests, static capability check, sandbox benchmark; new capabilities require owner approval")
 and D.1 P4 (RS-6; undeclared WASM host calls fail; the Limitation Ledger resolves a missing-tool limitation through R3).
 

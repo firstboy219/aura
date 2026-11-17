@@ -1,6 +1,6 @@
 # ADR-0005 — Identifier format
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 **ULID** (26-char Crockford base32, `github.com/oklog/ulid/v2`, monotonic entropy per process) for every primary

@@ -1,6 +1,6 @@
 # ADR-0023 — Memory with provenance (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - One table `memories` (kind `fact` | `lesson`), each row: content, provenance (task id, step, source URL/path,

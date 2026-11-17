@@ -1,6 +1,6 @@
 # ADR-0072 — ODI A3: approval accountability and revocation, tamper-evident audit, risk labels
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit and engine tests (implementation-verified); not yet production-proven
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §8–§9 and §20. A0 found: approvals already bind to a canonical action hash, are single-use and expire (`policy.TestApprovalIntegrity`), and grants are short-lived, stored as hashes and revoked per task; but the audit log is append-only only through SQLite triggers (a privileged actor can drop them), approvals record nothing about how the approver authenticated, there is no revoke, and risk classes R0–R4 do not exist.

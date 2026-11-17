@@ -1,6 +1,6 @@
 # ADR-0075 — ODI A6: device registry, pairing, signed requests, revocation, takeover leases
 
-Status: **Proposed** — awaiting owner approval · Date: 2026-11-16 · Evidence: unit tests and HTTP-level tests (implementation-verified). **No desktop worker exists; this is the server side of that contract and is not production-proven.**
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Context
 Blueprint v1.1 §12–§13 and AT-08/AT-11. A0: no device registry or pairing (only `members`, `app_accounts` and web sessions); browser takeover exists (`BrowserTakeover`/`BrowserReturn`, which pause the task and invalidate page refs so AURA must inspect again) but there is nothing for a paired local desktop/device worker, and nothing revoked a device independently of the user.

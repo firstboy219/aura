@@ -1,6 +1,6 @@
 # ADR-0006 — Capability grant model
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - Core mints a **256-bit random opaque token** (`crypto/rand`, base64url) per (task, worker generation). Only

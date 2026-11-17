@@ -1,6 +1,6 @@
 # ADR-0002 — Configuration format and secrets loading
 
-Status: **Proposed** — awaiting owner approval (P0 gate). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **YAML** (`gopkg.in/yaml.v3`, decoding with `KnownFields(true)`) at `/etc/aura/config.yaml`, plus environment

@@ -1,6 +1,6 @@
 # ADR-0027 — Self-Model v1, efficiency scorecard, shadow routing (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - **Self-Model** = a report computed from Core records (not model self-assessment): per tool success rate and latency,

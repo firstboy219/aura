@@ -1,6 +1,6 @@
 # ADR-0055 — Owner reply and adaptive view
 
-Status: **Proposed** (2026-11-10). Owner request: AURA must answer the owner, communicate well, and "make its own
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 interface" that fits the task. Before this ADR a finished task had a state, events and files, but no answer: the app
 showed `COMPLETED` and nothing to read.
 

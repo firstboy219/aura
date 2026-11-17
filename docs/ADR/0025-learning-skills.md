@@ -1,6 +1,6 @@
 # ADR-0025 — Learning L1: lessons and skills (P3)
 
-Status: **Proposed** (P3, owner decision A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - After a task ends SUCCEEDED **and** VERIFIED, the Core calls `task.reflect` (fast tier). The worker may propose one

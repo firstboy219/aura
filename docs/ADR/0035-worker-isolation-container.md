@@ -1,6 +1,6 @@
 # ADR-0035 — Worker OS isolation: a separate, network-less container
 
-Status: **Proposed** (P4-M1, 2026-11-10). Implements Blueprint D.1 P4: "Worker runs with OS-enforced isolation under a separate
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 unprivileged identity; network access is default-deny; direct host DB/network/secret access tests fail." It replaces the P1
 limitation of ADR-0007, where the worker shared the Core's container and uid.
 

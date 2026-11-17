@@ -1,6 +1,6 @@
 # ADR-0019 — Subagents v1 (sequential) and Shared Task Context
 
-Status: **Proposed** (owner decided P2→P3 without a pause, A-21). Date: 2026-11-09.
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 
 ## Decision
 - An `agent.delegate` step creates a child task: `parent_task_id`, `root_task_id`, `agent_role: specialist`,

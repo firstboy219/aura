@@ -1,6 +1,6 @@
 # ADR-0045 — First connector pilot: GitHub, read-only
 
-Status: **Proposed** (P5b, 2026-11-10). Implements D.1 P5 "First connector pilot proves delegated identity or an explicitly scoped
+Status: Accepted by the owner 2026-11-17 ("Ok setuju": bulk approval of ADRs already implemented in running code, list in docs/odi/ADR_APPROVAL_CANDIDATES.md)
 service principal, Core-side authorization, audit, and tenant boundary".
 
 ## Decision
