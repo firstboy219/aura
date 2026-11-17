@@ -14,10 +14,12 @@ import (
 	"aura.local/core/internal/store"
 )
 
-// Trigger codes: the ONLY two valid reasons for an external provider to serve cognition (Blueprint §7).
+// Trigger codes: the only valid reasons for an external provider to serve cognition (Blueprint §7; the third by owner decision, ADR-0079).
 const (
 	TriggerNexusUnavailable = "NEXUS_UNAVAILABLE"
 	TriggerOwnerDisabled    = "OWNER_DISABLED"
+	// TriggerCapacity is the third, added by the owner on 2026-11-17 (option A, ADR-0079): NEXUS cannot take this heavy task. It needs the owner's switch and the evidence of the refusal.
+	TriggerCapacity = "NEXUS_CAPACITY_EXCEEDED"
 )
 
 // Authorization is one FallbackAuthorization: scoped by task, purpose, data classes, providers, budget, call count and expiry; it carries the evidence.
@@ -63,6 +65,15 @@ func asString(v any) string { s, _ := v.(string); return s }
 
 // Authorize issues (or reuses) a scoped authorization for one task and purpose, or denies with a stable error.
 func (a *Authorizer) Authorize(ctx context.Context, taskID, purpose, dataClass string) (*Authorization, error) {
+	return a.authorize(ctx, taskID, purpose, dataClass, "")
+}
+
+// AuthorizeOverflow is Authorize for a heavy task NEXUS refused: it needs the owner's overflow switch and the evidence of the refusal.
+func (a *Authorizer) AuthorizeOverflow(ctx context.Context, taskID, purpose, dataClass, evidence string) (*Authorization, error) {
+	return a.authorize(ctx, taskID, purpose, dataClass, evidence)
+}
+
+func (a *Authorizer) authorize(ctx context.Context, taskID, purpose, dataClass, overflow string) (*Authorization, error) {
 	info := map[string]any{"task_id": taskID, "purpose": purpose, "data_class": dataClass}
 	pol, err := LoadPolicy(ctx, a.St.R)
 	if err != nil {
@@ -75,6 +86,12 @@ func (a *Authorizer) Authorize(ctx context.Context, taskID, purpose, dataClass s
 	if pol.OwnerDisabledUntil > now.UnixMilli() {
 		trigger, evidence = TriggerOwnerDisabled, fmt.Sprintf("owner-disabled-until:%d", pol.OwnerDisabledUntil)
 		expires = min(expires, pol.OwnerDisabledUntil)
+	} else if overflow != "" {
+		if !pol.OverflowToExternal {
+			info["why"] = "heavy-task overflow is not enabled by the owner"
+			return nil, a.deny(ctx, ErrFallbackNotAuthorized, info)
+		}
+		trigger, evidence = TriggerCapacity, overflow
 	} else {
 		st, ev := a.Mon.State()
 		info["health"], info["health_evidence"] = string(st), ev

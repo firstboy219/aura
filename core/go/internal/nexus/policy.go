@@ -40,11 +40,15 @@ type Policy struct {
 	TeacherTier        string   `json:"teacher_tier"`
 	TeacherBudgetUSD   float64  `json:"teacher_budget_usd"`
 	TeacherMaxPerDay   int      `json:"teacher_max_per_day"`
+	// Heavy tasks (owner decision 2026-11-17, option A): in primary mode, a PUBLIC call that NEXUS cannot take (input does not fit its context) or cannot finish within
+	// OverflowTimeoutSec is served by an external AI (free routes first; limits for paid routes only) and NEXUS learns from the answer. Off unless the owner turns it on.
+	OverflowToExternal bool `json:"overflow_to_external"`
+	OverflowTimeoutSec int  `json:"overflow_timeout_seconds"`
 }
 
 func DefaultPolicy() Policy {
 	return Policy{Mode: ModeOff, ShadowPercent: 100, TeachDailyMax: 200, FallbackDataClass: []string{"public"}, FallbackBudgetUSD: 0.25, FallbackMaxCalls: 20, FallbackTTLMinutes: 10,
-		TeacherTier: "standard", TeacherBudgetUSD: 0.05, TeacherMaxPerDay: 20}
+		TeacherTier: "standard", TeacherBudgetUSD: 0.05, TeacherMaxPerDay: 20, OverflowTimeoutSec: 45}
 }
 
 func (p Policy) Validate() error {
@@ -64,6 +68,9 @@ func (p Policy) Validate() error {
 	}
 	if p.ShadowPercent < 0 || p.ShadowPercent > 100 {
 		return errors.New("shadow_percent must be 0..100")
+	}
+	if p.OverflowTimeoutSec < 5 || p.OverflowTimeoutSec > 300 {
+		return errors.New("overflow_timeout_seconds must be 5..300")
 	}
 	if p.TeacherBudgetUSD < 0 || p.TeacherBudgetUSD > 5 || p.TeacherMaxPerDay < 0 || p.TeacherMaxPerDay > 500 {
 		return errors.New("teacher limits out of range")

@@ -71,7 +71,7 @@ func (s *Server) putNexus(w http.ResponseWriter, r *http.Request) {
 		}
 		return policy.Audit(r.Context(), tx, "NEXUS_POLICY_CHANGED", "owner", "", requestID(r), map[string]any{"mode": map[string]any{"from": cur.Mode, "to": next.Mode},
 			"base_url": next.BaseURL, "fallback_providers": next.FallbackProviders, "fallback_data_classes": next.FallbackDataClass, "fallback_budget_usd": next.FallbackBudgetUSD,
-			"fallback_max_calls": next.FallbackMaxCalls, "teacher_enabled": next.TeacherEnabled, "teacher_providers": next.TeacherProviders, "teacher_max_per_day": next.TeacherMaxPerDay})
+			"fallback_max_calls": next.FallbackMaxCalls, "teacher_enabled": next.TeacherEnabled, "teacher_providers": next.TeacherProviders, "teacher_max_per_day": next.TeacherMaxPerDay, "overflow_to_external": next.OverflowToExternal, "overflow_timeout_seconds": next.OverflowTimeoutSec})
 	})
 	if err != nil {
 		s.mapErr(w, r, err)

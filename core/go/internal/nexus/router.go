@@ -94,29 +94,55 @@ func (r *Router) Complete(ctx context.Context, b gateway.Budget, req gateway.Req
 
 func (r *Router) primary(ctx context.Context, b gateway.Budget, req gateway.Request, pol Policy, legacy func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error)) (*gateway.Result, error) {
 	if pol.OwnerDisabledUntil > r.now().UnixMilli() {
-		return r.viaFallback(ctx, b, req, legacy)
+		return r.viaFallback(ctx, b, req, legacy, "")
 	}
 	if st, _ := r.Mon.State(); st == Unavailable {
-		return r.viaFallback(ctx, b, req, legacy)
+		return r.viaFallback(ctx, b, req, legacy, "")
 	}
-	res, err := r.callNexus(ctx, b, req)
+	nctx := ctx
+	if pol.OverflowToExternal {
+		// a heavy call must not hold the task: NEXUS gets OverflowTimeoutSec, then the call is served externally
+		var cancel context.CancelFunc
+		limit := pol.OverflowTimeoutSec
+		if limit <= 0 {
+			limit = 45
+		}
+		nctx, cancel = context.WithTimeout(ctx, time.Duration(limit)*time.Second)
+		defer cancel()
+	}
+	res, err := r.callNexus(nctx, b, req)
 	if err == nil {
 		r.Mon.Observe(true, "OK", "call")
 		return res, nil
+	}
+	if pol.OverflowToExternal && ctx.Err() == nil && IsCapacityExceeded(err) {
+		var ce *Error
+		errors.As(err, &ce)
+		why := "nexus:" + ce.Code + ":" + ce.Message
+		if len(why) > 160 {
+			why = why[:160]
+		}
+		return r.viaFallback(ctx, b, req, legacy, why) // NEXUS is healthy but cannot take this one: not an outage, so the health monitor is not told
 	}
 	var ne *Error
 	if errors.As(err, &ne) && UnavailabilityEvidence(ne.Code) {
 		r.Mon.Observe(false, ne.Code, "call")
 		if st, _ := r.Mon.State(); st == Unavailable {
-			return r.viaFallback(ctx, b, req, legacy)
+			return r.viaFallback(ctx, b, req, legacy, "")
 		}
 		return nil, fmt.Errorf("%w: %v", ErrNexusUnavailable, err) // one failure is not sustained: retry later, never an external provider
 	}
 	return nil, err // slow, busy, uncertain, missing knowledge, bad request: NEXUS answers or says so; no external AI
 }
 
-func (r *Router) viaFallback(ctx context.Context, b gateway.Budget, req gateway.Request, legacy func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error)) (*gateway.Result, error) {
-	g, err := r.Auth.Authorize(ctx, b.TaskID, req.Purpose, dataClassOf(req))
+func (r *Router) viaFallback(ctx context.Context, b gateway.Budget, req gateway.Request, legacy func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error), overflow string) (*gateway.Result, error) {
+	var g *Authorization
+	var err error
+	if overflow != "" {
+		g, err = r.Auth.AuthorizeOverflow(ctx, b.TaskID, req.Purpose, dataClassOf(req), overflow)
+	} else {
+		g, err = r.Auth.Authorize(ctx, b.TaskID, req.Purpose, dataClassOf(req))
+	}
 	if err != nil {
 		return nil, err
 	}

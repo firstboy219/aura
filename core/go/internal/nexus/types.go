@@ -6,6 +6,7 @@ package nexus
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Request mirrors contracts/odi/nexus/cognitive-request.schema.json.
@@ -104,4 +105,16 @@ func UnavailabilityEvidence(code string) bool {
 		return true
 	}
 	return false
+}
+
+// ContextOverflowMarker is what NEXUS says when an input cannot fit its context (INVALID_REQUEST, not retryable). It is a capacity limit, not a fault.
+const ContextOverflowMarker = "does not fit the model context"
+
+// IsCapacityExceeded: NEXUS cannot take this task (context too small, or not finished in time), as opposed to being unavailable.
+func IsCapacityExceeded(err error) bool {
+	var ne *Error
+	if !errors.As(err, &ne) {
+		return false
+	}
+	return (ne.Code == "INVALID_REQUEST" && strings.Contains(ne.Message, ContextOverflowMarker)) || ne.Code == "DEADLINE_EXCEEDED"
 }

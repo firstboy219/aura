@@ -841,3 +841,81 @@ func TestLongExamplesAreKeptLocallyAndNotSentToNexus(t *testing.T) {
 		t.Fatalf("status=%s why=%s", st, why)
 	}
 }
+
+// ADR-0079 (owner decision 2026-11-17, option A): a heavy PUBLIC task that NEXUS cannot take goes to an external AI (free routes first); NEXUS learns from the answer.
+func overflowRefusal(w http.ResponseWriter, _ Request) {
+	w.WriteHeader(400)
+	json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "INVALID_REQUEST", "message": "input " + ContextOverflowMarker + " (about 4662 + 2048 tokens > 4096)", "retryable": false, "request_id": "r", "trace_id": "t", "schema_version": "1.0"}})
+}
+
+func lastTrigger(t *testing.T, r *rig) string {
+	var d string
+	r.st.R.QueryRow("select coalesce(group_concat(trigger_code),'') from fallback_authorizations").Scan(&d)
+	return d
+}
+
+func TestOverflowIsOffUnlessTheOwnerTurnsItOn(t *testing.T) {
+	r := newRig(t, nil)
+	r.f.submit = overflowRefusal
+	_, err := r.call(context.Background(), "t1", "public")
+	var ne *Error
+	if !errors.As(err, &ne) || ne.Code != "INVALID_REQUEST" || r.legacy+r.freeServed != 0 {
+		t.Fatalf("a refused heavy task reached an external provider without the owner's switch: %v legacy=%d free=%d", err, r.legacy, r.freeServed)
+	}
+}
+
+func TestOverflowServesAHeavyPublicTaskExternallyFreeFirstAndLeavesTheHealthMonitorAlone(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.OverflowToExternal = true })
+	r.f.submit = overflowRefusal
+	r.freeOK = true
+	for i := 0; i < 3; i++ {
+		res, err := r.call(context.Background(), "t1", "public")
+		if err != nil || !res.Free || res.Content != "from legacy" {
+			t.Fatalf("call %d: %v %+v", i, err, res)
+		}
+	}
+	if lastTrigger(t, r) != TriggerCapacity {
+		t.Fatalf("trigger: %q", lastTrigger(t, r))
+	}
+	if st, _ := r.svc.Mon.State(); st == Unavailable {
+		t.Fatal("a capacity refusal was counted as an outage")
+	}
+	var n int
+	r.st.R.QueryRow("select count(*) from audit_events where type='FALLBACK_USED' and data_json like '%NEXUS_CAPACITY%' or (type='FALLBACK_USED' and data_json like '%free%')").Scan(&n)
+	if n == 0 {
+		t.Fatal("the overflow use was not audited")
+	}
+}
+
+func TestOverflowNeverTakesPrivateDataAndNeverTakesAnOrdinaryBadRequest(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.OverflowToExternal = true })
+	r.f.submit = overflowRefusal
+	if _, err := r.call(context.Background(), "t1", "private"); !errors.Is(err, ErrDataClassNotAllowed) || r.legacy+r.freeServed != 0 {
+		t.Fatalf("private data left through the overflow path: %v", err)
+	}
+	r.f.submit = func(w http.ResponseWriter, _ Request) { errEnv(w, 400, "INVALID_REQUEST") } // a bad request that is not about capacity
+	if _, err := r.call(context.Background(), "t2", "public"); err == nil || r.legacy+r.freeServed != 0 {
+		t.Fatalf("an ordinary bad request was served externally: %v", err)
+	}
+}
+
+func TestOverflowAlsoCoversACallNexusCannotFinishInTime(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.OverflowToExternal, p.OverflowTimeoutSec = true, 1 })
+	r.freeOK = true
+	r.f.submit = func(w http.ResponseWriter, q Request) {
+		time.Sleep(1800 * time.Millisecond)
+		writeResult(w, 200, q, "SUCCEEDED", "too late", "low")
+	}
+	res, err := r.call(context.Background(), "t1", "public")
+	if err != nil || res.Content != "from legacy" || lastTrigger(t, r) != TriggerCapacity {
+		t.Fatalf("%v %+v %q", err, res, lastTrigger(t, r))
+	}
+}
+
+func TestOverflowDoesNotTouchACallNexusCanTake(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.OverflowToExternal = true })
+	res, err := r.call(context.Background(), "t1", "public")
+	if err != nil || res.Content != "from nexus" || r.legacy+r.freeServed != 0 {
+		t.Fatalf("%v %+v", err, res)
+	}
+}
