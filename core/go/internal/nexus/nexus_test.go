@@ -88,15 +88,17 @@ func errEnv(w http.ResponseWriter, code int, c string) {
 }
 
 type rig struct {
-	t      *testing.T
-	st     *store.Store
-	f      *fake
-	srv    *httptest.Server
-	clk    *clock
-	svc    *Service
-	legacy int
-	last   gateway.Request
-	lastB  gateway.Budget
+	t          *testing.T
+	st         *store.Store
+	f          *fake
+	srv        *httptest.Server
+	clk        *clock
+	svc        *Service
+	legacy     int  // calls that were SERVED by the legacy path
+	freeOK     bool // a free route exists and answers
+	freeServed int
+	last       gateway.Request
+	lastB      gateway.Budget
 }
 
 func newRig(t *testing.T, mutate func(*Policy)) *rig {
@@ -110,12 +112,7 @@ func newRig(t *testing.T, mutate func(*Policy)) *rig {
 	r := &rig{t: t, st: st, f: &fake{ready: 200, submit: ok("from nexus")}, clk: &clock{t: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}}
 	r.srv = httptest.NewServer(r.f.handler())
 	t.Cleanup(r.srv.Close)
-	legacy := func(ctx context.Context, b gateway.Budget, req gateway.Request) (*gateway.Result, error) {
-		r.legacy++
-		r.last, r.lastB = req, b
-		return &gateway.Result{Content: "from legacy", Provider: "gemini", RouteID: "g", APIModelID: "g1"}, nil
-	}
-	r.svc = NewService(st, legacy, func() string { return "tok" }, "aura-core", "w1", MonitorConfig{FailThreshold: 3, FailWindow: time.Minute, RecoverSuccesses: 2, HoldDown: 30 * time.Second, StaleAfter: 45 * time.Second})
+	r.svc = NewService(st, r.legacyFn, func() string { return "tok" }, "aura-core", "w1", MonitorConfig{FailThreshold: 3, FailWindow: time.Minute, RecoverSuccesses: 2, HoldDown: 30 * time.Second, StaleAfter: 45 * time.Second})
 	r.svc.Mon.now = r.clk.Now
 	r.svc.Auth.Now, r.svc.Router.Now, r.svc.Teacher.Now = r.clk.Now, r.clk.Now, r.clk.Now
 	p := DefaultPolicy()
@@ -128,6 +125,21 @@ func newRig(t *testing.T, mutate func(*Policy)) *rig {
 	return r
 }
 
+// legacyFn stands in for the gateway's provider path. A "free" request is served only when a free route exists (r.freeOK); otherwise it fails like a tier with no free route.
+func (r *rig) legacyFn(ctx context.Context, b gateway.Budget, q gateway.Request) (*gateway.Result, error) {
+	if q.RouteClass == "free" {
+		if !r.freeOK {
+			return nil, gateway.ErrNoRoute
+		}
+		r.freeServed++
+		r.last, r.lastB = q, b
+		return &gateway.Result{Content: "from legacy", Provider: "openrouter", RouteID: "free", APIModelID: "f1", Free: true}, nil
+	}
+	r.legacy++
+	r.last, r.lastB = q, b
+	return &gateway.Result{Content: "from legacy", Provider: "gemini", RouteID: "g", APIModelID: "g1"}, nil
+}
+
 func (r *rig) setPolicy(p Policy) {
 	r.t.Helper()
 	if err := r.st.Write(context.Background(), func(tx *sql.Tx) error { return SavePolicy(context.Background(), tx, p, r.clk.Now()) }); err != nil {
@@ -137,11 +149,7 @@ func (r *rig) setPolicy(p Policy) {
 
 func (r *rig) call(ctx context.Context, taskID, class string) (*gateway.Result, error) {
 	return r.svc.Router.Complete(ctx, gateway.Budget{TaskID: taskID, TaskLimitUSD: 1}, gateway.Request{Tier: "standard", Purpose: "plan", DataClass: class,
-		Messages: []gateway.Message{{Role: "user", Content: "hi"}}}, func(c context.Context, b gateway.Budget, q gateway.Request) (*gateway.Result, error) {
-		r.legacy++
-		r.last, r.lastB = q, b
-		return &gateway.Result{Content: "from legacy", Provider: "gemini", RouteID: "g", APIModelID: "g1"}, nil
-	})
+		Messages: []gateway.Message{{Role: "user", Content: "hi"}}}, r.legacyFn)
 }
 
 // healthy makes the monitor believe NEXUS is up.
@@ -484,9 +492,12 @@ func TestTeacherGate(t *testing.T) {
 			}
 		})
 		tg := &Teacher{St: r.st, Now: r.clk.Now, Legacy: func(ctx context.Context, b gateway.Budget, q gateway.Request) (*gateway.Result, error) {
+			if q.RouteClass == "free" && !r.freeOK {
+				return nil, gateway.ErrNoRoute
+			}
 			calls++
 			last = q
-			return &gateway.Result{Content: "the answer", Provider: "openrouter", APIModelID: "m"}, nil
+			return &gateway.Result{Content: "the answer", Provider: "openrouter", APIModelID: "m", Free: q.RouteClass == "free"}, nil
 		}}
 		return r, tg
 	}
@@ -626,7 +637,9 @@ func TestTeachingCapturesOnlyPublicSanitizedExternalAnswersAndPushesThem(t *test
 	call("public", "token sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF is it safe", "no")
 	call("public", "x", "")
 	if count() != 0 {
-		t.Fatalf("private, personal, secret or empty examples were kept: %d", count())
+		var q string
+		r.st.R.QueryRow("select messages_json from teaching_examples limit 1").Scan(&q)
+		t.Fatalf("private, personal, secret or empty examples were kept: %d (%s) counters %v", count(), q, r.svc.Router.TeachingCounts())
 	}
 	call("public", "Explain what an idempotency key is.", "An idempotency key lets a client retry safely.")
 	call("public", "Explain what an idempotency key is.", "An idempotency key lets a client retry safely.") // the same example is kept once
@@ -664,5 +677,151 @@ func TestTeachingIsOffByDefault(t *testing.T) {
 	r.st.R.QueryRow("select count(*) from teaching_examples").Scan(&n)
 	if n != 0 {
 		t.Fatal("an example was kept although the owner did not enable teaching")
+	}
+}
+
+func TestTeachingExplainsItsSkipsAndAcceptsLongNumbersInPublicPrompts(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent, p.TeachEnabled, p.TeachDailyMax = ModeShadow, 0, true, 50 })
+	call := func(class, user, answer, provider string) {
+		r.svc.Router.Complete(context.Background(), gateway.Budget{TaskID: "t"}, gateway.Request{Tier: "standard", Purpose: "plan", DataClass: class, Messages: []gateway.Message{{Role: "user", Content: user}}},
+			func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error) {
+				return &gateway.Result{Content: answer, Provider: provider, RouteID: "g"}, nil
+			})
+	}
+	call("private", "q", "a", "gemini")
+	call("public", "when was task 01M7JM9NMXY7PKV5BPNHDBVP1A created? epoch 1794847893764 and 20261117001122", "at that time", "gemini") // ids and timestamps are fine
+	call("public", "mail budi@example.com", "ok", "gemini")
+	call("public", "x", "from nexus", "nexus")
+	call("public", "y", "", "gemini")
+	call("public", strings.Repeat("a", 13000), "a", "gemini")
+	got := r.svc.Router.TeachingCounts()
+	want := map[string]int{"not_public": 1, "kept": 1, "looks_personal_or_secret": 1, "answered_by_nexus": 1, "empty_answer": 1, "too_large": 1}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("counter %s = %d, want %d (all: %v)", k, got[k], v, got)
+		}
+	}
+	var n int
+	r.st.R.QueryRow("select count(*) from teaching_examples").Scan(&n)
+	if n != 1 {
+		t.Fatalf("examples kept: %d", n)
+	}
+}
+
+func TestCredentialShapesAreRecognisedWithoutAnyLabel(t *testing.T) {
+	for _, secret := range []string{"sk-abcdefghijklmnopqrstuvwxyz", "AIzaSyA1234567890abcdefghijklmnop", "gsk_abcdefghijklmnopqrstuvwx", "ghp_abcdefghijklmnopqrstuvwxyz1234", "AKIAABCDEFGHIJKLMNOP",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcDEF123", "-----BEGIN RSA PRIVATE KEY-----"} {
+		if Sanitize("please check "+secret+" for me") == nil || SanitizeForTeaching("please check "+secret+" for me") == nil {
+			t.Errorf("%q was not recognised as a secret", secret)
+		}
+	}
+	for _, fine := range []string{"The task id is 01M7JM9NMXY7PKV5BPNHDBVP1A and the hash is 3b7e72f1", "Skip this skeleton: sk-1 is not a key", "epoch 1794847893764"} {
+		if SanitizeForTeaching(fine) != nil {
+			t.Errorf("%q was refused", fine)
+		}
+	}
+}
+
+// Owner decision 2026-11-17: the limits (budget, call counts, daily caps) apply to PAID routes only; free routes are unlimited.
+func TestFallbackFreeRoutesAreUnlimitedAndPaidOnesAreLimited(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.FallbackMaxCalls = 2; p.FallbackBudgetUSD = 0.1 })
+	r.down()
+	r.freeOK = true
+	for i := 0; i < 8; i++ { // far beyond max_calls: free routes are not counted
+		res, err := r.call(context.Background(), "t1", "public")
+		if err != nil || !res.Free {
+			t.Fatalf("free call %d: %v %+v", i, err, res)
+		}
+	}
+	var used int
+	r.st.R.QueryRow("select used_calls from fallback_authorizations").Scan(&used)
+	if used != 0 || r.legacy != 0 || r.freeServed != 8 || r.lastB.TaskLimitUSD != 1 {
+		t.Fatalf("free use was counted or capped: used=%d paid served=%d free served=%d budget=%v", used, r.legacy, r.freeServed, r.lastB.TaskLimitUSD)
+	}
+	r.freeOK = false
+	for i := 0; i < 2; i++ {
+		if res, err := r.call(context.Background(), "t1", "public"); err != nil || res.Free {
+			t.Fatalf("paid call %d: %v %+v", i, err, res)
+		}
+	}
+	if r.lastB.TaskLimitUSD != 0.1 {
+		t.Fatalf("the paid budget cap was not applied: %v", r.lastB.TaskLimitUSD)
+	}
+	if _, err := r.call(context.Background(), "t1", "public"); !errors.Is(err, ErrFallbackNotAuthorized) {
+		t.Fatalf("the paid call limit was not enforced: %v", err)
+	}
+	r.freeOK = true
+	if _, err := r.call(context.Background(), "t1", "public"); err != nil {
+		t.Fatalf("a free route was refused after the paid limit was used up: %v", err)
+	}
+	if _, err := r.call(context.Background(), "t2", "private"); !errors.Is(err, ErrDataClassNotAllowed) {
+		t.Fatalf("the safety gate must stay: %v", err)
+	}
+}
+
+func TestTeacherFreeRoutesAreUnlimitedPaidOnesHaveADailyLimit(t *testing.T) {
+	var paidCalls, freeCalls int
+	r := newRig(t, func(p *Policy) {
+		p.TeacherEnabled, p.TeacherProviders, p.TeacherMaxPerDay = true, []string{"openrouter"}, 2
+	})
+	tg := &Teacher{St: r.st, Now: r.clk.Now, Legacy: func(ctx context.Context, b gateway.Budget, q gateway.Request) (*gateway.Result, error) {
+		if q.RouteClass == "free" {
+			if !r.freeOK {
+				return nil, gateway.ErrNoRoute
+			}
+			freeCalls++
+			return &gateway.Result{Content: "free answer", Provider: "openrouter", Free: true}, nil
+		}
+		paidCalls++
+		if b.TaskLimitUSD != 0.05 {
+			t.Errorf("paid budget %v", b.TaskLimitUSD)
+		}
+		return &gateway.Result{Content: "paid answer", Provider: "gemini"}, nil
+	}}
+	r.freeOK = true
+	for i := 0; i < 10; i++ {
+		if a, err := tg.Ask(context.Background(), TeacherInput{Question: "What is a B-tree number " + string(rune('a'+i)) + "?"}); err != nil || a.Answer != "free answer" {
+			t.Fatalf("free question %d: %v %+v", i, err, a)
+		}
+	}
+	if freeCalls != 10 || paidCalls != 0 {
+		t.Fatalf("free=%d paid=%d", freeCalls, paidCalls)
+	}
+	r.freeOK = false
+	for i := 0; i < 2; i++ {
+		if a, err := tg.Ask(context.Background(), TeacherInput{Question: "What is a heap " + string(rune('a'+i)) + "?"}); err != nil || a.Answer != "paid answer" {
+			t.Fatalf("paid question %d: %v %+v", i, err, a)
+		}
+	}
+	_, err := tg.Ask(context.Background(), TeacherInput{Question: "What is a trie?"})
+	var d *TeacherDenied
+	if !errors.As(err, &d) || d.Code != "TEACHER_LIMIT" || paidCalls != 2 {
+		t.Fatalf("the paid daily limit: %v paid=%d", err, paidCalls)
+	}
+	var paidRows int
+	r.st.R.QueryRow("select count(*) from teacher_requests where state='answered' and paid=1").Scan(&paidRows)
+	if paidRows != 2 {
+		t.Fatalf("paid rows %d", paidRows)
+	}
+}
+
+func TestTeachingCapAppliesToPaidAnswersOnly(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent, p.TeachEnabled, p.TeachDailyMax = ModeShadow, 0, true, 1 })
+	ask := func(user string, free bool) {
+		r.svc.Router.Complete(context.Background(), gateway.Budget{TaskID: "t"}, gateway.Request{Tier: "standard", Purpose: "write", DataClass: "public", Messages: []gateway.Message{{Role: "user", Content: user}}},
+			func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error) {
+				return &gateway.Result{Content: "answer to " + user, Provider: "x", Free: free}, nil
+			})
+	}
+	for i := 0; i < 6; i++ {
+		ask("free question "+string(rune('a'+i)), true)
+	}
+	ask("paid question one", false)
+	ask("paid question two", false)
+	var free, paid int
+	r.st.R.QueryRow("select count(*) from teaching_examples where paid=0").Scan(&free)
+	r.st.R.QueryRow("select count(*) from teaching_examples where paid=1").Scan(&paid)
+	if free != 6 || paid != 1 {
+		t.Fatalf("free examples %d (want 6, uncapped), paid %d (want 1, capped)", free, paid)
 	}
 }

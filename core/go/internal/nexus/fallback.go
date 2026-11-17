@@ -94,11 +94,12 @@ func (a *Authorizer) Authorize(ctx context.Context, taskID, purpose, dataClass s
 	if !slices.Contains(pol.FallbackDataClass, dataClass) {
 		return nil, a.deny(ctx, ErrDataClassNotAllowed, info)
 	}
-	// Reuse an active authorization for the same task and purpose.
+	// Reuse an active authorization for the same task and purpose, even when its PAID allowance is used up: free routes are unlimited (owner decision 2026-11-17), so
+	// only the paid use is refused, later, by Use().
 	var g Authorization
 	var prov, classes string
 	err = a.St.R.QueryRowContext(ctx, `select id, coalesce(task_id,''), purpose, trigger_code, evidence_ref, providers_json, data_classes_json, budget_cap_usd, max_calls,
-		used_calls, expires_at, coalesce(audit_ref,'') from fallback_authorizations where state='active' and expires_at>? and coalesce(task_id,'')=? and purpose=? and used_calls<max_calls
+		used_calls, expires_at, coalesce(audit_ref,'') from fallback_authorizations where state='active' and expires_at>? and coalesce(task_id,'')=? and purpose=?
 		order by created_at desc limit 1`, now.UnixMilli(), taskID, purpose).
 		Scan(&g.ID, &g.TaskID, &g.Purpose, &g.Trigger, &g.EvidenceRef, &prov, &classes, &g.BudgetUSD, &g.MaxCalls, &g.UsedCalls, &g.ExpiresAt, &g.AuditRef)
 	if err == nil {
@@ -109,16 +110,17 @@ func (a *Authorizer) Authorize(ctx context.Context, taskID, purpose, dataClass s
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, a.deny(ctx, ErrFallbackNotAuthorized, info)
 	}
-	// An authorization that was used up is not renewed by asking again: otherwise a task could chain grants without limit (Blueprint §7: no blanket
-	// enablement). It ends with the outage (recovery revokes every authorization) or by the owner's decision.
+	// A paid allowance that was used up is not renewed by asking again: otherwise a task could chain paid grants without limit (Blueprint §7: no blanket enablement).
+	// A new authorization is still issued so that free routes keep working, but it carries NO paid calls.
 	var spent int
-	a.St.R.QueryRowContext(ctx, `select count(*) from fallback_authorizations where coalesce(task_id,'')=? and purpose=? and used_calls>=max_calls and revoked_at is null`, taskID, purpose).Scan(&spent)
+	a.St.R.QueryRowContext(ctx, `select count(*) from fallback_authorizations where coalesce(task_id,'')=? and purpose=? and used_calls>=max_calls and max_calls>0 and revoked_at is null`, taskID, purpose).Scan(&spent)
+	paidCalls := pol.FallbackMaxCalls
 	if spent > 0 {
-		info["why"] = "the authorization for this task and purpose is used up"
-		return nil, a.deny(ctx, ErrFallbackNotAuthorized, info)
+		paidCalls = 0
+		info["why"] = "the paid allowance for this task and purpose is used up: free routes only"
 	}
 	g = Authorization{ID: ids.New(), TaskID: taskID, Purpose: purpose, Trigger: trigger, EvidenceRef: evidence, Providers: pol.FallbackProviders,
-		DataClasses: pol.FallbackDataClass, BudgetUSD: pol.FallbackBudgetUSD, MaxCalls: pol.FallbackMaxCalls, ExpiresAt: expires}
+		DataClasses: pol.FallbackDataClass, BudgetUSD: pol.FallbackBudgetUSD, MaxCalls: paidCalls, ExpiresAt: expires}
 	pj, _ := json.Marshal(g.Providers)
 	cj, _ := json.Marshal(g.DataClasses)
 	err = a.St.Write(ctx, func(tx *sql.Tx) error {

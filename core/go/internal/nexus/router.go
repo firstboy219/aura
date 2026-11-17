@@ -34,6 +34,7 @@ type Router struct {
 	lastGood *Policy
 	// shadowSem bounds the shadow calls in flight: shadow mode measures NEXUS, it must never pile work onto it or onto the host.
 	shadowSem chan struct{}
+	skips     map[string]int
 	// Rand returns a number in [0,100) (tests inject it).
 	Rand func() int
 }
@@ -119,24 +120,38 @@ func (r *Router) viaFallback(ctx context.Context, b gateway.Budget, req gateway.
 	if err != nil {
 		return nil, err
 	}
+	req.OnlyProviders = g.Providers
+	audit := func(res *gateway.Result, err error, class string) {
+		r.St.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
+			d := map[string]any{"authorization": g.ID, "purpose": req.Purpose, "trigger": g.Trigger, "ok": err == nil, "route_class": class}
+			if res != nil {
+				d["provider"], d["route"] = res.Provider, res.RouteID
+			}
+			return policy.Audit(ctx, tx, "FALLBACK_USED", "core", b.TaskID, g.AuditRef, d)
+		})
+	}
+	// 1) free routes first: no call count, no budget (owner decision: the limits are for paid routes only)
+	freeReq := req
+	freeReq.RouteClass = "free"
+	res, freeErr := legacy(ctx, b, freeReq)
+	if freeErr == nil {
+		r.Capture(ctx, r.policy(ctx), req, res)
+		audit(res, nil, "free")
+		return res, nil
+	}
+	// 2) paid routes: counted against the authorization and capped by its budget
 	if err := r.Auth.Use(ctx, g.ID); err != nil {
 		return nil, err
 	}
-	req.OnlyProviders = g.Providers
+	req.RouteClass = "paid"
 	if g.BudgetUSD > 0 && (b.TaskLimitUSD == 0 || g.BudgetUSD < b.TaskLimitUSD) {
 		b.TaskLimitUSD = g.BudgetUSD
 	}
-	res, err := legacy(ctx, b, req)
+	res, err = legacy(ctx, b, req)
 	if err == nil {
 		r.Capture(ctx, r.policy(ctx), req, res)
 	}
-	r.St.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
-		d := map[string]any{"authorization": g.ID, "purpose": req.Purpose, "trigger": g.Trigger, "ok": err == nil}
-		if res != nil {
-			d["provider"], d["route"] = res.Provider, res.RouteID
-		}
-		return policy.Audit(ctx, tx, "FALLBACK_USED", "core", b.TaskID, g.AuditRef, d)
-	})
+	audit(res, err, "paid")
 	return res, err
 }
 

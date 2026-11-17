@@ -21,30 +21,78 @@ const maxExampleChars = 12000
 
 // Capture records one external answer as a teaching example when the policy allows it. It never fails the call it is attached to.
 func (r *Router) Capture(ctx context.Context, pol Policy, req gateway.Request, res *gateway.Result) {
-	if !pol.TeachEnabled || req.DataClass != "public" || res == nil || res.Content == "" || res.Provider == "nexus" || pol.TeachDailyMax <= 0 {
+	if !pol.TeachEnabled || pol.TeachDailyMax <= 0 {
+		return
+	}
+	switch {
+	case req.DataClass != "public":
+		r.skip("not_public") // the Core marks the data class; private tasks are never captured
+		return
+	case res == nil || res.Content == "":
+		r.skip("empty_answer")
+		return
+	case res.Provider == "nexus":
+		r.skip("answered_by_nexus")
 		return
 	}
 	text := ""
 	for _, m := range req.Messages {
 		text += m.Content + "\n"
 	}
-	if len(text)+len(res.Content) > maxExampleChars || Sanitize(text) != nil || Sanitize(res.Content) != nil {
-		return // too large for a small model's context, or it looks personal or secret: not kept
+	if len(text)+len(res.Content) > maxExampleChars {
+		r.skip("too_large") // could never sit in a small model's context
+		return
+	}
+	if SanitizeForTeaching(text) != nil || SanitizeForTeaching(res.Content) != nil {
+		r.skip("looks_personal_or_secret")
+		return
 	}
 	mj, _ := json.Marshal(req.Messages)
 	sum := sha256.Sum256([]byte(string(mj) + "\x00" + string(req.ResponseSchema) + "\x00" + res.Content))
 	day := r.now().UTC().Truncate(24 * time.Hour).UnixMilli()
-	var n int
-	r.St.R.QueryRowContext(ctx, "select count(*) from teaching_examples where created_at>=?", day).Scan(&n)
-	if n >= pol.TeachDailyMax {
-		return
+	paid := 0
+	if !res.Free {
+		paid = 1 // the daily cap is a limit on paid routes only; free-route answers are kept without a cap (storage is pruned below)
+		var n int
+		r.St.R.QueryRowContext(ctx, "select count(*) from teaching_examples where paid=1 and created_at>=?", day).Scan(&n)
+		if n >= pol.TeachDailyMax {
+			r.skip("daily_cap")
+			return
+		}
 	}
+	r.skip("kept")
 	r.St.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `insert or ignore into teaching_examples(id, purpose, tier, messages_json, schema_json, answer, provider, route, content_sha256, tokens_est, status, created_at)
-			values(?,?,?,?,?,?,?,?,?,?, 'new', ?)`, ids.New(), nullable(req.Purpose), nullable(req.Tier), string(mj), nullable(string(req.ResponseSchema)), res.Content, nullable(res.Provider), nullable(res.RouteID),
-			hex.EncodeToString(sum[:]), (len(text)+len(res.Content))/3, r.now().UnixMilli())
+		_, err := tx.ExecContext(ctx, `insert or ignore into teaching_examples(id, purpose, tier, messages_json, schema_json, answer, provider, route, content_sha256, tokens_est, status, created_at, paid)
+			values(?,?,?,?,?,?,?,?,?,?, 'new', ?, ?)`, ids.New(), nullable(req.Purpose), nullable(req.Tier), string(mj), nullable(string(req.ResponseSchema)), res.Content, nullable(res.Provider), nullable(res.RouteID),
+			hex.EncodeToString(sum[:]), (len(text)+len(res.Content))/3, r.now().UnixMilli(), paid)
+		if err != nil {
+			return err
+		}
+		// storage stays bounded without limiting free answers: beyond 20,000 rows the oldest ones that were already sent or rejected go
+		_, err = tx.ExecContext(ctx, "delete from teaching_examples where status!='new' and id in (select id from teaching_examples where status!='new' order by created_at limit max(0,(select count(*) from teaching_examples)-20000))")
 		return err
 	})
+}
+
+// skip counts why an external answer was (not) kept; in memory since the last start, shown in the admin status so the owner can see what teaching really does.
+func (r *Router) skip(reason string) {
+	r.mu.Lock()
+	if r.skips == nil {
+		r.skips = map[string]int{}
+	}
+	r.skips[reason]++
+	r.mu.Unlock()
+}
+
+// TeachingCounts returns the counters (reason -> count; "kept" counts accepted candidates before de-duplication).
+func (r *Router) TeachingCounts() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := map[string]int{}
+	for k, v := range r.skips {
+		out[k] = v
+	}
+	return out
 }
 
 type lessonOut struct {

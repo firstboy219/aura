@@ -18,3 +18,9 @@ Enable `teach_enabled` (default off); the daily cap; which providers' answers ma
 
 ## Rollback
 Set `teach_enabled` false (stops capture and push); revert the commit; the table stays unused.
+
+## Amendment 2026-11-17 (owner): access goes through AURA (option A); limits apply to PAID routes only
+- **Option A confirmed**: NEXUS never holds provider keys or calls an external AI itself; every external question goes through AURA's Teacher Gate or arrives as a teaching example. Measured cost of the extra hop: ≈2 ms (p90 82 ms) against a median external call of ≈2.5 s.
+- **Free routes are unlimited; the limits are for paid routes.** The Teacher Gate and the fallback first try **free** routes (`RouteClass: free`) with no budget, no call count and no daily limit; only if no free route answers does the paid path run, and then it is counted against the daily limit / the authorization's call count and capped by the budget. The daily cap of teaching examples counts paid answers only (free answers are kept without a cap; storage is bounded by pruning already-sent rows beyond 20,000). Migration 0025 adds the `paid` flags.
+- **Safety gates are not limits and stay**: public data class only, the sanitizer (secrets, e-mail addresses, phone numbers, key-shaped values), the evidence-based fallback triggers, quarantine and validation of lessons. Free routes may log prompts, which is exactly why only public tasks may reach them (the gateway enforces it).
+- Teaching counters (kept / skipped by reason) are visible in `GET /admin/nexus` as `teaching`.

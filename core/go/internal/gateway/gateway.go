@@ -40,6 +40,8 @@ type Request struct {
 	// OnlyProviders, when set by the ODI fallback layer, limits the call to routes of these providers (a FallbackAuthorization names them). Never
 	// set from the worker.
 	OnlyProviders []string `json:"-"`
+	// RouteClass, set by the ODI layer, limits the call to "free" (zero-price) or "paid" routes. Empty: both. The owner's limits (budget, call counts, daily caps) apply to paid routes only.
+	RouteClass string `json:"-"`
 }
 
 // Result of one completion (after any repair).
@@ -50,6 +52,8 @@ type Result struct {
 	RouteID      string          `json:"route_id"`
 	APIModelID   string          `json:"api_model_id"`
 	FinishReason string          `json:"finish_reason"`
+	// Free says the answering route is a zero-price route (limits of the ODI layer do not apply to it).
+	Free bool `json:"free,omitempty"`
 }
 
 // Attempt is what a provider adapter returns for a single HTTP attempt.
@@ -189,6 +193,9 @@ func (g *Gateway) complete(ctx context.Context, b Budget, req Request) (*Result,
 			if r.MayLog() && req.DataClass != "public" {
 				continue // never send private task content to an endpoint that may log prompts
 			}
+			if (req.RouteClass == "free" && !r.Free) || (req.RouteClass == "paid" && r.Free) {
+				continue
+			}
 			if len(req.OnlyProviders) > 0 {
 				p := r.Provider
 				if p == "" {
@@ -296,7 +303,7 @@ func (g *Gateway) onRoute(ctx context.Context, b Budget, route config.ModelRoute
 		if err != nil {
 			return nil, err
 		}
-		res := &Result{Content: at.Content, Provider: g.provider(route).ID(), RouteID: route.RouteID, APIModelID: route.APIModelID,
+		res := &Result{Content: at.Content, Free: route.Free, Provider: g.provider(route).ID(), RouteID: route.RouteID, APIModelID: route.APIModelID,
 			FinishReason: at.FinishReason}
 		if schema == nil {
 			return res, nil

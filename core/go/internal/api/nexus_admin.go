@@ -24,7 +24,7 @@ func (s *Server) nexusStatus(ctx context.Context) map[string]any {
 	var avg sql.NullFloat64
 	s.Store.R.QueryRowContext(ctx, "select count(*), coalesce(sum(ok),0), avg(nexus_ms) from nexus_shadow where created_at>=?", time.Now().Add(-24*time.Hour).UnixMilli()).Scan(&shadowN, &shadowOK, &avg)
 	active, _ := s.Nexus.Auth.Active(ctx)
-	return map[string]any{"policy": p, "health": map[string]any{"state": string(st), "evidence": ev}, "active_fallbacks": active,
+	return map[string]any{"teaching": s.Nexus.Router.TeachingCounts(), "policy": p, "health": map[string]any{"state": string(st), "evidence": ev}, "active_fallbacks": active,
 		"shadow_24h": map[string]any{"calls": shadowN, "ok": shadowOK, "avg_nexus_ms": avg.Float64}}
 }
 
