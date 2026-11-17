@@ -30,6 +30,7 @@ type fake struct {
 	mu       sync.Mutex
 	ready    int
 	submit   func(w http.ResponseWriter, r Request)
+	lessons  func(w http.ResponseWriter, in map[string]any)
 	requests int
 }
 
@@ -49,6 +50,15 @@ func (f *fake) handler() http.Handler {
 		fn := f.submit
 		f.mu.Unlock()
 		fn(w, req)
+	})
+	mux.HandleFunc("POST /api/v1/knowledge/lessons", func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in)
+		f.mu.Lock()
+		fn := f.lessons
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		fn(w, in)
 	})
 	mux.HandleFunc("POST /api/v1/cognitive/requests/{id}/cancel", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("{}")) })
 	return mux
@@ -587,5 +597,72 @@ func TestShadowSamplingAndConcurrencyAreBounded(t *testing.T) {
 	}
 	if err := (Policy{Mode: ModeOff, ShadowPercent: 101, FallbackTTLMinutes: 10}).Validate(); err == nil {
 		t.Fatal("shadow_percent above 100 accepted")
+	}
+}
+
+func TestTeachingCapturesOnlyPublicSanitizedExternalAnswersAndPushesThem(t *testing.T) {
+	var got []map[string]any
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent, p.TeachEnabled, p.TeachDailyMax = ModeShadow, 0, true, 2 })
+	// a fake lessons endpoint on the same fake NEXUS: accept everything except one source
+	r.f.lessons = func(w http.ResponseWriter, in map[string]any) {
+		ls, _ := in["lessons"].([]any)
+		res := []map[string]any{}
+		for i, l := range ls {
+			m := l.(map[string]any)
+			got = append(got, m)
+			res = append(res, map[string]any{"source_id": m["source_id"], "accepted": i != 0, "reason": map[bool]string{true: "", false: "format check failed"}[i != 0]})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": res})
+	}
+	call := func(class, user, answer string) {
+		r.svc.Router.Complete(context.Background(), gateway.Budget{TaskID: "t"}, gateway.Request{Tier: "standard", Purpose: "write", DataClass: class, Messages: []gateway.Message{{Role: "user", Content: user}}},
+			func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error) {
+				return &gateway.Result{Content: answer, Provider: "gemini", RouteID: "g"}, nil
+			})
+	}
+	count := func() int { var n int; r.st.R.QueryRow("select count(*) from teaching_examples").Scan(&n); return n }
+	call("private", "my private question about my salary", "an answer")
+	call("public", "contact me at budi@example.com about the plan", "ok")
+	call("public", "token sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF is it safe", "no")
+	call("public", "x", "")
+	if count() != 0 {
+		t.Fatalf("private, personal, secret or empty examples were kept: %d", count())
+	}
+	call("public", "Explain what an idempotency key is.", "An idempotency key lets a client retry safely.")
+	call("public", "Explain what an idempotency key is.", "An idempotency key lets a client retry safely.") // the same example is kept once
+	call("public", "What is a B-tree?", "A balanced search tree used by databases.")
+	call("public", "What is a hash map?", "A key-value structure with O(1) average lookup.") // beyond the daily cap of 2
+	if count() != 2 {
+		t.Fatalf("expected 2 examples (dedup + daily cap), have %d", count())
+	}
+	sent, acc, err := r.svc.PushLessons(context.Background())
+	if err != nil || sent != 2 || acc != 1 {
+		t.Fatalf("push: sent=%d accepted=%d err=%v", sent, acc, err)
+	}
+	if len(got) != 2 || got[0]["data_class"] != "public" || got[0]["source"].(map[string]any)["type"] != "external-ai" {
+		t.Fatalf("payload: %v", got)
+	}
+	var sentN, rej int
+	r.st.R.QueryRow("select count(*) from teaching_examples where status='sent'").Scan(&sentN)
+	r.st.R.QueryRow("select count(*) from teaching_examples where status='rejected' and reject_reason='format check failed'").Scan(&rej)
+	if sentN != 1 || rej != 1 {
+		t.Fatalf("statuses sent=%d rejected=%d", sentN, rej)
+	}
+	// nothing left to send; teaching off sends nothing
+	if s2, _, _ := r.svc.PushLessons(context.Background()); s2 != 0 {
+		t.Fatalf("pushed again: %d", s2)
+	}
+}
+
+func TestTeachingIsOffByDefault(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent = ModeShadow, 0 })
+	r.svc.Router.Complete(context.Background(), gateway.Budget{}, gateway.Request{Tier: "standard", DataClass: "public", Messages: []gateway.Message{{Role: "user", Content: "hello there"}}},
+		func(context.Context, gateway.Budget, gateway.Request) (*gateway.Result, error) {
+			return &gateway.Result{Content: "hi", Provider: "gemini"}, nil
+		})
+	var n int
+	r.st.R.QueryRow("select count(*) from teaching_examples").Scan(&n)
+	if n != 0 {
+		t.Fatal("an example was kept although the owner did not enable teaching")
 	}
 }

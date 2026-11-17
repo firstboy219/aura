@@ -55,6 +55,9 @@ func (s *Service) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			s.ProbeOnce(ctx)
+			if time.Now().Minute()%2 == 0 { // every other minute at most; PushLessons does nothing unless the owner enabled teaching
+				s.PushLessons(ctx)
+			}
 		}
 	}
 }

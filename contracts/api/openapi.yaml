@@ -171,7 +171,7 @@ paths:
     get: { operationId: getNexus, description: "Owner: NEXUS gateway policy, objective health state with its evidence, active fallback authorizations and the 24 h shadow summary (ODI A4, ADR-0073).", responses: { '200': { description: Status } } }
     put:
       operationId: putNexus
-      description: "Owner: merge policy fields (mode off|shadow|primary, base_url, fallback_providers, fallback_data_classes, fallback_budget_usd, fallback_max_calls, fallback_ttl_minutes, teacher_*). Becoming primary requires NEXUS to answer consecutive readiness probes now (409 NEXUS_HEALTH_UNKNOWN otherwise). Defaults deny: no provider is approved for fallback or the Teacher Gate until named."
+      description: "Owner: merge policy fields (mode off|shadow|primary, base_url, fallback_providers, fallback_data_classes, fallback_budget_usd, fallback_max_calls, fallback_ttl_minutes, teacher_*). Becoming primary requires NEXUS to answer consecutive readiness probes now (409 NEXUS_HEALTH_UNKNOWN otherwise). Defaults deny: no provider is approved for fallback or the Teacher Gate until named. shadow_percent (0..100) samples shadow calls; teach_enabled keeps what external providers answered for PUBLIC tasks (never private ones) and sends it to NEXUS to learn from (teach_daily_max per day)."
       responses: { '200': { description: Status }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
   /admin/nexus/owner-disable:
     post:

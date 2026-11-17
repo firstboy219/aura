@@ -65,6 +65,9 @@ func (r *Router) Complete(ctx context.Context, b gateway.Budget, req gateway.Req
 	switch pol.Mode {
 	case ModeShadow:
 		res, err := legacy(ctx, b, req)
+		if err == nil {
+			r.Capture(ctx, pol, req, res)
+		}
 		if err == nil && pol.BaseURL != "" && r.sampled(pol.ShadowPercent) {
 			r.mu.Lock()
 			if r.shadowSem == nil {
@@ -124,6 +127,9 @@ func (r *Router) viaFallback(ctx context.Context, b gateway.Budget, req gateway.
 		b.TaskLimitUSD = g.BudgetUSD
 	}
 	res, err := legacy(ctx, b, req)
+	if err == nil {
+		r.Capture(ctx, r.policy(ctx), req, res)
+	}
 	r.St.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
 		d := map[string]any{"authorization": g.ID, "purpose": req.Purpose, "trigger": g.Trigger, "ok": err == nil}
 		if res != nil {
