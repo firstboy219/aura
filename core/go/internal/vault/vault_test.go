@@ -63,7 +63,8 @@ func TestEncryptedAtRestAndBoundToName(t *testing.T) {
 	}
 	// Tampering is detected.
 	st.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec("update secrets set ciphertext = substr(ciphertext,1,length(ciphertext)-1) || x'00' where name='openrouter'")
+		// the last byte really changes (setting it to 0x00 was a no-op 1 time in 256: the test was flaky)
+		_, err := tx.Exec("update secrets set ciphertext = substr(ciphertext,1,length(ciphertext)-1) || (case when substr(ciphertext,-1) = x'00' then x'01' else x'00' end) where name='openrouter'")
 		return err
 	})
 	if _, err := v.Get(ctx, st.R, "openrouter"); err == nil || !strings.Contains(err.Error(), "decryption failed") {

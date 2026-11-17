@@ -55,6 +55,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "ampi_events",  # migration 0027, ADR-0080
         "spatial_sessions",  # migration 0028, ADR-0081
         "egress_seen",  # migration 0029, egress observation
+        "perception_requests",  # migration 0030, ODI end-to-end perception
     }
 
 
