@@ -59,6 +59,8 @@ type Server struct {
 	Nexus *nexus.Service
 	// Perception is the ODI end-to-end path (media → AMPI → evidence → NEXUS); nil when AMPI is not configured.
 	Perception *perception.Service
+	// Cognition answers light work on NEXUS within a deadline (JARVIS's NEXUS-first path); nil when NEXUS is not configured.
+	Cognition func(ctx context.Context, msgs []CognitionMessage, maxTokens int, priority string) (string, string, error)
 	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
 	Devices *device.Service
 	// Changes holds the ODI A8 self-engineering proposals.
@@ -207,6 +209,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/ampi/events", s.ampiIntake) // AMPI → AURA (ADR-0080): HMAC-signed, private network only, stores evidence, starts nothing
 	mux.Handle("GET /api/v1/admin/ampi", auth(s.listAMPI))
 	mux.Handle("POST /api/v1/perception/requests", auth(s.createPerception))
+	mux.Handle("POST /api/v1/cognition/complete", auth(s.completeCognition))
 	mux.Handle("GET /api/v1/perception/requests/{id}", auth(s.getPerception))
 	mux.Handle("POST /api/v1/spatial/sessions", auth(s.createSpatial))
 	mux.Handle("GET /api/v1/spatial/sessions", auth(s.listSpatial))

@@ -66,6 +66,8 @@ var Manifest = map[string]ToolSpec{
 	"web.search":   {ID: "web.search", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"data.read":    {ID: "data.read", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"info.weather": {ID: "info.weather", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
+	// JARVIS's features (ADR-0082): a read in AURA's terms — JARVIS itself turns any change into the owner's approval (PIN / fingerprint)
+	"jarvis.fitur": {ID: "jarvis.fitur", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"info.prayer":  {ID: "info.prayer", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"info.quran":   {ID: "info.quran", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},
 	"info.place":   {ID: "info.place", Version: "1", SideEffect: "read", Tier: func(map[string]any) Tier { return A0 }},

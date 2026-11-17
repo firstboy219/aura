@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"aura.local/core/internal/api"
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/nexus"
 )
@@ -25,15 +26,31 @@ func (a *App) reasonOverEvidence(ctx context.Context, system, user string) (stri
 }
 
 func (a *App) askNexus(ctx context.Context, system, user string, maxTokens int) (string, string, error) {
+	return a.completeOnNexus(ctx, []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}, maxTokens, "interactive")
+}
+
+// cognition serves POST /api/v1/cognition/complete (JARVIS's NEXUS-first light work): the caller's deadline is the request's context.
+func (a *App) cognition(ctx context.Context, msgs []api.CognitionMessage, maxTokens int, priority string) (string, string, error) {
+	m := make([]map[string]string, 0, len(msgs))
+	for _, x := range msgs {
+		m = append(m, map[string]string{"role": x.Role, "content": x.Content})
+	}
+	return a.completeOnNexus(ctx, m, maxTokens, priority)
+}
+
+func (a *App) completeOnNexus(ctx context.Context, msgs []map[string]string, maxTokens int, priority string) (string, string, error) {
 	if a.Nexus == nil {
 		return "", "", fmt.Errorf("NEXUS is not configured")
 	}
-	env, _ := json.Marshal(map[string]any{"tier": "fast", "purpose": "analysis", "max_output_tokens": maxTokens,
-		"messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}})
+	deadline := time.Now().Add(5 * time.Minute)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl
+	}
+	env, _ := json.Marshal(map[string]any{"tier": "fast", "purpose": "analysis", "max_output_tokens": maxTokens, "messages": msgs})
 	req := nexus.Request{RequestID: ids.New(), TaskID: "none", SessionID: "none", Caller: nexus.Caller{Platform: "aura", ServiceID: a.Nexus.Router.ServiceID}, Purpose: "analysis",
 		Scope: nexus.Scope{WorkspaceID: a.Nexus.Router.WorkspaceID, AllowedKnowledge: []string{"kb:approved"}}, Classification: "confidential",
-		Deadline: time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339), IdempotencyKey: ids.New(), Input: nexus.Input{Text: nexus.LLMEnvelope + string(env), EvidenceRefs: []string{}},
-		Context: nexus.Ctx{ContextID: ids.New(), TokenBudget: 4096}, SchemaVersion: "1.0", Priority: "interactive"} // the owner is waiting: NEXUS serves it first
+		Deadline: deadline.UTC().Format(time.RFC3339), IdempotencyKey: ids.New(), Input: nexus.Input{Text: nexus.LLMEnvelope + string(env), EvidenceRefs: []string{}},
+		Context: nexus.Ctx{ContextID: ids.New(), TokenBudget: 4096}, SchemaVersion: "1.0", Priority: priority} // perception: "interactive" (the owner is waiting, served first); JARVIS's light work: its own class
 	res, err := a.Nexus.Client.Submit(ctx, req)
 	if err != nil {
 		return "", "", err

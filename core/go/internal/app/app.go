@@ -235,6 +235,15 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	if info == nil && o.Searcher == nil {
 		info = tools.NewInfo(tools.NewGuard(), cfg.Location(), cfg.HomeCity)
 	}
+	if info != nil && o.Info == nil { // JARVIS's own features for the workers (ADR-0082): jarvis.fitur over aura-net, reads only; changes are the owner's approval in JARVIS
+		jarvisURL := os.Getenv("AURA_JARVIS_URL")
+		if jarvisURL == "" {
+			jarvisURL = "http://jarvis-core:8000"
+		}
+		info = &tools.WithJarvis{Info: info, Jarvis: &tools.JarvisFeatures{Base: jarvisURL, Token: func(ctx context.Context) (string, error) {
+			return a.secret(ctx, vault.RefPrefix+"connector.jarvis_tool_token")
+		}}}
+	}
 	srch := o.Searcher
 	if srch == nil {
 		switch cfg.Tools.WebSearch.Provider {
@@ -357,7 +366,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
-		Vault: a.Vault, Nexus: a.Nexus, Perception: a.Perception, Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+		Vault: a.Vault, Nexus: a.Nexus, Perception: a.Perception, Cognition: a.cognition, Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
 	// The owner's runtime daily budget overrides the config value (ADR-0043).
 	var budgetSetting string
 	if st.R.QueryRowContext(ctx, "select value from settings where key=?", api.SettingDailyBudget).Scan(&budgetSetting) == nil {

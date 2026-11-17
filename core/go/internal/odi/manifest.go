@@ -31,7 +31,7 @@ var declared = map[string]struct {
 	classes []string
 }{
 	"web.fetch": {"task_allowlist", []string{"public"}}, "web.search": {"fixed_public_sources", []string{"public"}}, "news.headlines": {"fixed_public_sources", []string{"public"}},
-	"info.weather": {"fixed_public_sources", []string{"public"}}, "info.prayer": {"fixed_public_sources", []string{"public"}}, "info.quran": {"fixed_public_sources", []string{"public"}},
+	"jarvis.fitur": {"declared_by_owner", []string{"public", "internal"}}, "info.weather": {"fixed_public_sources", []string{"public"}}, "info.prayer": {"fixed_public_sources", []string{"public"}}, "info.quran": {"fixed_public_sources", []string{"public"}},
 	"info.place": {"fixed_public_sources", []string{"public"}}, "info.route": {"fixed_public_sources", []string{"public"}}, "info.prices": {"fixed_public_sources", []string{"public"}},
 	"data.read": {"none", []string{"internal", "confidential"}}, "workspace.read": {"none", []string{"internal", "confidential"}}, "workspace.write": {"none", []string{"internal", "confidential"}},
 	"calc": {"none", []string{"public", "internal", "confidential"}}, "wait.event": {"none", []string{"internal"}}, "wait.until": {"none", []string{"internal"}}, "agent.delegate": {"none", []string{"internal", "confidential"}},

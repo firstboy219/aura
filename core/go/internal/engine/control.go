@@ -97,7 +97,8 @@ func (e *Engine) validate(in CreateInput) (*task.Task, error) {
 		return nil, bad("objective must be 1..8000 characters")
 	}
 	if len(in.Tools) == 0 {
-		in.Tools = append([]string{"web.fetch", "web.search", "news.headlines", "workspace.read", "workspace.write", "data.read", "calc"}, tools.InfoTools...)
+		in.Tools = append([]string{"web.fetch", "web.search", "news.headlines", "workspace.read", "workspace.write", "data.read", "calc", tools.JarvisTool},
+			tools.InfoTools...)
 		if e.shell != nil {
 			in.Tools = append(in.Tools, "shell.run") // server commands, under the watcher (ADR-0065)
 		}

@@ -159,3 +159,24 @@ func TestPerceptionFailsHonestlyWhenAMPIFailsAndRefusesBadInput(t *testing.T) {
 		t.Fatalf("%d", resp.StatusCode)
 	}
 }
+
+// JARVIS's light work goes to NEXUS first (owner 2026-11-17): AURA answers on NEXUS with the caller's priority, or says NEXUS could not —
+// never with an outside model.
+func TestCognitionCompleteAnswersOnNexusOrSaysWhyNot(t *testing.T) {
+	e, _, got := perceptionEnv(t, "SUCCEEDED")
+	resp, m := e.req("POST", "/api/v1/cognition/complete", `{"messages":[{"role":"system","content":"Ringkas."},{"role":"user","content":"Hari ini cerah."}],"max_tokens":60,"priority":"normal","deadline_s":30}`, e.auth())
+	if resp.StatusCode != 200 || m["content"] != "Pesan: rapat dipindah ke Kamis." || m["authority"] != "nexus" {
+		t.Fatalf("%d %v", resp.StatusCode, m)
+	}
+	v, _ := got.Load("req")
+	req := v.(map[string]any)
+	if req["priority"] != "normal" || req["classification"] != "confidential" {
+		t.Fatalf("NEXUS must get the caller's priority, confidential: %v %v", req["priority"], req["classification"])
+	}
+	if resp, _ := e.req("POST", "/api/v1/cognition/complete", `{"messages":[{"role":"robot","content":"x"}]}`, e.auth()); resp.StatusCode != 400 {
+		t.Fatalf("an unknown role is refused: %d", resp.StatusCode)
+	}
+	if resp, _ := e.req("POST", "/api/v1/cognition/complete", `{"messages":[{"role":"user","content":"x"}]}`, nil); resp.StatusCode != 401 {
+		t.Fatalf("without AURA's token: %d", resp.StatusCode)
+	}
+}

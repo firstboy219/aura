@@ -672,7 +672,7 @@ func (e *Engine) validateArgs(s *session, g *policy.Grant, c toolCall) (map[stri
 	if strings.HasPrefix(c.ToolID, "browser.") {
 		return e.validateBrowserArgs(s, c)
 	}
-	if strings.HasPrefix(c.ToolID, "connector.") || strings.HasPrefix(c.ToolID, "info.") {
+	if strings.HasPrefix(c.ToolID, "connector.") || strings.HasPrefix(c.ToolID, "info.") || c.ToolID == tools.JarvisTool {
 		return validateMCPArgs(s, c) // planned input, decided at planning time
 	}
 	return nil, "", "unknown_tool"
@@ -728,7 +728,8 @@ func (e *Engine) execute0(ctx context.Context, t *task.Task, st *task.Step, spec
 		return nil, errWaitTool // handled in serveTool before execution
 	case "shell.run":
 		return e.executeShell(ctx, t, st, args)
-	case "web.search", "news.headlines", "data.read", "calc", "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices":
+	case "web.search", "news.headlines", "data.read", "calc", "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices",
+		tools.JarvisTool:
 		return e.executeInfo(ctx, t, st, spec, args)
 	case "web.fetch", "workspace.read":
 		e.st.Write(ctx, func(tx *sql.Tx) error {
@@ -951,7 +952,7 @@ func (e *Engine) executeInfo(ctx context.Context, t *task.Task, st *task.Step, s
 			links = append(links, h.URL)
 		}
 		summary = map[string]any{"headlines": len(items), "sources_failed": failed}
-	case "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices":
+	case "info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices", tools.JarvisTool:
 		if e.info == nil {
 			err := fmt.Errorf("tool_failed: %s is not configured", spec.ID)
 			e.toolFailed(ctx, t, st, spec.ID, err)

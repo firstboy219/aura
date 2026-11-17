@@ -20,7 +20,8 @@ from typing import Any
 from aura_worker.rpc import Channel, RpcError
 
 INFO_TOOLS = ("info.weather", "info.prayer", "info.quran", "info.place", "info.route", "info.prices")
-TOOLS = ("web.fetch", "web.search", "news.headlines", *INFO_TOOLS, "shell.run", "workspace.read", "workspace.write", "data.read", "calc",
+JARVIS_TOOL = "jarvis.fitur"   # JARVIS's own features (ADR-0082): reads come back; changes become the owner's approval in JARVIS
+TOOLS = ("web.fetch", "web.search", "news.headlines", *INFO_TOOLS, JARVIS_TOOL, "shell.run", "workspace.read", "workspace.write", "data.read", "calc",
          "wait.event", "wait.until", "agent.delegate",
          "browser.open", "browser.inspect", "browser.screenshot", "browser.scroll", "browser.wait", "browser.back",
          "browser.type", "browser.select", "browser.click",
@@ -175,6 +176,12 @@ TOOL_DOCS = {
                       'time, link). Set "query" to a topic (e.g. "harga emas", "Nvidia") or null for the general headlines '
                       'of the day. Use it whenever the owner asks for news, what is happening, or current events; fetch an '
                       'article afterwards only when the headlines are not enough.',
+    "jarvis.fitur": 'jarvis.fitur: the owner\'s own JARVIS features and their data — "brief" (Cek berita: today\'s news analysis for the '
+                    'owner), "quran" (his Qur\'an reader), "musik" (his music, playlists), "catatan" (notes, tasks), "gaji" (money), '
+                    '"berangkat"/"pulang" (his KRL commute plan), "sholat", "situasi" and more. Set "input" to {{"fitur": "<feature>", '
+                    '"aksi": "daftar"}} to list a feature\'s actions, then {{"fitur": "...", "aksi": "<action>", "data": {{...}}}}. Reads '
+                    'run at once; anything that changes something is sent to the owner for approval (not done by you). Prefer it over the '
+                    'web for anything about the owner\'s own JARVIS data.',
     "info.weather": 'info.weather: current weather and forecast (Open-Meteo). Set "input" to {{"place": "<city or area, or '
                     'empty for the owner\'s home city>", "days": 1-7}}.',
     "info.prayer": 'info.prayer: Islamic prayer times from the Kemenag schedule (imsak, subuh, dzuhur, ashar, maghrib, isya) and '
@@ -645,7 +652,7 @@ def validate_steps(steps: list, granted: list[str], start: int = 1) -> list[dict
             raise StepFailure(f"step {i}: calc expression {str(s.get('expression'))[:80]!r} is not plain arithmetic; use only "
                               "numbers, + - * / ^ ( ) and round/abs/min/max/sqrt, or set expression to null to compute it "
                               "from the observations at step time", "invalid_plan")
-        if tool.startswith(("mcp.", "l2.", "connector.", "info.")) and not _json_object(s.get("input")):
+        if (tool.startswith(("mcp.", "l2.", "connector.", "info.")) or tool == JARVIS_TOOL) and not _json_object(s.get("input")):
             raise StepFailure(f"step {i}: {tool} needs input as a JSON object", "invalid_plan")
         if tool == "browser.upload" and not s.get("path"):
             raise StepFailure(f"step {i}: browser.upload needs path", "invalid_plan")
@@ -943,7 +950,7 @@ def step(ch: Channel, params: dict) -> dict:
         args = {"command": command.strip(), "files_in": list(inp.get("files_in") or []), "files_out": list(inp.get("files_out") or []),
                 "timeout_s": int(inp.get("timeout_s") or 0)}
         return _result(_invoke(ch, tool, args))
-    if tool and tool.startswith(("mcp.", "connector.", "info.")):
+    if tool and (tool.startswith(("mcp.", "connector.", "info.")) or tool == JARVIS_TOOL):
         return _result(_invoke(ch, tool, {"arguments": json.loads(s.get("input") or "{}")}))
     if tool == "browser.open":
         url = s.get("url")
