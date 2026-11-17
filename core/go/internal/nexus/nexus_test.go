@@ -926,3 +926,50 @@ func TestOverflowDoesNotTouchACallNexusCanTake(t *testing.T) {
 		t.Fatalf("%v %+v", err, res)
 	}
 }
+
+// Long-poll (2026-11-17): the client asks NEXUS to hold the status read (wait_s) so the answer is not up to one poll interval late; a NEXUS that
+// ignores wait_s answers at once and the client keeps its old poll pause instead of spinning.
+func TestSubmitLongPollsAndStillPacesAnOldNexus(t *testing.T) {
+	for _, holds := range []bool{true, false} {
+		var mu sync.Mutex
+		reads, waits := 0, []string{}
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /api/v1/cognitive/requests", func(w http.ResponseWriter, r *http.Request) {
+			var q Request
+			json.NewDecoder(r.Body).Decode(&q)
+			writeResult(w, 202, q, "QUEUED", "", "low")
+		})
+		mux.HandleFunc("GET /api/v1/cognitive/requests/{id}", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			reads++
+			n := reads
+			waits = append(waits, r.URL.Query().Get("wait_s"))
+			mu.Unlock()
+			status := "RUNNING"
+			if holds || n >= 3 {
+				status = "SUCCEEDED" // a holding NEXUS answers the first read once the work is done
+			}
+			writeResult(w, 200, Request{RequestID: r.PathValue("id")}, status, "jawaban", "high")
+		})
+		srv := httptest.NewServer(mux)
+		c := &Client{BaseURL: func() string { return srv.URL }, Token: func() string { return "tok" }, Poll: 80 * time.Millisecond}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t0 := time.Now()
+		res, err := c.Submit(ctx, Request{RequestID: "r-lp", SchemaVersion: "1.0"})
+		took := time.Since(t0)
+		cancel()
+		srv.Close()
+		if err != nil || res.Status != "SUCCEEDED" {
+			t.Fatalf("holds=%v: %v %+v", holds, err, res)
+		}
+		if waits[0] != "10" {
+			t.Fatalf("holds=%v: the read must ask NEXUS to wait, got wait_s=%q", holds, waits[0])
+		}
+		if holds && (reads != 1 || took > 60*time.Millisecond) {
+			t.Fatalf("a holding NEXUS needs one read and no client pause: reads=%d took=%v", reads, took)
+		}
+		if !holds && (reads != 3 || took < 150*time.Millisecond) {
+			t.Fatalf("an old NEXUS must still be polled at the poll pace: reads=%d took=%v", reads, took)
+		}
+	}
+}

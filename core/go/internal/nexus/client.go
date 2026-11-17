@@ -100,6 +100,9 @@ func (c *Client) Submit(ctx context.Context, req Request) (*Result, error) {
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
 	}
+	// Long-poll (2026-11-17): NEXUS holds the read until the request is terminal (wait_s), so the answer arrives at once instead of up to one
+	// poll interval late. A NEXUS that ignores wait_s answers immediately; the pause below then keeps the old poll rate.
+	wait := 0 * time.Second
 	for !res.Terminal() {
 		select {
 		case <-ctx.Done():
@@ -107,10 +110,23 @@ func (c *Client) Submit(ctx context.Context, req Request) (*Result, error) {
 			c.Cancel(cctx, req.RequestID)
 			cancel()
 			return nil, &Error{Code: "DEADLINE_EXCEEDED", Message: "deadline elapsed while waiting for NEXUS"}
-		case <-time.After(poll):
+		case <-time.After(wait):
 		}
-		if _, err := c.do(ctx, "GET", "/api/v1/cognitive/requests/"+req.RequestID, nil, &res); err != nil {
+		hold := 10 * time.Second
+		if dl, ok := ctx.Deadline(); ok && time.Until(dl) < hold {
+			hold = time.Until(dl)
+		}
+		path := "/api/v1/cognitive/requests/" + req.RequestID
+		if hold >= time.Second {
+			path += fmt.Sprintf("?wait_s=%d", int(hold/time.Second))
+		}
+		t0 := time.Now()
+		if _, err := c.do(ctx, "GET", path, nil, &res); err != nil {
 			return nil, err
+		}
+		wait = poll - time.Since(t0)
+		if wait < 0 {
+			wait = 0
 		}
 	}
 	if res.ExecutionAuthority != "none" || res.RequestID != req.RequestID {
