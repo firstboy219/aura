@@ -516,6 +516,11 @@ func (a *App) maintain(ctx context.Context) {
 				lastBackup = time.Now()
 				pruneBackups(a.Cfg.Database.BackupDir, 7)
 			}
+			if n, err := a.Engine.PurgeRetention(ctx); err != nil {
+				a.Log.Error("retention purge", "err", err)
+			} else if n != nil {
+				a.Log.Info("retention purge", "deleted", n)
+			}
 			if n, err := a.Engine.PurgeContent(ctx); err != nil {
 				a.Log.Error("content purge", "err", err)
 			} else if n > 0 {

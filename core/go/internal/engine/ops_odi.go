@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"aura.local/core/internal/ids"
@@ -94,10 +95,79 @@ const RetentionSetting = "odi.retention"
 // RetentionPolicy is the proposal the report is computed from. Nothing is ever deleted by it: enforcement is a destructive change that needs the owner's explicit
 // approval of the numbers, and is not built (ADR-0076).
 type RetentionPolicy struct {
-	ReadNotificationsDays int `json:"read_notifications_days"`
-	ShellLogDays          int `json:"shell_log_days"`
-	RetiredMemoriesDays   int `json:"retired_memories_days"`
-	ConsumedApprovalsDays int `json:"consumed_approvals_days"`
+	ReadNotificationsDays int  `json:"read_notifications_days"`
+	ShellLogDays          int  `json:"shell_log_days"`
+	RetiredMemoriesDays   int  `json:"retired_memories_days"`
+	ConsumedApprovalsDays int  `json:"consumed_approvals_days"`
+	Enforce               bool `json:"enforce"` // false: report only. true: the daily maintenance (and POST /admin/retention/purge) deletes what the numbers allow.
+}
+
+// Retention floors: a proposal below these is refused, so a typo can never wipe recent working data. 0 keeps a class forever.
+var RetentionFloors = map[string]int{"read_notifications_days": 7, "shell_log_days": 7, "retired_memories_days": 30, "consumed_approvals_days": 30}
+
+// ValidateRetention refuses negative numbers and numbers under the floors (0 = keep forever is allowed).
+func ValidateRetention(p RetentionPolicy) error {
+	for k, v := range map[string]int{"read_notifications_days": p.ReadNotificationsDays, "shell_log_days": p.ShellLogDays, "retired_memories_days": p.RetiredMemoriesDays, "consumed_approvals_days": p.ConsumedApprovalsDays} {
+		if v < 0 || (v > 0 && v < RetentionFloors[k]) {
+			return fmt.Errorf("%w: %s must be 0 (keep) or at least %d days", ErrInvalid, k, RetentionFloors[k])
+		}
+	}
+	return nil
+}
+
+// PurgeRetention deletes what the owner's numbers allow, when the policy says Enforce. It never touches the audit log, task events, tasks, or an approval/memory that something else still points to
+// (a superseded memory that a newer one supersedes stays). Returns what was deleted per class; one audit entry names the counts, never the content.
+func (e *Engine) PurgeRetention(ctx context.Context) (map[string]int64, error) {
+	var p RetentionPolicy
+	var v string
+	if err := e.st.R.QueryRowContext(ctx, "select value from settings where key=?", RetentionSetting).Scan(&v); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if json.Unmarshal([]byte(v), &p) != nil || !p.Enforce {
+		return nil, nil
+	}
+	if err := ValidateRetention(p); err != nil {
+		return nil, err
+	}
+	cut := func(days int) int64 { return time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli() }
+	out := map[string]int64{"read_notifications": 0, "shell_log": 0, "retired_memories": 0, "consumed_approvals": 0}
+	err := e.st.Write(ctx, func(tx *sql.Tx) error {
+		run := func(key string, days int, q string) error {
+			if days <= 0 {
+				return nil
+			}
+			res, err := tx.ExecContext(ctx, q, cut(days))
+			if err != nil {
+				return err
+			}
+			out[key], _ = res.RowsAffected()
+			return nil
+		}
+		if err := run("read_notifications", p.ReadNotificationsDays, "delete from notifications where read_at is not null and read_at<?"); err != nil {
+			return err
+		}
+		if err := run("shell_log", p.ShellLogDays, "delete from shell_log where finished_at is not null and finished_at<?"); err != nil {
+			return err
+		}
+		if err := run("retired_memories", p.RetiredMemoriesDays, "delete from memories where status in ('deleted','superseded') and updated_at<? and id not in (select supersedes from memories where supersedes is not null)"); err != nil {
+			return err
+		}
+		if err := run("consumed_approvals", p.ConsumedApprovalsDays, "delete from approvals where status in ('consumed','expired','invalidated') and created_at<?"); err != nil {
+			return err
+		}
+		var total int64
+		for _, n := range out {
+			total += n
+		}
+		if total == 0 {
+			return nil
+		}
+		return policy.Audit(ctx, tx, "RETENTION_PURGED", "system", "", "", map[string]any{"deleted": out, "policy": p})
+	})
+	return out, err
 }
 
 // RetentionReport counts what the proposal WOULD purge. The audit log and task events are not part of any proposal (they are the evidence).

@@ -193,6 +193,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/notifications/{id}/ack", auth(s.ackNotification))
 	mux.Handle("POST /api/v1/memories/{id}/expiry", auth(s.setMemoryExpiry))
 	mux.Handle("GET /api/v1/admin/retention", auth(s.retentionReport))
+	mux.Handle("PUT /api/v1/admin/retention", auth(s.putRetention))
+	mux.Handle("POST /api/v1/admin/retention/purge", auth(s.purgeRetention))
 	mux.Handle("GET /api/v1/admin/tool-manifests", auth(s.toolManifests))
 	mux.Handle("GET /api/v1/admin/tool-quotas", auth(s.getToolQuotas))
 	mux.Handle("PUT /api/v1/admin/tool-quotas", auth(s.putToolQuotas))

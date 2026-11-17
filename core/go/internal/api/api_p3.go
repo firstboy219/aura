@@ -1,12 +1,15 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"aura.local/core/internal/engine"
+	"aura.local/core/internal/policy"
 	"aura.local/core/internal/task"
 )
 
@@ -681,6 +684,55 @@ func (s *Server) retentionReport(w http.ResponseWriter, r *http.Request) {
 		s.mapErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"policy": p, "would_purge": would, "enforced": false,
-		"note": "report only: deleting data needs the owner's explicit approval of these numbers; the audit log and task events are never part of a retention proposal"})
+	note := "report only: set a policy with PUT and enforce=true to delete; the audit log and task events are never part of a retention proposal"
+	if p.Enforce {
+		note = "enforced daily by the maintenance loop (and by POST /admin/retention/purge); the audit log, task events and referenced memories are never deleted"
+	}
+	writeJSON(w, 200, map[string]any{"policy": p, "would_purge": would, "enforced": p.Enforce, "floors": engine.RetentionFloors, "note": note})
+}
+
+// putRetention stores the owner's retention numbers (owner only; refuses numbers under the floors). With enforce=true the daily maintenance applies them.
+func (s *Server) putRetention(w http.ResponseWriter, r *http.Request) {
+	var p engine.RetentionPolicy
+	if err := decodeStrict(r, &p); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	if err := engine.ValidateRetention(p); err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	b, _ := json.Marshal(p)
+	err := s.Store.Write(r.Context(), func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(r.Context(), `insert into settings(key, value, updated_at) values(?,?,?) on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`, engine.RetentionSetting, string(b), time.Now().UnixMilli()); err != nil {
+			return err
+		}
+		return policy.Audit(r.Context(), tx, "RETENTION_POLICY_SET", PrincipalOf(r).Name, "", requestID(r), map[string]any{"policy": p})
+	})
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	s.retentionReport(w, r)
+}
+
+// purgeRetention runs the purge now. It needs {"confirm":"purge"}: deleting is never a side effect of a stray request.
+func (s *Server) purgeRetention(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Confirm string `json:"confirm"`
+	}
+	if err := decodeStrict(r, &in); err != nil || in.Confirm != "purge" {
+		s.fail(w, r, 400, "invalid_input", `send {"confirm":"purge"} to delete what the retention policy allows`)
+		return
+	}
+	n, err := s.Engine.PurgeRetention(r.Context())
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	if n == nil {
+		s.fail(w, r, 409, "conflict", "the retention policy is not set or enforce is false: nothing was deleted")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": n})
 }
