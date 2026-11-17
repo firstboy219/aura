@@ -72,10 +72,10 @@ func (a *AMPI) call(ctx context.Context, method, path string, hdr map[string]str
 }
 
 func (a *AMPI) Session(ctx context.Context, modality, consent string, locale []string) (string, error) {
-	grant := map[string]string{"audio": "group:audio_basic", "image": "group:vision_basic"}[modality]
 	mods := map[string][]string{"audio": {"audio"}, "image": {"image"}}[modality]
+	// exactly the capabilities this request needs, granted by name: OCR is 'sensitive' and is not in group:vision_basic, so a group grant silently ran no OCR (found live 2026-11-17)
 	body, _ := json.Marshal(map[string]any{"purpose": "batch_analysis", "source": map[string]string{"type": "file_upload"}, "modalities": mods, "consent_ref": consent,
-		"granted_capabilities": []string{grant}, "locale_hints": locale})
+		"granted_capabilities": Capabilities[modality], "locale_hints": locale})
 	var out struct {
 		ID string `json:"session_id"`
 	}

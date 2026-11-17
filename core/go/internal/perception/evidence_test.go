@@ -71,3 +71,24 @@ func TestValidateRefusesWhatThePathCannotServe(t *testing.T) {
 		}
 	}
 }
+
+func TestAbsentTextOrSpeechIsStatedSoTheModelDoesNotInventIt(t *testing.T) {
+	// found live 2026-11-17: with no OCR line in the evidence NEXUS answered "Tulisan terbaca: car, traffic light"
+	img := BuildEvidence([]Obs{obs("vision.object_detection", 0, map[string]any{"class": "car"})})
+	img.Modality = "image"
+	_, u := img.Messages("ada tulisan apa?")
+	if !strings.Contains(u, "tidak ada tulisan yang terbaca") {
+		t.Fatal(u)
+	}
+	aud := BuildEvidence(nil)
+	aud.Modality = "audio"
+	if _, u := aud.Messages("apa katanya?"); !strings.Contains(u, "tidak ada ucapan yang terdengar") {
+		t.Fatal(u)
+	}
+	for _, c := range Capabilities["image"] {
+		if c == "vision.ocr" {
+			return
+		}
+	}
+	t.Fatal("OCR must be requested (and granted by name) for images")
+}

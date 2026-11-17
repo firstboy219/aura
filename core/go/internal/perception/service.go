@@ -186,6 +186,7 @@ func (s *Service) run(id string, q Request) {
 		return
 	}
 	ev := BuildEvidence(obs)
+	ev.Modality = q.Modality
 	evj, _ := json.Marshal(ev)
 	lap("evidence_ms", t0)
 	s.set(id, map[string]any{"state": "reasoning", "step": "nexus", "ampi_status": status, "evidence_json": string(evj)})

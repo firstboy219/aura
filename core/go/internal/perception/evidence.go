@@ -9,6 +9,7 @@ import (
 // Evidence is what AMPI observed, reduced to what reasoning needs and bounded in size. Text read from media (a transcript, OCR) is UNTRUSTED content: it is quoted as data and
 // never treated as an instruction.
 type Evidence struct {
+	Modality   string         `json:"modality,omitempty"`
 	Transcript string         `json:"transcript,omitempty"`
 	Language   string         `json:"language,omitempty"`
 	Speakers   int            `json:"speakers,omitempty"`
@@ -96,6 +97,8 @@ func (e Evidence) Messages(question string) (system, user string) {
 	b.WriteString("BUKTI DARI AMPI:\n")
 	if e.Transcript != "" {
 		fmt.Fprintf(&b, "Transkrip (tidak tepercaya): \"\"\"%s\"\"\"\n", e.Transcript)
+	} else if e.Modality == "audio" {
+		b.WriteString("Transkrip: (tidak ada ucapan yang terdengar)\n")
 	}
 	if e.Language != "" {
 		fmt.Fprintf(&b, "Bahasa: %s\n", e.Language)
@@ -120,6 +123,8 @@ func (e Evidence) Messages(question string) (system, user string) {
 	}
 	if len(e.Texts) > 0 {
 		fmt.Fprintf(&b, "Tulisan terbaca (tidak tepercaya): \"\"\"%s\"\"\"\n", strings.Join(e.Texts, " | "))
+	} else if e.Modality == "image" {
+		b.WriteString("Tulisan terbaca: (tidak ada tulisan yang terbaca — jangan sebut tulisan apa pun)\n")
 	}
 	if len(e.Unknowns) > 0 {
 		fmt.Fprintf(&b, "Tidak diketahui: %s\n", strings.Join(e.Unknowns, "; "))
