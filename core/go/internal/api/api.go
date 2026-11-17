@@ -4,6 +4,7 @@
 package api
 
 import (
+	"aura.local/core/internal/perception"
 	"context"
 	"crypto/subtle"
 	"database/sql"
@@ -56,6 +57,8 @@ type Server struct {
 	Vault *vault.Vault
 	// Nexus is the ODI A4 service (cognition router, fallback authorizer, Teacher Gate); nil in tests that do not need it.
 	Nexus *nexus.Service
+	// Perception is the ODI end-to-end path (media → AMPI → evidence → NEXUS); nil when AMPI is not configured.
+	Perception *perception.Service
 	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
 	Devices *device.Service
 	// Changes holds the ODI A8 self-engineering proposals.
@@ -203,6 +206,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/nexus/owner-disable", auth(s.nexusOwnerDisable))
 	mux.HandleFunc("POST /api/v1/ampi/events", s.ampiIntake) // AMPI → AURA (ADR-0080): HMAC-signed, private network only, stores evidence, starts nothing
 	mux.Handle("GET /api/v1/admin/ampi", auth(s.listAMPI))
+	mux.Handle("POST /api/v1/perception/requests", auth(s.createPerception))
+	mux.Handle("GET /api/v1/perception/requests/{id}", auth(s.getPerception))
 	mux.Handle("POST /api/v1/spatial/sessions", auth(s.createSpatial))
 	mux.Handle("GET /api/v1/spatial/sessions", auth(s.listSpatial))
 	mux.Handle("GET /api/v1/spatial/sessions/{id}", auth(s.getSpatial))
@@ -246,6 +251,9 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		limit := int64(maxBody)
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/browser/profiles/") {
 			limit = 1 << 20 // an exported browser session (cookies and storage)
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/perception/requests" {
+			limit = 17 << 20 // media for AMPI, base64 (12 MiB of media)
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		start := time.Now()

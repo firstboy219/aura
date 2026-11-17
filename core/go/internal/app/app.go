@@ -4,6 +4,7 @@ package app
 
 import (
 	"aura.local/core/internal/egresslog"
+	"aura.local/core/internal/perception"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -84,7 +85,8 @@ type App struct {
 	AUL         *aul.Runtime
 	Devices     *device.Service // ODI A6
 	Nexus       *nexus.Service  // ODI A4: cognition router, fallback authorizer, Teacher Gate (mode off = legacy providers, unchanged)
-	Egress      *egress.Proxy   // browser egress proxy (nil: browser automation off)
+	Perception  *perception.Service
+	Egress      *egress.Proxy // browser egress proxy (nil: browser automation off)
 	MoreWorkers []*worker.Supervisor
 	srv         *http.Server
 }
@@ -205,6 +207,13 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}, "aura-core", "default", nexus.DefaultMonitorConfig())
 	a.Nexus.Log = func(msg string, kv ...any) { log.Warn(msg, kv...) }
 	gw.SetCognition(a.Nexus.Router)
+	ampiURL := os.Getenv("AURA_AMPI_URL") // the AURA-only gate of AMPI's API on aura-net (ODI end-to-end perception)
+	if ampiURL == "" {
+		ampiURL = "http://ampi:7700"
+	}
+	a.Perception = &perception.Service{St: st, AMPI: &perception.AMPI{Base: ampiURL, Token: func(ctx context.Context) (string, error) {
+		return a.secret(ctx, vault.RefPrefix+"connector.ampi_client_token")
+	}}, Reason: a.reasonOverEvidence, Log: func(msg string, kv ...any) { log.Warn(msg, kv...) }}
 	ws, err := tools.NewWorkspace(cfg.Workspace.Root)
 	if err != nil {
 		st.Close()
@@ -348,7 +357,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
-		Vault: a.Vault, Nexus: a.Nexus, Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+		Vault: a.Vault, Nexus: a.Nexus, Perception: a.Perception, Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
 	// The owner's runtime daily budget overrides the config value (ADR-0043).
 	var budgetSetting string
 	if st.R.QueryRowContext(ctx, "select value from settings where key=?", api.SettingDailyBudget).Scan(&budgetSetting) == nil {
