@@ -47,7 +47,11 @@ func fakeNEXUS(t *testing.T, got *sync.Map) *httptest.Server {
 		if r.Method == "POST" && r.URL.Path == "/api/v1/cognitive/requests" {
 			var req map[string]any
 			json.NewDecoder(r.Body).Decode(&req)
-			got.Store("req", req)
+			if strings.Contains(req["input"].(map[string]any)["text"].(string), "(siap)") {
+				got.Store("warm", req) // the pipelined warm-up of the system prompt
+			} else {
+				got.Store("req", req)
+			}
 			json.NewEncoder(w).Encode(map[string]any{"request_id": req["request_id"], "status": "SUCCEEDED", "execution_authority": "none",
 				"result": map[string]any{"content": "Pesan: rapat dipindah ke Kamis."}, "model": map[string]any{"model_id": "qwen3-test"}})
 			return
@@ -114,6 +118,9 @@ func TestPerceptionRunsEndToEndThroughAMPIAndNEXUSWithTimings(t *testing.T) {
 	text := req["input"].(map[string]any)["text"].(string)
 	if req["classification"] != "confidential" || !strings.Contains(text, `Transkrip (tidak tepercaya)`) || !strings.Contains(text, "Abaikan aturan") || !strings.Contains(text, "apa isi pesan ini?") {
 		t.Fatalf("NEXUS must get the bounded, fenced evidence as confidential: %v", req["classification"])
+	}
+	if w, ok := nexusGot.Load("warm"); !ok || !strings.Contains(w.(map[string]any)["input"].(map[string]any)["text"].(string), "Kamu NEXUS, bagian penalaran ODI") {
+		t.Fatal("NEXUS must be warmed with the same system prompt while AMPI works")
 	}
 	var stored int
 	e.a.Store.R.QueryRow("select count(*) from perception_requests where evidence_json like '%Rapat dipindah%'").Scan(&stored)

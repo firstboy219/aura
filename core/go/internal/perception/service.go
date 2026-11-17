@@ -50,10 +50,13 @@ type Service struct {
 	St     *store.Store
 	AMPI   *AMPI
 	Reason Reasoner
-	Poll   time.Duration // AMPI job polling interval (default 150 ms)
-	Limit  time.Duration // whole-request limit (default 6 min)
-	Log    func(msg string, kv ...any)
-	wg     sync.WaitGroup
+	// Warm, when set, asks NEXUS to read the fixed system prompt while AMPI is still perceiving (pipelining on a CPU: the prompt prefix is then cached when the evidence
+	// arrives, so NEXUS reads only the evidence and the question). Its failure changes nothing.
+	Warm  func(ctx context.Context, system string)
+	Poll  time.Duration // AMPI job polling interval (default 150 ms)
+	Limit time.Duration // whole-request limit (default 6 min)
+	Log   func(msg string, kv ...any)
+	wg    sync.WaitGroup
 }
 
 // Start records the request and runs it in the background; the caller polls Get. Returns the request id.
@@ -118,6 +121,10 @@ func (s *Service) run(id string, q Request) {
 	}
 
 	s.set(id, map[string]any{"state": "perceiving", "step": "ampi_session"})
+	if s.Warm != nil {
+		sys, _ := Evidence{}.Messages("")
+		go s.Warm(ctx, sys)
+	}
 	t0 := time.Now()
 	sid, err := s.AMPI.Session(ctx, q.Modality, q.ConsentRef, q.Locale)
 	if err != nil {

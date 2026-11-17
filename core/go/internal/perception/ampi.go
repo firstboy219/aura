@@ -93,7 +93,7 @@ func (a *AMPI) Upload(ctx context.Context, session string, data []byte) (string,
 
 // Capabilities is what a perception request asks AMPI for, per modality (normal sensitivity only; no biometrics).
 var Capabilities = map[string][]string{
-	"audio": {"audio.asr", "audio.language_id", "audio.diarization"},
+	"audio": {"audio.asr", "audio.language_id"}, // no diarization: speaker turns are unreliable (DER 45-55%) and cost word-timed sequential decoding; 2.4x faster without
 	"image": {"vision.object_detection", "vision.person_detection", "vision.ocr"},
 }
 

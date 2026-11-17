@@ -213,7 +213,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.Perception = &perception.Service{St: st, AMPI: &perception.AMPI{Base: ampiURL, Token: func(ctx context.Context) (string, error) {
 		return a.secret(ctx, vault.RefPrefix+"connector.ampi_client_token")
-	}}, Reason: a.reasonOverEvidence, Log: func(msg string, kv ...any) { log.Warn(msg, kv...) }}
+	}}, Reason: a.reasonOverEvidence, Warm: a.warmNexus, Log: func(msg string, kv ...any) { log.Warn(msg, kv...) }}
 	ws, err := tools.NewWorkspace(cfg.Workspace.Root)
 	if err != nil {
 		st.Close()
