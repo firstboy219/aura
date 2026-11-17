@@ -31,7 +31,7 @@ services:
     # aura-browser-net: the browser reaches the Core's egress proxy (:7480, not published) and nothing else.
     # aura-shell-net: the shell sandbox reaches the same egress proxy (ADR-0065).
     networks: [aura-net, aura-browser-net, aura-shell-net]
-    cpus: 1.0
+    cpuset: "0-2"        # owner 2026-11-17: no per-service CPU cap; AURA, NEXUS and AMPI take turns on cores 0-2 (core 3 is for background work only)
     mem_limit: 1g
     pids_limit: 256
     read_only: true
@@ -58,7 +58,7 @@ services:
     network_mode: none
     volumes:
       - aura-worker-sock:/run/aura-worker
-    cpus: 1.0
+    cpuset: "0-2"        # owner 2026-11-17: no per-service CPU cap; AURA, NEXUS and AMPI take turns on cores 0-2 (core 3 is for background work only)
     mem_limit: 768m
     pids_limit: 64
     read_only: true
@@ -89,7 +89,7 @@ services:
     networks: [aura-browser-net]
     volumes:
       - aura-browser-sock:/run/aura-browser
-    cpus: 1.0
+    cpuset: "0-2"        # owner 2026-11-17: no per-service CPU cap; AURA, NEXUS and AMPI take turns on cores 0-2 (core 3 is for background work only)
     mem_limit: 1g
     pids_limit: 512
     shm_size: 256m
@@ -118,7 +118,7 @@ services:
     networks: [aura-net]
     volumes:
       - /opt/aura/secrets/cloudflare_tunnel_token:/run/secrets/tunnel_token:ro
-    cpus: 0.5
+    cpuset: "0-2"        # owner 2026-11-17: no per-service CPU cap; AURA, NEXUS and AMPI take turns on cores 0-2 (core 3 is for background work only)
     mem_limit: 128m
     pids_limit: 64
     read_only: true
@@ -147,7 +147,7 @@ services:
       # folder (task instructions, spec, review, diffs) — both read-only; AURA hands a diff back, JARVIS' runner applies and tests it.
       - ${JARVIS_DEV_MIRROR:-/home/ubuntu/my-project/infra/data/dev-mirror}:/mirror:ro
       - ${JARVIS_HANDOFF:-/home/ubuntu/my-project/infra/data/dev/handoff}:/handoff:ro
-    cpus: 1.0
+    cpuset: "0-2"        # owner 2026-11-17: no per-service CPU cap; AURA, NEXUS and AMPI take turns on cores 0-2 (core 3 is for background work only)
     mem_limit: 2g
     pids_limit: 512
     read_only: true
