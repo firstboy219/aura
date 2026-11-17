@@ -19,6 +19,9 @@ import (
 
 const maxExampleChars = 12000
 
+// lessonMaxChars is what NEXUS accepts as an in-context lesson (its context is small); longer examples (whole agent prompts) are kept here as fine-tuning candidates and not sent.
+const lessonMaxChars = 9000
+
 // Capture records one external answer as a teaching example when the policy allows it. It never fails the call it is attached to.
 func (r *Router) Capture(ctx context.Context, pol Policy, req gateway.Request, res *gateway.Result) {
 	if !pol.TeachEnabled || pol.TeachDailyMax <= 0 {
@@ -116,10 +119,15 @@ func (s *Service) PushLessons(ctx context.Context) (sent, accepted int, err erro
 		return 0, 0, err
 	}
 	var batch []lessonOut
+	var tooLong []string
 	for rows.Next() {
 		var l lessonOut
 		var msgs, schema, prov, route string
 		rows.Scan(&l.SourceID, &l.Purpose, &msgs, &schema, &l.Answer, &prov, &route)
+		if len(msgs)+len(l.Answer) > lessonMaxChars {
+			tooLong = append(tooLong, l.SourceID)
+			continue
+		}
 		l.Messages = json.RawMessage(msgs)
 		if schema != "" {
 			l.Schema = json.RawMessage(schema)
@@ -128,6 +136,16 @@ func (s *Service) PushLessons(ctx context.Context) (sent, accepted int, err erro
 		batch = append(batch, l)
 	}
 	rows.Close()
+	if len(tooLong) > 0 {
+		s.St.Write(ctx, func(tx *sql.Tx) error {
+			for _, id := range tooLong {
+				if _, err := tx.ExecContext(ctx, "update teaching_examples set status='rejected', reject_reason=?, sent_at=? where id=? and status='new'", "kept here, not sent: too long for NEXUS's context (fine-tuning candidate)", time.Now().UnixMilli(), id); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
 	if len(batch) == 0 {
 		return 0, 0, nil
 	}

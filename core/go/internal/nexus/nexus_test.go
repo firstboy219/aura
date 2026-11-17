@@ -825,3 +825,19 @@ func TestTeachingCapAppliesToPaidAnswersOnly(t *testing.T) {
 		t.Fatalf("free examples %d (want 6, uncapped), paid %d (want 1, capped)", free, paid)
 	}
 }
+
+func TestLongExamplesAreKeptLocallyAndNotSentToNexus(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.Mode, p.ShadowPercent, p.TeachEnabled, p.TeachDailyMax = ModeShadow, 0, true, 50 })
+	now := time.Now().UnixMilli()
+	r.st.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`insert into teaching_examples(id,purpose,tier,messages_json,answer,provider,route,content_sha256,tokens_est,status,created_at,paid) values('long','plan','standard',?, 'a','gemini','g','h1',1,'new',?,0)`,
+			`[{"role":"user","content":"`+strings.Repeat("x", 9500)+`"}]`, now)
+		return err
+	})
+	r.svc.PushLessons(context.Background())
+	var st, why string
+	r.st.R.QueryRow("select status, coalesce(reject_reason,'') from teaching_examples where id='long'").Scan(&st, &why)
+	if st != "rejected" || !strings.Contains(why, "fine-tuning") {
+		t.Fatalf("status=%s why=%s", st, why)
+	}
+}
