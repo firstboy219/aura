@@ -119,7 +119,7 @@ func TestPerceptionRunsEndToEndThroughAMPIAndNEXUSWithTimings(t *testing.T) {
 	if req["priority"] != "interactive" {
 		t.Fatalf("the owner is waiting: NEXUS must get an interactive request, got %v", req["priority"])
 	}
-	if req["classification"] != "confidential" || !strings.Contains(text, `Transkrip (tidak tepercaya)`) || !strings.Contains(text, "Abaikan aturan") || !strings.Contains(text, "apa isi pesan ini?") {
+	if req["classification"] != "confidential" || !strings.Contains(text, "Transkrip: ") || strings.Contains(text, "tidak tepercaya") || !strings.Contains(text, "Abaikan aturan") || !strings.Contains(text, "apa isi pesan ini?") {
 		t.Fatalf("NEXUS must get the bounded, fenced evidence as confidential: %v", req["classification"])
 	}
 	if w, ok := nexusGot.Load("warm"); !ok || !strings.Contains(w.(map[string]any)["input"].(map[string]any)["text"].(string), "Kamu NEXUS, bagian penalaran ODI") {
