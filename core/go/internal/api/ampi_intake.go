@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"aura.local/core/internal/nexus"
 	"aura.local/core/internal/policy"
 )
 
@@ -183,4 +184,32 @@ func (s *Server) listAMPI(w http.ResponseWriter, r *http.Request) {
 			"contradictions": nc, "untrusted_content": ut == 1, "bytes": by, "received_at": at})
 	}
 	writeJSON(w, 200, map[string]any{"events": out, "note": "AMPI delivers perception; AURA decides what to do with it. Nothing here started a task or an action."})
+}
+
+// platformsStatus is the read-only view the Owner Control Center of JARVIS needs (blueprint v1.3 §16): what AURA itself can truthfully say about NEXUS and AMPI, with the time it was observed.
+// It carries no secret and no content; unknown stays unknown (an unconfigured AMPI is "not_configured", not "healthy").
+func (s *Server) platformsStatus(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{"observed_at": time.Now().UnixMilli()}
+	if s.Nexus != nil {
+		st := s.nexusStatus(r.Context())
+		pol, _ := st["policy"].(nexus.Policy)
+		out["nexus"] = map[string]any{"mode": pol.Mode, "health": st["health"], "shadow_24h": st["shadow_24h"], "overflow_to_external": pol.OverflowToExternal, "teacher_enabled": pol.TeacherEnabled}
+	} else {
+		out["nexus"] = map[string]any{"mode": "not_configured"}
+	}
+	configured := false
+	if s.Vault != nil {
+		if k, err := s.Vault.Get(r.Context(), s.Store.R, ampiKeyVaultKey); err == nil && len(k) >= 32 {
+			configured = true
+		}
+	}
+	var n int
+	var last sql.NullInt64
+	s.Store.R.QueryRowContext(r.Context(), "select count(*), max(received_at) from ampi_events").Scan(&n, &last)
+	ampi := map[string]any{"intake_configured": configured, "events_retained": n}
+	if last.Valid {
+		ampi["last_event_at"] = last.Int64
+	}
+	out["ampi"] = ampi
+	writeJSON(w, 200, out)
 }

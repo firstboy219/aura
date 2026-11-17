@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -126,5 +127,32 @@ func TestAMPIIntakeIsNotReachableThroughThePublicTunnelOrFromAPublicAddress(t *t
 	e.a.API.Handler().ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("a public address reached the intake: %d", w.Code)
+	}
+}
+
+func TestPlatformsStatusTellsOnlyWhatAuraCanVerifyAndNeedsACredential(t *testing.T) {
+	e := nexusEnv(t)
+	if resp, _ := e.req("GET", "/api/v1/system/platforms", "", nil); resp.StatusCode != 401 {
+		t.Fatalf("unauthenticated: %d", resp.StatusCode)
+	}
+	resp, m := e.req("GET", "/api/v1/system/platforms", "", e.auth())
+	nx, _ := m["nexus"].(map[string]any)
+	am, _ := m["ampi"].(map[string]any)
+	if resp.StatusCode != 200 || nx["mode"] != "off" || am["intake_configured"] != false || am["events_retained"] != float64(0) || m["observed_at"] == nil {
+		t.Fatalf("%d %v", resp.StatusCode, m)
+	}
+	if _, has := am["last_event_at"]; has {
+		t.Fatal("a last event was invented")
+	}
+	// once AMPI delivered something, its time is shown; the packet content never is
+	key := strings.Repeat("k", 64)
+	e.req("PUT", "/api/v1/admin/credentials/ampi_signing_key", `{"value":"`+key+`"}`, e.auth())
+	body := ampiPacket("evt-pkt-cccccc-000001")
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	e.req("POST", "/api/v1/ampi/events", body, map[string]string{"X-AMPI-Timestamp": ts, "X-AMPI-Signature": ampiSign(key, ts, body), "X-AMPI-Subscription": "s", "X-AMPI-Sequence": "1", "X-AMPI-Replay": "0"})
+	_, m = e.req("GET", "/api/v1/system/platforms", "", e.auth())
+	am, _ = m["ampi"].(map[string]any)
+	if am["intake_configured"] != true || am["events_retained"] != float64(1) || am["last_event_at"] == nil || strings.Contains(fmt.Sprint(m), "Ignore previous") {
+		t.Fatalf("%v", m)
 	}
 }

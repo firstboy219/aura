@@ -201,7 +201,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/admin/nexus/owner-disable", auth(s.nexusOwnerDisable))
 	mux.HandleFunc("POST /api/v1/ampi/events", s.ampiIntake) // AMPI → AURA (ADR-0080): HMAC-signed, private network only, stores evidence, starts nothing
 	mux.Handle("GET /api/v1/admin/ampi", auth(s.listAMPI))
-	mux.HandleFunc("POST /api/v1/teacher/requests", s.teacherRequest) // own service-token check (ODI A4): a leaked token can only submit sanitized questions under the owner's limits
+	mux.Handle("GET /api/v1/system/platforms", auth(s.platformsStatus)) // read-only status of NEXUS/AMPI for the Owner Control Center (any role that can read)
+	mux.HandleFunc("POST /api/v1/teacher/requests", s.teacherRequest)   // own service-token check (ODI A4): a leaked token can only submit sanitized questions under the owner's limits
 	mux.Handle("GET /api/v1/admin/usage", auth(s.usageReport))
 	mux.Handle("GET /api/v1/admin/budget", auth(s.getBudget))
 	mux.Handle("PUT /api/v1/admin/budget", auth(s.putBudget))
