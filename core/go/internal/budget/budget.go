@@ -134,7 +134,7 @@ func (g *Governor) Reserve(ctx context.Context, c Call) (*Reservation, error) {
 		}
 		if _, err := tx.ExecContext(ctx, `insert into usage_records(id, task_id, step_id, tier, provider_id, api_model_id, route_id,
 			cost_estimated_usd, cost_reserved_usd, outcome, purpose, created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)`,
-			r.UsageID, c.TaskID, nullable(c.StepID), c.Tier, c.ProviderID, c.APIModelID, c.Route, c.EstimateUSD, c.EstimateUSD,
+			r.UsageID, nullable(c.TaskID), nullable(c.StepID), c.Tier, c.ProviderID, c.APIModelID, c.Route, c.EstimateUSD, c.EstimateUSD,
 			"reserved", nullable(c.Purpose), g.now().UnixMilli()); err != nil {
 			return err
 		}

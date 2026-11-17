@@ -142,3 +142,24 @@ func TestDailyWindowUsesWorkspaceTimeZone(t *testing.T) {
 		t.Fatal("daily limit ignored inside the same WIB day")
 	}
 }
+
+// A call that belongs to no task (the Teacher Gate answers a question from NEXUS) is recorded without a task, counts against the daily limit, and reconciles.
+func TestACallWithoutATaskIsRecordedAndCountsAgainstTheDailyLimit(t *testing.T) {
+	g, s, id := setup(t, 0.10)
+	cost := 0.04
+	r, err := g.Reserve(context.Background(), call("", 0.04, 0.05))
+	if err != nil {
+		t.Fatalf("a task-less call was refused: %v", err)
+	}
+	if err := g.Reconcile(context.Background(), r, "", Actual{CostUSD: &cost, Outcome: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.R.QueryRow("select count(*) from usage_records where task_id is null").Scan(&n)
+	if n != 1 {
+		t.Fatalf("task-less usage rows: %d", n)
+	}
+	if _, err := g.Reserve(context.Background(), call(id, 0.08, 1)); !errors.Is(err, ErrDailyBudget) {
+		t.Fatalf("the task-less spend did not count against the daily limit: %v", err)
+	}
+}
