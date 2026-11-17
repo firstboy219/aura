@@ -179,6 +179,20 @@ paths:
       description: "Owner: switch NEXUS off for N minutes (1..1440), the second valid trigger for fallback; 0 switches it back on and revokes every fallback authorization."
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [minutes], additionalProperties: false, properties: { minutes: { type: integer, minimum: 0, maximum: 1440 } } } } } }
       responses: { '200': { description: Status }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } }
+  /ampi/events:
+    post:
+      operationId: ampiIntake
+      description: "AMPI delivers a perception context packet (ADR-0080). Dormant (404) until the owner stores ampi_signing_key; private network only; HMAC-signed (X-AMPI-Signature, X-AMPI-Timestamp within 5 minutes); stored once per event id (a repeat is acknowledged as duplicate); starts no task and takes no action; text read from media is untrusted content."
+      responses:
+        "200": {description: stored or duplicate}
+        "401": {description: bad signature or timestamp}
+        "404": {description: not configured, or not from the private network}
+  /admin/ampi:
+    get:
+      operationId: listAMPI
+      description: "Owner: what AMPI delivered (summaries; ?event_id= shows one packet, labelled as data)."
+      responses:
+        "200": {description: summaries}
   /teacher/requests:
     post:
       operationId: teacherRequest
