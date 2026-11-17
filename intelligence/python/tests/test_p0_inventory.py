@@ -52,6 +52,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "devices", "device_pairings", "device_nonces", "device_leases",  # migration 0021, ADR-0075
         "change_proposals",  # migration 0023, ADR-0077
         "teaching_examples",  # migration 0024, ADR-0078
+        "ampi_events",  # migration 0027, ADR-0080
     }
 
 
