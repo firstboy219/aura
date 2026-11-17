@@ -45,9 +45,13 @@ func withPrincipal(r *http.Request, p Principal) *http.Request {
 
 // routeRole overrides the default (GET → viewer, other methods → operator).
 var routeRole = map[string]string{
-	"POST /api/v1/approvals/{id}/{decision}": RoleApprover,
-	"POST /api/v1/system/stop":               RoleApprover, // the kill switch: anyone trusted to approve may stop everything
-	"POST /api/v1/limitations/{id}/{action}": RoleApprover,
+	"POST /api/v1/approvals/{id}/{decision}":      RoleApprover,
+	"POST /api/v1/spatial/sessions":               RoleApprover, // authorizing capture of the owner's surroundings is a trusted act
+	"POST /api/v1/spatial/sessions/{id}/{action}": RoleApprover,
+	"GET /api/v1/admin/spatial":                   RoleOwner,
+	"PUT /api/v1/admin/spatial":                   RoleOwner,
+	"POST /api/v1/system/stop":                    RoleApprover, // the kill switch: anyone trusted to approve may stop everything
+	"POST /api/v1/limitations/{id}/{action}":      RoleApprover,
 	// Owner only: credentials, sessions, tools, evolution, deletion, admin.
 	"POST /api/v1/tools/{id}/{action}":                   RoleOwner,
 	"POST /api/v1/brain/variants/{id}/{action}":          RoleOwner,

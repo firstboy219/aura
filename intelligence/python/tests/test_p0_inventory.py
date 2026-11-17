@@ -53,6 +53,7 @@ def test_migrations_create_exactly_the_planned_tables():
         "change_proposals",  # migration 0023, ADR-0077
         "teaching_examples",  # migration 0024, ADR-0078
         "ampi_events",  # migration 0027, ADR-0080
+        "spatial_sessions",  # migration 0028, ADR-0081
     }
 
 

@@ -211,5 +211,6 @@ func (s *Server) platformsStatus(w http.ResponseWriter, r *http.Request) {
 		ampi["last_event_at"] = last.Int64
 	}
 	out["ampi"] = ampi
+	out["spatial"] = map[string]any{"sessions_enabled": spatialEnabled(r.Context(), s.Store.R)}
 	writeJSON(w, 200, out)
 }
