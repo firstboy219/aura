@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"aura.local/core/internal/egresslog"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -25,7 +26,7 @@ type OpenRouter struct {
 
 func NewOpenRouter(baseURL, key string, timeout time.Duration) *OpenRouter {
 	return &OpenRouter{id: "openrouter", extras: true, baseURL: strings.TrimRight(baseURL, "/"), key: key,
-		client: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil, ForceAttemptHTTP2: true}}}
+		client: &http.Client{Timeout: timeout, Transport: egresslog.Wrap("provider", &http.Transport{Proxy: nil, ForceAttemptHTTP2: true})}}
 }
 
 // NewOpenAICompatible is the same chat-completions adapter for any

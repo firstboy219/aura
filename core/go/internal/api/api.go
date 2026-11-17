@@ -207,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/spatial/sessions", auth(s.listSpatial))
 	mux.Handle("GET /api/v1/spatial/sessions/{id}", auth(s.getSpatial))
 	mux.Handle("POST /api/v1/spatial/sessions/{id}/{action}", auth(s.endSpatial))
+	mux.Handle("GET /api/v1/admin/egress", auth(s.listEgress))
 	mux.Handle("GET /api/v1/admin/spatial", auth(s.getSpatialAdmin))
 	mux.Handle("PUT /api/v1/admin/spatial", auth(s.putSpatialAdmin))
 	mux.Handle("GET /api/v1/system/platforms", auth(s.platformsStatus)) // read-only status of NEXUS/AMPI for the Owner Control Center (any role that can read)

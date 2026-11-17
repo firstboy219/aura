@@ -3,6 +3,7 @@
 package app
 
 import (
+	"aura.local/core/internal/egresslog"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -498,6 +499,9 @@ func (a *App) maintain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if err := egresslog.Default.Flush(ctx, a.Store); err != nil {
+			a.Log.Warn("egress log flush", "err", err)
 		}
 		mode := "PASSIVE"
 		if a.Store.WALBytes() > 64<<20 {

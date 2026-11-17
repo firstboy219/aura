@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"aura.local/core/internal/egresslog"
 	"aura.local/core/internal/ids"
 	"aura.local/core/internal/policy"
 )
@@ -345,4 +346,26 @@ func (s *Server) putSpatialAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.getSpatialAdmin(w, r)
+}
+
+// listEgress shows the destinations (hosts only) AURA's control plane has talked to, by purpose: the evidence for an allowlist the owner can approve. Nothing is blocked by it.
+func (s *Server) listEgress(w http.ResponseWriter, r *http.Request) {
+	egresslog.Default.Flush(r.Context(), s.Store) // include what has not been written yet
+	rows, err := s.Store.R.QueryContext(r.Context(), "select host, purpose, count, first_seen, last_seen from egress_seen order by purpose, count desc")
+	if err != nil {
+		s.mapErr(w, r, err)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var host, purpose string
+		var n, first, last int64
+		if err := rows.Scan(&host, &purpose, &n, &first, &last); err != nil {
+			s.mapErr(w, r, err)
+			return
+		}
+		out = append(out, map[string]any{"host": host, "purpose": purpose, "count": n, "first_seen": first, "last_seen": last})
+	}
+	writeJSON(w, 200, map[string]any{"mode": "observe", "destinations": out, "note": "hosts only; nothing is blocked. Web tools of a task have their own per-task allowlist and are not listed here."})
 }

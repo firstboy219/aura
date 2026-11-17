@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"aura.local/core/internal/egresslog"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -44,7 +45,7 @@ func (e *Engine) SetGitHubConnector(c *GitHubConnector) {
 	if c.BaseURL == "" {
 		c.BaseURL = "https://api.github.com"
 	}
-	c.hc = &http.Client{Timeout: 20 * time.Second}
+	c.hc = &http.Client{Timeout: 20 * time.Second, Transport: egresslog.Wrap("github", nil)}
 	e.github = c
 	policy.RegisterConnectorTool(ConnectorGitHubTool)
 	if e.docs == nil {

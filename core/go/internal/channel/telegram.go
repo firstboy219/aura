@@ -11,6 +11,7 @@
 package channel
 
 import (
+	"aura.local/core/internal/egresslog"
 	"bytes"
 	"context"
 	"database/sql"
@@ -61,7 +62,7 @@ func NewTelegram(cfg TelegramConfig, eng *engine.Engine, st *store.Store, log *s
 	if cfg.PollTimeout <= 0 {
 		cfg.PollTimeout = 30 * time.Second
 	}
-	return &Telegram{cfg: cfg, eng: eng, st: st, log: log, hc: &http.Client{Timeout: cfg.PollTimeout + 15*time.Second}}
+	return &Telegram{cfg: cfg, eng: eng, st: st, log: log, hc: &http.Client{Timeout: cfg.PollTimeout + 15*time.Second, Transport: egresslog.Wrap("telegram", nil)}}
 }
 
 func (t *Telegram) api(ctx context.Context, method string, body any, out any) error {

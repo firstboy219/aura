@@ -48,6 +48,7 @@ var routeRole = map[string]string{
 	"POST /api/v1/approvals/{id}/{decision}":      RoleApprover,
 	"POST /api/v1/spatial/sessions":               RoleApprover, // authorizing capture of the owner's surroundings is a trusted act
 	"POST /api/v1/spatial/sessions/{id}/{action}": RoleApprover,
+	"GET /api/v1/admin/egress":                    RoleOwner,
 	"GET /api/v1/admin/retention":                 RoleOwner,
 	"PUT /api/v1/admin/retention":                 RoleOwner,
 	"POST /api/v1/admin/retention/purge":          RoleOwner,
