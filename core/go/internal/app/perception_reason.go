@@ -33,7 +33,7 @@ func (a *App) askNexus(ctx context.Context, system, user string, maxTokens int) 
 	req := nexus.Request{RequestID: ids.New(), TaskID: "none", SessionID: "none", Caller: nexus.Caller{Platform: "aura", ServiceID: a.Nexus.Router.ServiceID}, Purpose: "analysis",
 		Scope: nexus.Scope{WorkspaceID: a.Nexus.Router.WorkspaceID, AllowedKnowledge: []string{"kb:approved"}}, Classification: "confidential",
 		Deadline: time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339), IdempotencyKey: ids.New(), Input: nexus.Input{Text: nexus.LLMEnvelope + string(env), EvidenceRefs: []string{}},
-		Context: nexus.Ctx{ContextID: ids.New(), TokenBudget: 4096}, SchemaVersion: "1.0"}
+		Context: nexus.Ctx{ContextID: ids.New(), TokenBudget: 4096}, SchemaVersion: "1.0", Priority: "interactive"} // the owner is waiting: NEXUS serves it first
 	res, err := a.Nexus.Client.Submit(ctx, req)
 	if err != nil {
 		return "", "", err

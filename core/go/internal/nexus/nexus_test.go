@@ -32,6 +32,7 @@ type fake struct {
 	submit   func(w http.ResponseWriter, r Request)
 	lessons  func(w http.ResponseWriter, in map[string]any)
 	requests int
+	prios    []string
 }
 
 func (f *fake) handler() http.Handler {
@@ -47,6 +48,7 @@ func (f *fake) handler() http.Handler {
 		json.NewDecoder(r.Body).Decode(&req)
 		f.mu.Lock()
 		f.requests++
+		f.prios = append(f.prios, req.Priority)
 		fn := f.submit
 		f.mu.Unlock()
 		fn(w, req)
@@ -454,6 +456,11 @@ func TestShadowModeServesFromLegacyAndMeasuresNexus(t *testing.T) {
 	r.st.R.QueryRow("select ok, nexus_chars, legacy_chars from nexus_shadow").Scan(&okv, &nchars, &lchars)
 	if n != 1 || okv != 1 || nchars != len("from nexus") || lchars != len("from legacy") {
 		t.Fatalf("shadow rows=%d ok=%d sizes=%d/%d", n, okv, nchars, lchars)
+	}
+	r.f.mu.Lock()
+	defer r.f.mu.Unlock()
+	if len(r.f.prios) != 1 || r.f.prios[0] != "background" {
+		t.Fatalf("a shadow call is evaluation only and must be background work for NEXUS: %v", r.f.prios)
 	}
 }
 

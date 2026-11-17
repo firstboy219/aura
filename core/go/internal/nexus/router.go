@@ -213,6 +213,7 @@ func orDash(s string) string {
 
 func (r *Router) callNexus(ctx context.Context, b gateway.Budget, req gateway.Request) (*gateway.Result, error) {
 	nreq := r.build(b, req)
+	nreq.Priority = priorityOf(ctx)
 	cctx := ctx
 	if _, ok := ctx.Deadline(); !ok {
 		to := r.CallTimeout
@@ -272,7 +273,7 @@ func (r *Router) usage(ctx context.Context, b gateway.Budget, req gateway.Reques
 
 // shadow runs the same call on NEXUS and records sizes and timing only (never content).
 func (r *Router) shadow(ctx context.Context, b gateway.Budget, req gateway.Request, legacy *gateway.Result) {
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(WithPriority(ctx, "background"), 90*time.Second) // a shadow call is evaluation only: it must never delay the owner
 	defer cancel()
 	start := r.now()
 	res, err := r.callNexus(ctx, b, req)

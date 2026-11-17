@@ -4,6 +4,7 @@
 package nexus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,7 +24,18 @@ type Request struct {
 	Input          Input  `json:"input"`
 	Context        Ctx    `json:"context"`
 	SchemaVersion  string `json:"schema_version"`
+	// Priority is NEXUS's scheduling class: "interactive" (the owner is waiting), "normal", or "background" (shadow/evaluation: refused when large or busy, preempted).
+	Priority string `json:"priority,omitempty"`
 }
+
+type priorityKey struct{}
+
+// WithPriority marks every NEXUS call made with ctx.
+func WithPriority(ctx context.Context, p string) context.Context {
+	return context.WithValue(ctx, priorityKey{}, p)
+}
+
+func priorityOf(ctx context.Context) string { p, _ := ctx.Value(priorityKey{}).(string); return p }
 
 type Caller struct {
 	Platform  string `json:"platform"`
