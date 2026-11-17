@@ -156,3 +156,15 @@ func TestPlatformsStatusTellsOnlyWhatAuraCanVerifyAndNeedsACredential(t *testing
 		t.Fatalf("%v", m)
 	}
 }
+
+func TestCorrelationIDIsEchoedWhenSafeAndDroppedOtherwise(t *testing.T) {
+	e := nexusEnv(t)
+	for id, want := range map[string]string{"jarvis-run-42": "jarvis-run-42", "bad id;drop": "", strings.Repeat("a", 65): ""} {
+		h := e.auth()
+		h["X-Correlation-Id"] = id
+		resp, _ := e.req("GET", "/api/v1/system/platforms", "", h)
+		if got := resp.Header.Get("X-Correlation-Id"); got != want {
+			t.Fatalf("%q -> %q, want %q", id, got, want)
+		}
+	}
+}

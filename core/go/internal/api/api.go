@@ -230,6 +230,10 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		r = r.WithContext(context.WithValue(r.Context(), reqIDKey, rid))
+		corr := correlationID(r.Header.Get("X-Correlation-Id"))
+		if corr != "" {
+			w.Header().Set("X-Correlation-Id", corr) // a caller's id is only logged and echoed (never used for authority or storage keys), so one request can be followed across the platforms
+		}
 		limit := int64(maxBody)
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/browser/profiles/") {
 			limit = 1 << 20 // an exported browser session (cookies and storage)
@@ -241,7 +245,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				s.Log.Error("panic in handler", "request_id", rid, "panic", fmt.Sprint(p))
 				s.fail(w, r, 500, "internal", "internal error")
 			}
-			s.Log.Info("http", "request_id", rid, "method", r.Method, "path", r.URL.Path, "ms", time.Since(start).Milliseconds())
+			s.Log.Info("http", "request_id", rid, "correlation_id", corr, "method", r.Method, "path", r.URL.Path, "ms", time.Since(start).Milliseconds())
 		}()
 		next.ServeHTTP(w, r)
 	})
@@ -826,4 +830,17 @@ func (l *limiter) allow() bool {
 	}
 	l.tokens--
 	return true
+}
+
+// correlationID accepts a caller's trace id only when it is short and log-safe (letters, digits, . _ -); anything else is dropped, never repaired.
+func correlationID(v string) string {
+	if v == "" || len(v) > 64 {
+		return ""
+	}
+	for _, c := range v {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+			return ""
+		}
+	}
+	return v
 }
