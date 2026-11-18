@@ -366,7 +366,7 @@ func Build(ctx context.Context, cfg *config.Config, o Options) (*App, error) {
 	}
 	a.API = &api.Server{Engine: a.Engine, Store: st, Governor: a.Governor, Worker: a.Worker, Token: token, Version: o.Version,
 		Log: log, RatePerSec: cfg.Server.RatePerS, Ready: a.ready, AcceptTasks: a.acceptTasks, Webhooks: map[string]api.Webhook{},
-		Vault: a.Vault, Nexus: a.Nexus, Perception: a.Perception, Cognition: a.cognition, Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
+		Vault: a.Vault, Nexus: a.Nexus, Perception: a.Perception, Cognition: a.cognition, LLMGate: a.llmGate(st), Devices: a.Devices, Changes: &odi.Changes{St: st}, Web: api.WebConfig{Enabled: cfg.Web.Enabled, Origin: cfg.Web.Origin, APIHosts: cfg.Web.APIHosts, SessionHours: cfg.Web.SessionHours}}
 	// The owner's runtime daily budget overrides the config value (ADR-0043).
 	var budgetSetting string
 	if st.R.QueryRowContext(ctx, "select value from settings where key=?", api.SettingDailyBudget).Scan(&budgetSetting) == nil {

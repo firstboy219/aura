@@ -59,6 +59,8 @@ type Server struct {
 	Nexus *nexus.Service
 	// Perception is the ODI end-to-end path (media → AMPI → evidence → NEXUS); nil when AMPI is not configured.
 	Perception *perception.Service
+	// LLMGate is the model gateway for JARVIS (ADR-0083): /api/v1/llm/{provider}/{path}, AURA's keys; nil = not offered.
+	LLMGate http.Handler
 	// Cognition answers light work on NEXUS within a deadline (JARVIS's NEXUS-first path); nil when NEXUS is not configured.
 	Cognition func(ctx context.Context, msgs []CognitionMessage, maxTokens int, priority string) (string, string, error)
 	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
@@ -210,6 +212,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/admin/ampi", auth(s.listAMPI))
 	mux.Handle("POST /api/v1/perception/requests", auth(s.createPerception))
 	mux.Handle("POST /api/v1/cognition/complete", auth(s.completeCognition))
+	mux.Handle("/api/v1/llm/", auth(func(w http.ResponseWriter, r *http.Request) {
+		if s.LLMGate == nil {
+			s.fail(w, r, 404, "not_found", "the model gateway is not configured")
+			return
+		}
+		s.LLMGate.ServeHTTP(w, r)
+	}))
 	mux.Handle("GET /api/v1/perception/requests/{id}", auth(s.getPerception))
 	mux.Handle("POST /api/v1/spatial/sessions", auth(s.createSpatial))
 	mux.Handle("GET /api/v1/spatial/sessions", auth(s.listSpatial))
@@ -257,6 +266,9 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/perception/requests" {
 			limit = 17 << 20 // media for AMPI, base64 (12 MiB of media)
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/llm/") {
+			limit = 26 << 20 // JARVIS's model gateway: audio for transcription (ADR-0083)
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		start := time.Now()
