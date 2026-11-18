@@ -987,3 +987,16 @@ func TestAPrivateCallIsNotCutAtTheOverflowTimeout(t *testing.T) {
 		t.Fatalf("%v %+v", err, res)
 	}
 }
+
+// Owner 2026-11-18: NEXUS serves private work; a public call keeps the external providers when primary_data_classes says so.
+func TestPrimaryCanServeOnlyTheNamedDataClasses(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.PrimaryDataClasses = []string{"confidential"} })
+	res, err := r.call(context.Background(), "t1", "public")
+	if err != nil || res.Content != "from legacy" {
+		t.Fatalf("a public call must keep the external providers: %v %+v", err, res)
+	}
+	res, err = r.call(context.Background(), "t2", "private")
+	if err != nil || res.Content != "from nexus" {
+		t.Fatalf("a private call is NEXUS's: %v %+v", err, res)
+	}
+}

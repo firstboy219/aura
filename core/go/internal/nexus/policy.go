@@ -47,6 +47,10 @@ type Policy struct {
 	// A call that may not go outside (its data class is not in FallbackDataClass) has nowhere to overflow to: in primary mode NEXUS gets this long
 	// for it instead of OverflowTimeoutSec (owner 2026-11-18: private work runs on NEXUS, slow but not failed). 0 = 1200 s.
 	PrivateTimeoutSec int `json:"private_timeout_seconds"`
+	// PrimaryDataClasses: in primary mode, which data classes NEXUS serves ("confidential" = private work); the others keep the external
+	// providers (owner 2026-11-18: NEXUS for private work — on 2 CPU cores a public task would wait out the overflow timeout on every call).
+	// Empty = every class (the blueprint's full NEXUS-first).
+	PrimaryDataClasses []string `json:"primary_data_classes"`
 }
 
 // PrivateTimeout is how long NEXUS may take for a call that cannot overflow.

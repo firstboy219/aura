@@ -88,6 +88,9 @@ func (r *Router) Complete(ctx context.Context, b gateway.Budget, req gateway.Req
 		}
 		return res, err
 	case ModePrimary:
+		if len(pol.PrimaryDataClasses) > 0 && !slices.Contains(pol.PrimaryDataClasses, dataClassOf(req)) {
+			return legacy(ctx, b, req) // a class the owner keeps on the external providers
+		}
 		return r.primary(ctx, b, req, pol, legacy)
 	}
 	return legacy(ctx, b, req)
