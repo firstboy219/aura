@@ -30,3 +30,10 @@ Measured on this host (2 physical cores, Qwen3-4B Q4_K_M, llama.cpp b11749, 16k 
   long answers). They are slow, not interactive.
 - Public tasks are unchanged (external free routes first).
 - The owner can widen `primary_data_classes` (empty = every class) when NEXUS gets faster hardware.
+
+## Addendum (2026-11-18, first end-to-end run)
+
+The first private task failed at 300 s: NEXUS was reading the 3.9k-token plan prompt (15.6 t/s) when the worker call timeout
+(`worker.call_timeout_seconds: 300`) cancelled it. The host config (`/opt/aura/config.yaml`, backup `config.yaml.bak-20261118-nexus`)
+now has `call_timeout_seconds: 1500` and `task_default.max_wall_seconds: 2700`. These are upper bounds only: public tasks on external
+models still finish in seconds; the cost cap ($0.50) and the iteration cap (20) are unchanged.
