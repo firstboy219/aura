@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -100,7 +101,8 @@ func (r *Router) primary(ctx context.Context, b gateway.Budget, req gateway.Requ
 		return r.viaFallback(ctx, b, req, legacy, "")
 	}
 	nctx := ctx
-	if pol.OverflowToExternal {
+	canOverflow := pol.OverflowToExternal && slices.Contains(pol.FallbackDataClass, dataClassOf(req))
+	if canOverflow {
 		// a heavy call must not hold the task: NEXUS gets OverflowTimeoutSec, then the call is served externally
 		var cancel context.CancelFunc
 		limit := pol.OverflowTimeoutSec
@@ -109,13 +111,18 @@ func (r *Router) primary(ctx context.Context, b gateway.Budget, req gateway.Requ
 		}
 		nctx, cancel = context.WithTimeout(ctx, time.Duration(limit)*time.Second)
 		defer cancel()
+	} else if _, has := ctx.Deadline(); !has {
+		// nowhere else to go (a private call): NEXUS takes the time it needs, bounded (2026-11-18: a 6k-token plan reads ~10 min cold, ~25 s cached)
+		var cancel context.CancelFunc
+		nctx, cancel = context.WithTimeout(ctx, pol.PrivateTimeout())
+		defer cancel()
 	}
 	res, err := r.callNexus(nctx, b, req)
 	if err == nil {
 		r.Mon.Observe(true, "OK", "call")
 		return res, nil
 	}
-	if pol.OverflowToExternal && ctx.Err() == nil && IsCapacityExceeded(err) {
+	if canOverflow && ctx.Err() == nil && IsCapacityExceeded(err) {
 		var ce *Error
 		errors.As(err, &ce)
 		why := "nexus:" + ce.Code + ":" + ce.Message
@@ -191,17 +198,20 @@ func dataClassOf(req gateway.Request) string {
 // LLMEnvelope is how a gateway request travels inside the cognitive contract's input.text (adapter v0, ADR-0073).
 const LLMEnvelope = "AURA-LLM-REQUEST/1\n"
 
-func (r *Router) build(b gateway.Budget, req gateway.Request) Request {
+func (r *Router) build(ctx context.Context, b gateway.Budget, req gateway.Request) Request {
 	env, _ := json.Marshal(map[string]any{"tier": req.Tier, "messages": req.Messages, "response_schema": req.ResponseSchema, "max_output_tokens": req.MaxOutputTokens, "purpose": req.Purpose})
 	purpose := req.Purpose
 	if purpose == "" {
 		purpose = "analysis"
 	}
 	deadline := r.now().Add(120 * time.Second)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl // the caller's time (a private call may take minutes on this CPU), never a fixed 120 s that NEXUS would expire first
+	}
 	return Request{RequestID: ids.New(), TaskID: orDash(b.TaskID), SessionID: orDash(b.RootTaskID), Caller: Caller{Platform: "aura", ServiceID: r.ServiceID}, Purpose: purpose,
 		Scope: Scope{WorkspaceID: r.WorkspaceID, AllowedKnowledge: []string{"kb:approved"}}, Classification: map[bool]string{true: "public", false: "confidential"}[req.DataClass == "public"],
 		Deadline: deadline.UTC().Format(time.RFC3339), IdempotencyKey: ids.New(), Input: Input{Text: LLMEnvelope + string(env), EvidenceRefs: []string{}},
-		Context: Ctx{ContextID: ids.New(), TokenBudget: 8192}, SchemaVersion: "1.0"}
+		Context: Ctx{ContextID: ids.New(), TokenBudget: 16384}, SchemaVersion: "1.0"}
 }
 
 func orDash(s string) string {
@@ -212,7 +222,7 @@ func orDash(s string) string {
 }
 
 func (r *Router) callNexus(ctx context.Context, b gateway.Budget, req gateway.Request) (*gateway.Result, error) {
-	nreq := r.build(b, req)
+	nreq := r.build(ctx, b, req)
 	nreq.Priority = priorityOf(ctx)
 	cctx := ctx
 	if _, ok := ctx.Deadline(); !ok {

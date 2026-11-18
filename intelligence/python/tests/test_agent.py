@@ -460,3 +460,11 @@ def test_spoken_reply_gets_the_speech_rule_and_a_scene():
     core = FakeCore(req("task.reply", dict(params, spoken=False)), [{"result": {"structured": out}}])
     core.run()
     assert "asked this ALOUD" not in core.seen[0]["params"]["messages"][0]["content"]
+
+
+def test_planner_lets_unobtainable_items_be_reported_as_unavailable():
+    # JARVIS's situation prep failed verification 15 of 20 times (2026-11-15..18): the plan demanded live traffic that the objective itself said
+    # may be missing, so an honest partial answer could never pass.
+    from aura_worker import agent
+
+    assert "stated as unavailable" in agent.PLANNER_SYSTEM and "tidak tersedia" in agent.PLANNER_SYSTEM

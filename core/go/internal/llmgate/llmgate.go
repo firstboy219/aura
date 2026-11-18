@@ -42,6 +42,16 @@ type Gate struct {
 	Secret    func(ctx context.Context, ref string) (string, error)
 	Record    func(ctx context.Context, c Call)
 	HTTP      *http.Client
+	// Budget gives JARVIS's monthly cap and what its calls cost this month (ADR-0084); nil or a cap <= 0 = no cap enforced here.
+	Budget func(ctx context.Context) (capUSD, spentUSD float64)
+}
+
+// paid reports whether a call bills the owner: OpenRouter's non-free models (Groq's and Gemini's free tiers do not bill).
+func paid(provider, path, model string) bool {
+	if provider != "openrouter" || !(strings.HasPrefix(path, "chat/") || strings.HasPrefix(path, "audio/") || path == "embeddings") {
+		return false
+	}
+	return model != "" && !strings.HasSuffix(model, ":free") && model != "openrouter/free"
 }
 
 const maxRequest = 26 << 20 // audio uploads; chat bodies are far smaller
@@ -128,6 +138,15 @@ func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			body = lim
 			in = r.ContentLength
+		}
+	}
+	if g.Budget != nil && paid(provider, path, model) {
+		if limit, spent := g.Budget(r.Context()); limit > 0 && spent >= limit {
+			g.record(r.Context(), Call{Provider: provider, Path: path, Model: model, Caller: r.Header.Get("X-Caller"), BytesIn: in, Outcome: "budget",
+				Status: http.StatusPaymentRequired, LatencyMS: time.Since(start).Milliseconds()})
+			// the same shape as a provider's 402: JARVIS then serves the call with free models, as when the balance runs out
+			writeErr(w, http.StatusPaymentRequired, "budget_exhausted", "AURA: JARVIS's monthly AI budget ($"+strconv.FormatFloat(limit, 'f', 2, 64)+") is used up")
+			return
 		}
 	}
 	target := strings.TrimRight(u.Base, "/") + "/" + path

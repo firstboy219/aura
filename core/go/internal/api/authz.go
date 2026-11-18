@@ -45,6 +45,7 @@ func withPrincipal(r *http.Request, p Principal) *http.Request {
 
 // routeRole overrides the default (GET → viewer, other methods → operator).
 var routeRole = map[string]string{
+	"PUT /api/v1/admin/llmgate":                   RoleOwner, // JARVIS's AI budget is the owner's money (ADR-0084)
 	"POST /api/v1/approvals/{id}/{decision}":      RoleApprover,
 	"POST /api/v1/spatial/sessions":               RoleApprover, // authorizing capture of the owner's surroundings is a trusted act
 	"POST /api/v1/spatial/sessions/{id}/{action}": RoleApprover,

@@ -61,6 +61,8 @@ type Server struct {
 	Perception *perception.Service
 	// LLMGate is the model gateway for JARVIS (ADR-0083): /api/v1/llm/{provider}/{path}, AURA's keys; nil = not offered.
 	LLMGate http.Handler
+	// Loc is the workspace time zone (month boundaries of JARVIS's AI budget); nil = server local.
+	Loc *time.Location
 	// Cognition answers light work on NEXUS within a deadline (JARVIS's NEXUS-first path); nil when NEXUS is not configured.
 	Cognition func(ctx context.Context, msgs []CognitionMessage, maxTokens int, priority string) (string, string, error)
 	// Devices is the ODI A6 device registry (pairing, signed requests, revocation, takeover leases).
@@ -212,6 +214,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/admin/ampi", auth(s.listAMPI))
 	mux.Handle("POST /api/v1/perception/requests", auth(s.createPerception))
 	mux.Handle("POST /api/v1/cognition/complete", auth(s.completeCognition))
+	mux.Handle("GET /api/v1/admin/llmgate", auth(s.getLLMGate))
+	mux.Handle("PUT /api/v1/admin/llmgate", auth(s.putLLMGate))
 	mux.Handle("/api/v1/llm/", auth(func(w http.ResponseWriter, r *http.Request) {
 		if s.LLMGate == nil {
 			s.fail(w, r, 404, "not_found", "the model gateway is not configured")

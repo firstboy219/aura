@@ -897,7 +897,8 @@ func TestOverflowServesAHeavyPublicTaskExternallyFreeFirstAndLeavesTheHealthMoni
 func TestOverflowNeverTakesPrivateDataAndNeverTakesAnOrdinaryBadRequest(t *testing.T) {
 	r := newRig(t, func(p *Policy) { p.OverflowToExternal = true })
 	r.f.submit = overflowRefusal
-	if _, err := r.call(context.Background(), "t1", "private"); !errors.Is(err, ErrDataClassNotAllowed) || r.legacy+r.freeServed != 0 {
+	// a private call never takes the overflow path at all (2026-11-18): it gets NEXUS's own answer, and nothing goes outside
+	if _, err := r.call(context.Background(), "t1", "private"); err == nil || r.legacy+r.freeServed != 0 || !strings.Contains(err.Error(), "does not fit") {
 		t.Fatalf("private data left through the overflow path: %v", err)
 	}
 	r.f.submit = func(w http.ResponseWriter, _ Request) { errEnv(w, 400, "INVALID_REQUEST") } // a bad request that is not about capacity
@@ -971,5 +972,18 @@ func TestSubmitLongPollsAndStillPacesAnOldNexus(t *testing.T) {
 		if !holds && (reads != 3 || took < 150*time.Millisecond) {
 			t.Fatalf("an old NEXUS must still be polled at the poll pace: reads=%d took=%v", reads, took)
 		}
+	}
+}
+
+// Owner 2026-11-18: in primary mode a private call has nowhere to overflow to, so NEXUS gets the long private timeout, not the 45 s overflow one.
+func TestAPrivateCallIsNotCutAtTheOverflowTimeout(t *testing.T) {
+	r := newRig(t, func(p *Policy) { p.OverflowToExternal, p.OverflowTimeoutSec, p.PrivateTimeoutSec = true, 1, 30 })
+	r.f.submit = func(w http.ResponseWriter, q Request) {
+		time.Sleep(1800 * time.Millisecond) // longer than the overflow timeout
+		writeResult(w, 200, q, "SUCCEEDED", "from nexus, slowly", "high")
+	}
+	res, err := r.call(context.Background(), "t1", "private")
+	if err != nil || res.Content != "from nexus, slowly" || r.legacy+r.freeServed != 0 {
+		t.Fatalf("%v %+v", err, res)
 	}
 }

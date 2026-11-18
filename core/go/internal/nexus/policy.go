@@ -44,6 +44,17 @@ type Policy struct {
 	// OverflowTimeoutSec is served by an external AI (free routes first; limits for paid routes only) and NEXUS learns from the answer. Off unless the owner turns it on.
 	OverflowToExternal bool `json:"overflow_to_external"`
 	OverflowTimeoutSec int  `json:"overflow_timeout_seconds"`
+	// A call that may not go outside (its data class is not in FallbackDataClass) has nowhere to overflow to: in primary mode NEXUS gets this long
+	// for it instead of OverflowTimeoutSec (owner 2026-11-18: private work runs on NEXUS, slow but not failed). 0 = 1200 s.
+	PrivateTimeoutSec int `json:"private_timeout_seconds"`
+}
+
+// PrivateTimeout is how long NEXUS may take for a call that cannot overflow.
+func (p Policy) PrivateTimeout() time.Duration {
+	if p.PrivateTimeoutSec <= 0 {
+		return 1200 * time.Second
+	}
+	return time.Duration(p.PrivateTimeoutSec) * time.Second
 }
 
 func DefaultPolicy() Policy {

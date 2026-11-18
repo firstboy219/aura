@@ -12,7 +12,14 @@ import (
 
 // llmGate is JARVIS's way out to an outside AI (ADR-0083): AURA's keys, an allowlist, and one usage row per call ("jarvis:<caller>").
 func (a *App) llmGate(st *store.Store) *llmgate.Gate {
-	return &llmgate.Gate{Upstreams: llmgate.Default(), Secret: a.secret, Record: func(ctx context.Context, c llmgate.Call) {
+	return &llmgate.Gate{Upstreams: llmgate.Default(), Secret: a.secret, Budget: func(ctx context.Context) (float64, float64) {
+		limit := llmgate.LoadBudget(ctx, st.R).MonthlyUSD
+		now := time.Now().In(a.Cfg.Location())
+		from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		var spent float64
+		st.R.QueryRowContext(ctx, `select coalesce(sum(cost_actual_usd),0) from usage_records where tier='jarvis' and created_at>=?`, from.UnixMilli()).Scan(&spent)
+		return limit, spent
+	}, Record: func(ctx context.Context, c llmgate.Call) {
 		purpose := "jarvis"
 		if c.Caller != "" {
 			purpose += ":" + c.Caller

@@ -91,3 +91,39 @@ func TestDefaultUpstreamsAreHTTPSAndNarrow(t *testing.T) {
 		}
 	}
 }
+
+// ADR-0084: once JARVIS's month is spent, paid OpenRouter calls get a 402 (JARVIS then uses free models); free ones still pass.
+func TestBudgetStopsPaidCallsOnlyWhenTheMonthIsSpent(t *testing.T) {
+	hits := 0
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; fmt.Fprint(w, `{"choices":[]}`) }))
+	defer up.Close()
+	var calls []Call
+	spent := 19.0
+	g := &Gate{Upstreams: map[string]Upstream{"openrouter": {Base: up.URL, Scheme: "Bearer", Keys: map[string]string{"": "k"}, Paths: []string{"chat/completions"}}},
+		Secret: func(ctx context.Context, ref string) (string, error) { return "key", nil },
+		Record: func(ctx context.Context, c Call) { calls = append(calls, c) },
+		Budget: func(ctx context.Context) (float64, float64) { return 20, spent }}
+	srv := httptest.NewServer(g)
+	defer srv.Close()
+	post := func(model string) int {
+		resp, err := http.Post(srv.URL+"/api/v1/llm/openrouter/chat/completions", "application/json", strings.NewReader(`{"model":"`+model+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if post("deepseek/deepseek-v4-pro") != 200 || hits != 1 {
+		t.Fatal("under the cap a paid call goes out")
+	}
+	spent = 20
+	if post("deepseek/deepseek-v4-pro") != 402 || hits != 1 || calls[len(calls)-1].Outcome != "budget" {
+		t.Fatalf("over the cap a paid call is refused before it goes out: hits=%d calls=%+v", hits, calls)
+	}
+	if post("nvidia/nemotron-3-ultra-550b-a55b:free") != 200 || hits != 2 {
+		t.Fatal("a free model still passes over the cap")
+	}
+	if paid("groq", "chat/completions", "openai/gpt-oss-20b") || paid("openrouter", "credits", "") || !paid("openrouter", "audio/speech", "openai/gpt-4o-mini-tts") {
+		t.Fatal("paid() misjudges")
+	}
+}
