@@ -254,8 +254,8 @@ Rules:
 - completion_criteria: 1-5 short, checkable statements about the produced output (e.g. "reports/summary.md contains
   a summary of each page with its source link").
 - When the objective allows items that cannot be obtained to be reported as unavailable (e.g. "tidak tersedia",
-  "hasil sebagian", "partial"), write each such criterion as "<item> is given with its source, or stated as
-  unavailable" — never require data the objective itself says may be missing.
+  "hasil sebagian", "partial"), write each such criterion as
+  "<item> is given with its source, or stated as unavailable" — never require data the objective says may be missing.
 - {ask_rule}
 - Never add a step that only asks the owner to confirm: the Core itself asks the owner to approve every action that
   needs approval.
